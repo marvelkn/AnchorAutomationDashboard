@@ -47,8 +47,9 @@ with st.expander(f"🔁 Rollback / Restore Previous Master ({len(mon_backups)} b
         for bfile in mon_backups[:10]:
             bpath = os.path.join(BACKUP_DIR, bfile)
             bsize = os.path.getsize(bpath) // 1024
+            btime = datetime.fromtimestamp(os.path.getmtime(bpath)).strftime("%d %b %Y %H:%M")
             rb1, rb2, rb3 = st.columns([4, 1, 1])
-            rb1.markdown(f"📄 `{bfile}` — {bsize} KB")
+            rb1.markdown(f"📄 `{bfile}` — **{btime}** ({bsize} KB)")
             with open(bpath, "rb") as bf:
                 rb2.download_button("⬇️ Download", bf, file_name=bfile,
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -171,6 +172,13 @@ if uploaded_csv is not None:
                           excel.Quit()
                           st.stop()
                      
+                     try:
+                          ws_param = wb.Sheets('PARAMETER')
+                          # X2 is row 2 column 24
+                          ws_param.Cells(2, 24).Value = max_week
+                     except Exception as e:
+                          st.warning(f"Could not update PARAMETER!X2 max week constraint: {e}")
+                          
                      last_row = ws.Cells(ws.Rows.Count, "A").End(-4162).Row # xlUp
                      start_row = 2
                      

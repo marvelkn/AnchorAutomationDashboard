@@ -51,8 +51,9 @@ with st.expander(f"🔁 Rollback / Restore Previous Master ({len(backup_files)} 
         for bfile in backup_files[:10]:  # show max 10
             bpath = os.path.join(BACKUP_DIR, bfile)
             bsize = os.path.getsize(bpath) // 1024
+            btime = datetime.fromtimestamp(os.path.getmtime(bpath)).strftime("%d %b %Y %H:%M")
             rb1, rb2, rb3 = st.columns([4, 1, 1])
-            rb1.markdown(f"📄 `{bfile}` — {bsize} KB")
+            rb1.markdown(f"📄 `{bfile}` — **{btime}** ({bsize} KB)")
             with open(bpath, "rb") as bf:
                 rb2.download_button("⬇️ Download", bf, file_name=bfile,
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

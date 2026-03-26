@@ -61,4 +61,13 @@
 * **Page 1 (MID Cleaner):** Ingests Master Reference, processes regex/dictionary mapping.
 * **Page 2 (Card Share Processor):** Uses `win32com.client` to parse and safely merge new transaction data natively via temporary files. 
 * **Page 3 (Monitoring Processor):** Flattens and structures new wide-format CSV files against the Master Monitoring `.xlsx` target.
+  * **Critical:** Overrides `PARAMETER!X2` ceiling natively via COM to adapt to the dataset length, preventing `=U14+18` equations from returning `#VALUE!` past Week 11.
 * **Page 4 (Dashboard):** Reads from `staging.db` to visualize Card Share telemetry, re-compute the K-Means logic dynamically, and alert PMs to the multi-layer Anomaly detection system.
+  * *Card Share:* Avoids trailing `Dec-26` duplication via explicit row logic. Extracts `Realisasi` sheets dynamically for Top/Bottom MoM and YoY growth (TRX, SV, FBI).
+  * *Monitoring:* Discards implicit Excel integer rows and extracts Week columns `W01` to `W53` implicitly from `Week-XX` strings. Coerces data directly to numeric arrays (`pd.to_numeric()`) to power Heatmaps and Trend graphs. Utilizes `mtime` as a Streamlit cache invalidator against `@st.cache_data` preventing stale data rendering.
+
+## 🐛 RECENT BUG FIXES & ARCHITECTURE UPGRADES
+* **Week 11 Invisible Ceiling (`master_monitoring.xlsx`):** Discovered the Master file possessed a hidden `X2` parameter hardcoded to 11. Implemented a Python automation override to natively bump this threshold based on uploaded CSV length, resolving `#VALUE!` cascade crashes across the `PerMerchant` aggregations.
+* **Streamlit Caching Ghost Data (`@st.cache_data`):** The dashboard previously held stale data in memory after Excel updates. Injected `os.path.getmtime(PATH_MON)` into the caching signature to cleanly invalidate the memory states whenever the Python COM processor touched the Master files.
+* **String Coercion (`PerMerchant` DataFrame):** Weekly visualizations completely collapsed if Excel cell formulas yielded `""` empty strings. Forced `pd.to_numeric(errors='coerce').fillna(0)` over all 53 weeks upon initial parsing.
+* **Data Growth Analytics (`Realisasi`):** Wrote a bespoke `parse_realisasi` pipeline inside `4_Dashboard.py` pulling MoM and YoY Delta/Growth percentages for SV, TRX, and FBI dynamically using the underlying `Realisasi` history since the SQLite staging DB rolled up values strictly to YTD limits.

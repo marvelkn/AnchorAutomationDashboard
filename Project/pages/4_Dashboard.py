@@ -101,14 +101,43 @@ def parse_highlight(path):
     label_col = named_cols[1]
     df = df.rename(columns={merch_col: 'MONTH_CODE', label_col: 'LABEL'})
     df['MONTH_CODE'] = df['MONTH_CODE'].ffill()
-    # Keep only rows that are month codes (6-digit ints like 202401) or YTD/Average
+    
+    # We must explicitly drop rows where LABEL is NaN AND there's no transaction data
+    # The trailing rows at the bottom of the Excel sheet usually have NaN across all value cols
+    val_cols = [c for c in df.columns if c not in ['MONTH_CODE', 'LABEL']]
+    df = df.dropna(subset=val_cols, how='all')
+    
+    # We must also drop trailing Summary blocks that just list Years (e.g. 2024, 2025, 2026) 
+    # instead of datetime dates or YTD/Average, otherwise they inherit the last forward-filled MONTH_CODE
+    df = df.dropna(subset=['LABEL'])
+    df = df[~df['LABEL'].astype(str).str.match(r'^\s*20\d{2}\s*$', na=False)]
+    
+    # Now we can safely keep only rows that are month codes (6-digit ints like 202401) or YTD/Average
     df = df[df['MONTH_CODE'].astype(str).str.match(r'\d{6}|YTD|Average', na=False)].copy()
     df['MONTH_CODE'] = df['MONTH_CODE'].astype(str)
     df['YEAR'] = df['MONTH_CODE'].str[:4]
     return df
 
+
 @st.cache_data
-def parse_monitoring_sheet(path, sheet):
+def parse_realisasi(path):
+    try:
+        df = pd.read_excel(path, sheet_name='Realisasi')
+        
+        # Calculate totals
+        trx_cols = [c for c in df.columns if c.startswith('TRX_') and c != 'TRX_MONTH']
+        sv_cols  = [c for c in df.columns if c.startswith('SV_')]
+        fbi_cols = [c for c in df.columns if c.startswith('FBI_')]
+        
+        df['TRX'] = df[trx_cols].sum(axis=1)
+        df['SV']  = df[sv_cols].sum(axis=1)
+        df['FBI'] = df[fbi_cols].sum(axis=1)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data
+def parse_monitoring_sheet(path, sheet, _mtime=None):
     """Parse PerPM or PerMerchant sheet into a clean long DataFrame."""
     try:
         raw = pd.read_excel(path, sheet_name=sheet, header=None)
@@ -137,10 +166,18 @@ def parse_monitoring_sheet(path, sheet):
     week_start = next((i for i,h in enumerate(headers) if 'Week-01' in str(h)), None)
     if week_start is None:
         return pd.DataFrame()
-    # Week numbers from the row above (row hdr_idx-1)
-    week_nums = raw.iloc[hdr_idx-1, week_start:].tolist()
-    week_labels = [f'W{int(w):02d}' if str(w).replace('.0','').isdigit() else f'W{i+1:02d}'
-                   for i, w in enumerate(week_nums) if pd.notna(w)]
+    
+    # Extract week labels directly from headers (e.g. "Week-01" -> "W01")
+    week_labels = []
+    week_indices = []
+    for i, h in enumerate(headers[week_start:], start=week_start):
+        h_str = str(h).strip()
+        if h_str.startswith('Week-'):
+            num_part = h_str.split('-')[-1]
+            if num_part.isdigit():
+                week_labels.append(f"W{int(num_part):02d}")
+                week_indices.append(i)
+                
     data_rows = raw.iloc[hdr_idx+2:].reset_index(drop=True)
     records = []
     for _, row in data_rows.iterrows():
@@ -149,13 +186,18 @@ def parse_monitoring_sheet(path, sheet):
         periode_val = str(row.iloc[c_periode]).strip() if c_periode is not None and pd.notna(row.iloc[c_periode]) else ''
         fy_val      = row.iloc[c_fy]  if c_fy  is not None else None
         ytd_val     = row.iloc[c_ytd] if c_ytd is not None else None
-        week_vals   = row.iloc[week_start: week_start+len(week_labels)].tolist()
+        
         rec = {'NAME': name_val, 'KET': ket_val, 'PERIODE': periode_val,
                'FY': fy_val, 'YTD': ytd_val}
-        for lbl, val in zip(week_labels, week_vals):
-            rec[lbl] = val if pd.notna(val) else 0
+        for lbl, idx in zip(week_labels, week_indices):
+            val = row.iloc[idx]
+            rec[lbl] = pd.to_numeric(val, errors='coerce') if pd.notna(val) else 0
         records.append(rec)
-    return pd.DataFrame(records)
+    df_out = pd.DataFrame(records)
+    # Force all week columns to numeric
+    for w in week_labels:
+        df_out[w] = pd.to_numeric(df_out[w], errors='coerce').fillna(0)
+    return df_out
 
 # ── DB LOAD ───────────────────────────────────────────────────────────────────
 if not os.path.exists(PATH_DB):
@@ -250,6 +292,7 @@ with tab1:
         k1, k2, k3, k4 = st.columns(4)
         k1.markdown(f"<div class='kpi'><div class='val'>Rp {df_card['TOTAL_SV'].sum()/1e9:,.1f}M</div><div class='lbl'>💰 YTD Sales Volume</div></div>", unsafe_allow_html=True)
         k2.markdown(f"<div class='kpi'><div class='val'>Rp {df_card['TOTAL_FBI'].sum()/1e6:,.0f}Jt</div><div class='lbl'>📈 YTD Fee-Based Income</div></div>", unsafe_allow_html=True)
+
         k3.markdown(f"<div class='kpi'><div class='val'>{df_card['TOTAL_TRX'].sum()/1e6:,.2f}M</div><div class='lbl'>🔄 YTD Transactions</div></div>", unsafe_allow_html=True)
         avg_onus = df_card['RASIO_ONUS'].mean() if 'RASIO_ONUS' in df_card.columns else 0
         k4.markdown(f"<div class='kpi'><div class='val'>{avg_onus*100:.1f}%</div><div class='lbl'>🎯 Avg On-Us Ratio</div></div>", unsafe_allow_html=True)
@@ -265,12 +308,25 @@ with tab1:
         else:
             MONTH_ABB = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-            def month_label(code):
-                code = str(code).replace('.0','')
+            def month_label(row):
+                lbl = row.get('LABEL', '')
+                
+                # 1. If it's YTD 202X or Average
+                if pd.notna(lbl) and any(x in str(lbl) for x in ['YTD', 'Average']):
+                    return str(lbl).strip()
+                    
+                # 2. Try to use the DATE column (row['LABEL']) if it's parsed as datetime
+                if pd.notna(lbl) and hasattr(lbl, 'strftime'):
+                    return lbl.strftime('%b-%y')
+                
+                # 3. Fallback to MONTH_CODE parsing
+                code = str(row['MONTH_CODE']).replace('.0','')
                 if len(code) == 6 and code.isdigit():
-                    mo = int(code[4:])
-                    return f"{MONTH_ABB[mo-1]}-{code[2:4]}"
-                return code
+                    yr, mo = code[:4], int(code[4:])
+                    if 1 <= mo <= 12:
+                        return f"{MONTH_ABB[mo-1]}-{yr[2:]}"
+                    
+                return str(code)
 
             def fmt_num(v, sec):
                 try:
@@ -283,7 +339,8 @@ with tab1:
                     return f"Rp {v:,.0f}"
                 return f"{v:,.0f}"
 
-            data_rows = df_hl[df_hl['MONTH_CODE'].str.match(r'\d{6}', na=False)].copy()
+            # Detect rows that are strictly Data (has month code or YTD/Avg label)
+            data_rows = df_hl[df_hl['MONTH_CODE'].str.match(r'\d{6}|YTD|Average', na=False)].copy()
             avail_years = sorted(data_rows['YEAR'].unique(), reverse=True)
 
             col_yr, col_vm = st.columns([2,3])
@@ -296,7 +353,7 @@ with tab1:
                 data_rows = data_rows[data_rows['YEAR'] == sel_yr]
 
             data_rows = data_rows.copy()
-            data_rows['Bulan'] = data_rows['MONTH_CODE'].apply(month_label)
+            data_rows['Bulan'] = data_rows.apply(month_label, axis=1)
 
             TYPE_COLORS = {
                 'DEBIT ON US':    '#1F3864',
@@ -382,8 +439,21 @@ with tab1:
 
                 if chart_type in ("Line Trend", "Both") and total_col:
                     cht = chart_data[['Bulan', total_col]].copy()
-                    # Add growth rate annotation
+                    
+                    # Calculate MoM growth
                     cht['MoM'] = cht[total_col].pct_change() * 100
+                    
+                    # Build text labels with value and MoM%
+                    text_labels = []
+                    for i, row in cht.iterrows():
+                        val = fmt_num(row[total_col], sec)
+                        mom = row['MoM']
+                        if pd.isna(mom):
+                            text_labels.append(val)
+                        else:
+                            sign = "+" if mom > 0 else ""
+                            text_labels.append(f"{val}<br>({sign}{mom:.1f}%)")
+                            
                     fig_l = go.Figure()
                     fig_l.add_trace(go.Scatter(
                         x=cht['Bulan'], y=cht[total_col],
@@ -391,13 +461,13 @@ with tab1:
                         name=total_col,
                         line=dict(color=accent, width=2.5),
                         marker=dict(size=8, color=accent),
-                        text=[fmt_num(v, sec) for v in cht[total_col]],
+                        text=text_labels,
                         textposition='top center',
-                        textfont=dict(size=9)
+                        textfont=dict(size=10)
                     ))
                     fig_l.update_layout(
-                        title=f"{sec} — {total_col} Monthly Trend",
-                        height=310,
+                        title=f"{sec} — {total_col} Monthly Trend & MoM Growth",
+                        height=340,
                         plot_bgcolor='rgba(0,0,0,0)',
                         paper_bgcolor='rgba(0,0,0,0)',
                         xaxis=dict(showgrid=False),
@@ -406,57 +476,156 @@ with tab1:
                     )
                     st.plotly_chart(fig_l, use_container_width=True)
 
-                # Payment type share donut (YTD)
+                # Payment type share donut (YTD) - Not hidden
                 if type_cols:
                     ytd_type = {t: float(ytd_nums.get(t, 0)) for t in type_cols}
                     if sum(ytd_type.values()) > 0:
-                        with st.expander(f"🍩 Payment Type Share — {sec} (YTD)"):
-                            fig_pie = go.Figure(go.Pie(
-                                labels=list(ytd_type.keys()),
-                                values=list(ytd_type.values()),
-                                hole=0.55,
-                                marker_colors=[TYPE_COLORS.get(t, '#999') for t in ytd_type],
-                                textinfo='label+percent',
-                                textfont_size=12
-                            ))
-                            fig_pie.update_layout(height=300, showlegend=False,
-                                annotations=[dict(text=sec.split()[0], x=0.5, y=0.5, font_size=14, showarrow=False)])
-                            st.plotly_chart(fig_pie, use_container_width=True)
+                        st.markdown(f"**🍩 Payment Type Composition — {sec} (YTD)**")
+                        fig_pie = go.Figure(go.Pie(
+                            labels=list(ytd_type.keys()),
+                            values=list(ytd_type.values()),
+                            hole=0.55,
+                            marker_colors=[TYPE_COLORS.get(t, '#999') for t in ytd_type],
+                            textinfo='label+percent',
+                            textfont_size=12
+                        ))
+                        fig_pie.update_layout(height=300, showlegend=True,
+                                              margin=dict(t=10, b=10, l=10, r=10),
+                                              legend=dict(orientation='h', y=-0.2))
+                        st.plotly_chart(fig_pie, use_container_width=True)
 
-                st.markdown("")
+                st.markdown("---")
 
-        # Top merchants overview from DB
+        # Top Merchants overview from DB
         if not df_card.empty:
-            st.markdown("<div class='section'>Top Merchants Overview</div>", unsafe_allow_html=True)
+            st.markdown("<div class='section'>🏆 Top Merchants Analytics (YTD)</div>", unsafe_allow_html=True)
+            
+            # Create a rich dataframe with calculated metrics
+            df_c = df_card.copy()
+            df_c['AVG_TRX_VAL'] = np.where(df_c['TOTAL_TRX'] > 0, df_c['TOTAL_SV'] / df_c['TOTAL_TRX'], 0)
+            df_c['FBI_YIELD'] = np.where(df_c['TOTAL_SV'] > 0, (df_c['TOTAL_FBI'] / df_c['TOTAL_SV']) * 100, 0)
+            
             cc1s, cc2s = st.columns([3, 1])
-            top_n_c = cc1s.slider("Top N", 5, 30, 15, key="t1_topn")
-            sort_by  = cc2s.selectbox("Sort by", ['TOTAL_SV','TOTAL_TRX','TOTAL_FBI','RASIO_ONUS'], key="t1_sort")
-            df_c = df_card.sort_values(sort_by, ascending=False)
-            ca, cb = st.columns(2)
-            with ca:
-                fig = px.bar(df_c.head(top_n_c), x='MERCHANT_GROUP', y='TOTAL_SV',
-                             color='TOTAL_SV', color_continuous_scale='Blues',
-                             title=f"Top {top_n_c} Merchants — Sales Volume",
-                             text=df_c.head(top_n_c)['TOTAL_SV'].apply(lambda v: f"Rp{v/1e9:.1f}M"))
-                fig.update_traces(textposition='outside', textfont_size=9)
-                fig.update_layout(xaxis_tickangle=-40, height=380, showlegend=False,
-                                  uniformtext_minsize=8, uniformtext_mode='hide',
-                                  plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                                  yaxis=dict(showgrid=True, gridcolor='#e8e8e8'))
-                st.plotly_chart(fig, use_container_width=True)
-            with cb:
-                fig2 = px.scatter(df_c, x='TOTAL_SV', y='TOTAL_FBI', size='TOTAL_TRX',
-                                  hover_name='MERCHANT_GROUP', log_x=True, log_y=True,
-                                  color='RASIO_ONUS', color_continuous_scale='RdYlGn',
-                                  title="SV vs FBI — bubble=TRX, color=On-Us Ratio",
-                                  hover_data={'TOTAL_SV': ':.2e', 'TOTAL_FBI': ':.2e'})
-                fig2.update_layout(height=380,
-                                   plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-                st.plotly_chart(fig2, use_container_width=True)
+            top_n_c = cc1s.slider("Top N Merchants", 10, 50, 20, key="t1_topn")
+            sort_by = cc2s.selectbox("Rank By", ['TOTAL_SV','TOTAL_TRX','TOTAL_FBI','RASIO_ONUS', 'FBI_YIELD'], key="t1_sort")
+            
+            df_top = df_c.sort_values(sort_by, ascending=False).head(top_n_c)
+            
+            # Format display dataframe
+            disp_top = df_top[['MERCHANT_GROUP', 'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'AVG_TRX_VAL', 'FBI_YIELD', 'RASIO_ONUS']].copy()
+            
+            # Add formatted strings
+            format_dict = {
+                'TOTAL_SV': lambda x: f"Rp {x/1e9:,.2f} M",
+                'TOTAL_FBI': lambda x: f"Rp {x/1e6:,.1f} Jt",
+                'TOTAL_TRX': lambda x: f"{x:,.0f}",
+                'AVG_TRX_VAL': lambda x: f"Rp {x:,.0f}",
+                'FBI_YIELD': lambda x: f"{x:.4f}%",
+                'RASIO_ONUS': lambda x: f"{x*100:.1f}%"
+            }
+            
+            col_names = {
+                'MERCHANT_GROUP': 'Merchant Group',
+                'TOTAL_SV': 'Sales Volume',
+                'TOTAL_TRX': 'Transactions',
+                'TOTAL_FBI': 'Fee Based Income',
+                'AVG_TRX_VAL': 'Avg Trx Size',
+                'FBI_YIELD': 'FBI Yield',
+                'RASIO_ONUS': 'On-Us Ratio'
+            }
+            
+            st.dataframe(
+                disp_top.rename(columns=col_names).style.format(format_dict).background_gradient(cmap='Blues', subset=['Sales Volume', 'Transactions']).background_gradient(cmap='Greens', subset=['Fee Based Income', 'FBI Yield']),
+                use_container_width=True, height=min(38 * len(disp_top) + 40, 500)
+            )
 
             with st.expander("📋 Raw Card Share Data"):
                 st.dataframe(df_c.reset_index(drop=True), use_container_width=True)
                 st.download_button("⬇️ Download CSV", df_c.to_csv(index=False, encoding='utf-8-sig'), "card_share_data.csv", "text/csv")
+
+
+            # ── GROWTH ANALYTICS (Realisasi) ──────────────────────────────────
+            st.markdown("<br><div class='section'>📈 Top & Bottom Merchant Growth (MoM YoY)</div>", unsafe_allow_html=True)
+            df_real = parse_realisasi(PATH_CARD)
+            
+            if not df_real.empty:
+                max_month = df_real['TRX_MONTH'].max()
+                try:
+                    curr_yr = int(str(max_month)[:4])
+                    curr_mo = int(str(max_month)[4:])
+                    prev_yr = curr_yr - 1
+                    prev_month = int(f"{prev_yr}{curr_mo:02d}")
+                    
+                    MONTH_ABB = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                    col_curr = f"{MONTH_ABB[curr_mo-1]}-{str(curr_yr)[2:]}"
+                    col_prev = f"{MONTH_ABB[curr_mo-1]}-{str(prev_yr)[2:]}"
+                    col_fy_prev = f"FY-{str(prev_yr)[2:]}"
+                    
+                    # Target metric selection
+                    metric_sel = st.radio("Select Metric to Analyze", ["SALES VOLUME", "TRANSACTION", "FEE BASED INCOME"], horizontal=True, key="t1_metric_growth")
+                    m_col = 'SV' if 'SALES' in metric_sel else ('TRX' if 'TRANS' in metric_sel else 'FBI')
+                    
+                    # Group data
+                    # Current month
+                    df_curr = df_real[df_real['TRX_MONTH'] == max_month].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_curr)
+                    # Previous month
+                    df_prev = df_real[df_real['TRX_MONTH'] == prev_month].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_prev)
+                    # FY Previous
+                    df_fy = df_real[df_real['YEAR'] == prev_yr].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_fy_prev)
+                    
+                    # Merge all
+                    df_growth = pd.merge(df_curr, df_prev, on='MERCHANT_GROUP', how='outer')
+                    df_growth = pd.merge(df_growth, df_fy, on='MERCHANT_GROUP', how='outer').fillna(0)
+                    
+                    # Calculate Growth and Delta
+                    df_growth['Delta'] = df_growth[col_curr] - df_growth[col_prev]
+                    df_growth['Growth %'] = np.where(df_growth[col_prev] > 0, 
+                                                    (df_growth['Delta'] / df_growth[col_prev]) * 100, 
+                                                    np.where(df_growth[col_curr] > 0, 100, 0))
+                    
+                    # Clean zeroes
+                    df_growth = df_growth[(df_growth[col_curr] > 0) | (df_growth[col_prev] > 0) | (df_growth[col_fy_prev] > 0)]
+                    
+                    # Split Top and Bottom
+                    top_10 = df_growth.sort_values('Growth %', ascending=False).head(10)
+                    bot_10 = df_growth.sort_values('Growth %', ascending=True).head(10)
+                    
+                    # Formatter
+                    def val_fmt(x):
+                        if m_col == 'TRX': return f"{x:,.0f}"
+                        if x >= 1e9 or x <= -1e9: return f"{x/1e9:,.2f} M"
+                        return f"{x/1e6:,.0f} Jt"
+                    
+                    def style_growth(row):
+                        styles = [''] * len(row)
+                        pct = row['Growth %']
+                        
+                        # Style Growth % (col 4) and Delta (col 5)
+                        color = '#27AE60' if pct > 0 else ('#EB5757' if pct < 0 else '#888')
+                        styles[4] = f'color: {color}; font-weight: bold;'
+                        styles[5] = f'color: {color}; font-weight: bold;'
+                        return styles
+                        
+                    formatters = {
+                        col_curr: val_fmt, 
+                        col_prev: val_fmt, 
+                        col_fy_prev: val_fmt,
+                        'Delta': val_fmt,
+                        'Growth %': lambda x: f"{x:,.0f}%"
+                    }
+                    
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown(f"**🟢 Top 10 by {metric_sel} Growth**")
+                        st.dataframe(top_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), use_container_width=True)
+                    with c2:
+                        st.markdown(f"**🔴 Bottom 10 by {metric_sel} Growth**")  
+                        st.dataframe(bot_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), use_container_width=True)
+                        
+                except Exception as e:
+                    st.error(f"Could not calculate growth from Realisasi dates: {e}")
+            else:
+                st.info("Realisasi data for growth analytics not available in Master file.")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — WEEKLY MONITORING
@@ -470,12 +639,18 @@ with tab2:
     else:
         mon_view = st.radio("📋 View", ["👤 PM View (PerPM)", "🏪 Merchant Monitor (PerMerchant)"], horizontal=True, key="t2_monview")
         sheet    = "PerPM" if "PM View" in mon_view else "PerMerchant"
-        df_raw   = parse_monitoring_sheet(PATH_MON, sheet)
+        # Pass file mtime to bust cache when master file is updated
+        mon_mtime = os.path.getmtime(PATH_MON)
+        df_raw   = parse_monitoring_sheet(PATH_MON, sheet, mon_mtime)
 
         if df_raw.empty:
             st.warning(f"⚠️ Could not parse {sheet} sheet.")
         else:
             W_COLS = sorted([c for c in df_raw.columns if c.startswith('W') and c[1:].isdigit()])
+            
+            # Ensure all week columns are numeric in the raw dataframe
+            for w in W_COLS:
+                df_raw[w] = pd.to_numeric(df_raw[w], errors='coerce').fillna(0)
 
             if sheet == "PerPM":
                 df_anchor = df_raw[df_raw['NAME'].str.upper().str.contains('ANCHOR', na=False)].copy()
@@ -496,7 +671,8 @@ with tab2:
             with p_col1:
                 sel_periode = st.multiselect("📅 Periods", PERIODE_ORDER, default=['2026', 'Target'], key="t2_periode")
             df_pm_filt = df_pm[df_pm['PERIODE'].isin(sel_periode)] if sel_periode else df_pm
-            active_weeks = [c for c in W_COLS if (df_pm_filt[c].fillna(0) != 0).any()]
+            # Show ALL 53 weeks — user wants the full year visible, empty weeks show as 0
+            active_weeks = W_COLS
 
             # ── ANCHOR AGGREGATE (PM view only) ──────────────────────────────
             if sheet == "PerPM" and not df_anchor.empty:
@@ -514,7 +690,8 @@ with tab2:
                     color_ach = '#27AE60' if ach_pct >= 80 else ('#F2C94C' if ach_pct >= 50 else '#EB5757')
                     ak3.markdown(f"<div class='kpi' style='background:linear-gradient(135deg,{color_ach}cc,{color_ach});'><div class='val'>{ach_pct:.1f}%</div><div class='lbl'>✅ Achievement vs Target</div></div>", unsafe_allow_html=True)
 
-                anc_disp = df_anchor[df_anchor['PERIODE'].isin(sel_periode)][['KET','PERIODE','FY','YTD'] + active_weeks[:12]].fillna(0)
+                avail_anc_cols = [c for c in ['KET','PERIODE','FY','YTD'] + active_weeks if c in df_anchor.columns]
+                anc_disp = df_anchor[df_anchor['PERIODE'].isin(sel_periode)][avail_anc_cols].fillna(0)
                 st.dataframe(anc_disp, use_container_width=True, hide_index=True)
                 st.markdown("")
 
@@ -567,11 +744,13 @@ with tab2:
             # ── WEEKLY HEATMAP ────────────────────────────────────────────────
             if df_2026.empty:
                 df_2026 = df_pm_filt[df_pm_filt['PERIODE'].astype(str) == '2026'].copy()
-            if not df_2026.empty and active_weeks:
+            # Only show heatmap for weeks that have at least some data
+            data_weeks = [c for c in W_COLS if (df_2026[c].fillna(0) != 0).any()] if not df_2026.empty else []
+            if not df_2026.empty and data_weeks:
                 st.markdown("<div class='section'>🗓️ Weekly Activity Heatmap (2026)</div>", unsafe_allow_html=True)
                 df_heat = df_2026.copy()
-                df_heat[active_weeks] = df_heat[active_weeks].apply(pd.to_numeric, errors='coerce').fillna(0)
-                heat_data = df_heat.set_index('NAME')[active_weeks]
+                df_heat[data_weeks] = df_heat[data_weeks].apply(pd.to_numeric, errors='coerce').fillna(0)
+                heat_data = df_heat.set_index('NAME')[data_weeks]
 
                 fig_heat = px.imshow(
                     heat_data,
@@ -590,18 +769,36 @@ with tab2:
                 st.plotly_chart(fig_heat, use_container_width=True)
 
             # ── WEEKLY TREND LINE ─────────────────────────────────────────────
-            if not df_2026.empty and active_weeks:
-                st.markdown("<div class='section'>📈 Weekly Trend — 2026</div>", unsafe_allow_html=True)
+            if not df_2026.empty and data_weeks:
+                st.markdown("<div class='section'>📈 Weekly Trend & WoW Growth — 2026</div>", unsafe_allow_html=True)
                 df_trend = df_2026.copy()
-                df_trend[active_weeks] = df_trend[active_weeks].apply(pd.to_numeric, errors='coerce').fillna(0)
-                df_long = df_trend[['NAME'] + active_weeks].melt(id_vars='NAME', var_name='Week', value_name='Value')
+                df_trend[data_weeks] = df_trend[data_weeks].apply(pd.to_numeric, errors='coerce').fillna(0)
+                
+                # We need to calculate WoW pct change per entity
+                # Melt first
+                df_long = df_trend[['NAME'] + data_weeks].melt(id_vars='NAME', var_name='Week', value_name='Value')
+                
+                # Sort by NAME and Week to calculate properly
+                # Week format is 'W01', 'W02'... sorting string is fine
+                df_long = df_long.sort_values(['NAME', 'Week'])
+                
+                # Calculate WoW % change
+                df_long['WoW'] = df_long.groupby('NAME')['Value'].pct_change() * 100
+                
+                # Format text labels
+                df_long['Text'] = df_long.apply(
+                    lambda row: f"{row['Value']/1e9:.1f}M<br>(+{row['WoW']:.1f}%)" if pd.notna(row['WoW']) and row['WoW'] > 0 
+                                else f"{row['Value']/1e9:.1f}M<br>({row['WoW']:.1f}%)" if pd.notna(row['WoW']) and row['WoW'] < 0
+                                else f"{row['Value']/1e9:.1f}M", axis=1
+                )
+                
                 fig_line = px.line(
-                    df_long, x='Week', y='Value', color='NAME',
+                    df_long, x='Week', y='Value', color='NAME', text='Text',
                     markers=True, title="Weekly Volume Trend by " + ("PM" if sheet=="PerPM" else "Merchant")
                 )
-                fig_line.update_traces(marker=dict(size=5), line=dict(width=2))
+                fig_line.update_traces(marker=dict(size=6), line=dict(width=2.5), textposition='top center', textfont_size=9)
                 fig_line.update_layout(
-                    height=380,
+                    height=450,
                     legend=dict(orientation='h', y=-0.35, title=None),
                     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                     xaxis=dict(showgrid=False, dtick=2),
