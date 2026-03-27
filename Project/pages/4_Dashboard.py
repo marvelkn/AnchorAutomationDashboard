@@ -8,51 +8,43 @@ from scipy import stats
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 import os
+import sys
+
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _BASE not in sys.path:
+    sys.path.insert(0, _BASE)
+from utils.theme import (
+    apply_theme, page_header, section_label, kpi_card, kpi_row, tab_desc, filter_pill,
+    status_card, apply_plotly_theme, get_palette,
+    NAVY, GOLD, GOLD_DIM, BG, SURFACE, BORDER, TEXT_PRI, TEXT_SEC,
+    GREEN, RED, AMBER, BLUE_ACC,
+    CLUSTER_COLORS, PAYMENT_COLORS,
+)
 
 # ── PAGE CONFIG ──────────────────────────────────────────────────────────────
-st.set_page_config(page_title="BTN Anchor Dashboard", layout="wide")
+st.set_page_config(page_title="BTN Anchor Dashboard", page_icon="📈", layout="wide")
+apply_theme()
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+def _p():
+    """Get current palette dict for theme-aware chart colours."""
+    return get_palette()
 
-* { font-family: 'Inter', sans-serif; }
+def _chart_base():
+    """Return common Plotly layout kwargs for the active palette."""
+    p = _p()
+    return dict(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color=p['TEXT_PRI'], family='Inter, sans-serif'),
+    )
 
-.page-title {
-    font-size: 1.9rem; font-weight: 700;
-    color: #1F3864; border-bottom: 3px solid #F2C94C;
-    padding-bottom: 10px; margin-bottom: 20px;
-}
-.tab-desc {
-    background: #EEF2FF; border-left: 4px solid #1F3864;
-    padding: 10px 16px; border-radius: 6px;
-    font-size: 0.87rem; color: #333; margin-bottom: 20px;
-}
-.filter-box {
-    background: #F8F9FC; border: 1px solid #D4D8E8;
-    border-radius: 10px; padding: 16px 20px; margin-bottom: 20px;
-}
-.filter-active {
-    background: #FFF8E1; border: 1.5px solid #F2C94C;
-    border-radius: 10px; padding: 16px 20px; margin-bottom: 20px;
-}
-.kpi-row { display: flex; gap: 12px; margin-bottom: 20px; }
-.kpi { background: linear-gradient(135deg,#1F3864,#2e4f91);
-    border-radius: 10px; padding: 18px; color: white; flex: 1;
-    box-shadow: 0 3px 12px rgba(31,56,100,.2); text-align: center; }
-.kpi .val { font-size: 1.7rem; font-weight: 700; color: #F2C94C; }
-.kpi .lbl { font-size: 0.78rem; opacity: .85; margin-top: 4px; }
-.kpi-danger { background: linear-gradient(135deg,#7B0000,#C0392B); border-radius: 10px;
-    padding: 18px; color: white; flex: 1; text-align: center; }
-.kpi-danger .val { font-size: 1.7rem; font-weight: 700; }
-.kpi-success { background: linear-gradient(135deg,#155724,#28a745); border-radius: 10px;
-    padding: 18px; color: white; flex: 1; text-align: center; }
-.kpi-success .val { font-size: 1.7rem; font-weight: 700; }
-.section { font-size: 1.1rem; font-weight: 700; color: #1F3864;
-    border-left: 4px solid #F2C94C; padding-left: 10px;
-    margin: 22px 0 12px 0; }
-</style>
-""", unsafe_allow_html=True)
+def _xaxis():
+    p = _p()
+    return dict(showgrid=False, color=p['TEXT_SEC'])
+
+def _yaxis():
+    p = _p()
+    return dict(showgrid=True, gridcolor=p['BORDER'], color=p['TEXT_SEC'])
 
 # ── PATHS ────────────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -194,6 +186,9 @@ def parse_monitoring_sheet(path, sheet, _mtime=None):
             rec[lbl] = pd.to_numeric(val, errors='coerce') if pd.notna(val) else 0
         records.append(rec)
     df_out = pd.DataFrame(records)
+    # Forward-fill NAME because in Excel it's only on the first row of a block
+    df_out['NAME'] = df_out['NAME'].replace('', np.nan).ffill()
+    
     # Force all week columns to numeric
     for w in week_labels:
         df_out[w] = pd.to_numeric(df_out[w], errors='coerce').fillna(0)
@@ -257,46 +252,68 @@ def run_ml(card, mon, tgt):
     ).map({True: 'HIGH RISK ⚠️', False: 'STABLE ✅'})
     return df
 
-# ── HEADER ────────────────────────────────────────────────────────────────────
-st.markdown("<div class='page-title'>🏦 BTN Anchor Merchant — Decision Intelligence Platform</div>", unsafe_allow_html=True)
+# ── HEADER + STATUS STRIP ────────────────────────────────────────────────────
+page_header("🏦", "BTN Anchor Merchant", "Decision Intelligence Platform")
 
-# Quick status indicators
-s1, s2, s3, s4, s5 = st.columns(5)
-s1.metric("Card Share Data",  "✅ Ready" if has_card else "❌ Missing")
-s2.metric("Monitoring Data", "✅ Ready" if has_mon  else "❌ Missing")
-s3.metric("Target Data",     "✅ Ready" if has_tgt  else "⚠️ Not uploaded")
-s4.metric("Card Share File", "✅ Ready" if os.path.exists(PATH_CARD) else "❌ Upload in Settings")
-s5.metric("Monitoring File", "✅ Ready" if os.path.exists(PATH_MON)  else "❌ Upload in Settings")
+# ── Neat status strip ──
+_sp = get_palette()
 
+def _sc(icon, label, ok, ok_text="Ready", fail_text="Missing", warn=False):
+    kind  = "ok" if ok else ("warn" if warn else "err")
+    value = ok_text if ok else (fail_text)
+    color = {"ok": _sp['GREEN'], "warn": _sp['AMBER'], "err": _sp['RED']}[kind]
+    bg    = _sp['SURFACE']
+    bdr   = _sp['BORDER']
+    txt   = _sp['TEXT_PRI']
+    txt2  = _sp['TEXT_SEC']
+    return f"""
+    <div style="background:{bg};border:1px solid {bdr};border-left:4px solid {color};
+                border-radius:10px;padding:10px 14px;display:flex;align-items:center;
+                gap:10px;height:100%;">
+        <span style="font-size:1.4rem;">{icon}</span>
+        <div>
+            <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:.06em;color:{txt2};">{label}</div>
+            <div style="font-size:0.88rem;font-weight:700;color:{color};margin-top:2px;">{value}</div>
+        </div>
+    </div>"""
+
+sc1, sc2, sc3, sc4, sc5 = st.columns(5)
+sc1.markdown(_sc("📊", "Card Share DB",   has_card,                          "Loaded",       "Not processed"), unsafe_allow_html=True)
+sc2.markdown(_sc("📅", "Monitoring DB",   has_mon,                           "Loaded",       "Not processed"), unsafe_allow_html=True)
+sc3.markdown(_sc("🎯", "Target Data",     has_tgt,                           "Loaded",       "Not uploaded",  warn=not has_tgt), unsafe_allow_html=True)
+sc4.markdown(_sc("📄", "Card Share File", os.path.exists(PATH_CARD),         "Configured",   "Upload in Settings"), unsafe_allow_html=True)
+sc5.markdown(_sc("📄", "Monitoring File", os.path.exists(PATH_MON),          "Configured",   "Upload in Settings"), unsafe_allow_html=True)
+
+st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 st.markdown("---")
 
-CLAMP  = {'PREMIUM': '#27AE60', 'REGULER': '#2F80ED', 'PASIF': '#EB5757'}
+
+CLAMP = CLUSTER_COLORS
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "💰 Card Share Analytics",
-    "📅 Weekly Monitoring",
-    "🤖 ML Segmentation",
-    "⚠️ Churn & Risk Alerts",
-    "🔍 Merchant Explorer"
+    "💰  Card Share",
+    "📅  Weekly Monitoring",
+    "🤖  ML Segmentation",
+    "⚠️  Churn & Risk",
+    "🔍  Merchant Explorer",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — CARD SHARE
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab1:
-    st.markdown("<div class='tab-desc'>Monthly payment type breakdown — TRANSACTION / SALES VOLUME / FEE BASED INCOME. Use <b>Year Filter</b> to focus on one year. Numbers are formatted for quick reading; charts show composition and trend.</div>", unsafe_allow_html=True)
+    tab_desc("Monthly payment type breakdown — TRANSACTION / SALES VOLUME / FEE BASED INCOME. Use <b>Year Filter</b> to focus on one year.")
 
     # KPIs from DB
     if not df_card.empty:
-        k1, k2, k3, k4 = st.columns(4)
-        k1.markdown(f"<div class='kpi'><div class='val'>Rp {df_card['TOTAL_SV'].sum()/1e9:,.1f}M</div><div class='lbl'>💰 YTD Sales Volume</div></div>", unsafe_allow_html=True)
-        k2.markdown(f"<div class='kpi'><div class='val'>Rp {df_card['TOTAL_FBI'].sum()/1e6:,.0f}Jt</div><div class='lbl'>📈 YTD Fee-Based Income</div></div>", unsafe_allow_html=True)
-
-        k3.markdown(f"<div class='kpi'><div class='val'>{df_card['TOTAL_TRX'].sum()/1e6:,.2f}M</div><div class='lbl'>🔄 YTD Transactions</div></div>", unsafe_allow_html=True)
         avg_onus = df_card['RASIO_ONUS'].mean() if 'RASIO_ONUS' in df_card.columns else 0
-        k4.markdown(f"<div class='kpi'><div class='val'>{avg_onus*100:.1f}%</div><div class='lbl'>🎯 Avg On-Us Ratio</div></div>", unsafe_allow_html=True)
-        st.markdown("")
+        kpi_row([
+            kpi_card(f"Rp {df_card['TOTAL_SV'].sum()/1e9:,.1f}M",          "💰 YTD Sales Volume"),
+            kpi_card(f"Rp {df_card['TOTAL_FBI'].sum()/1e6:,.0f}Jt",         "📈 YTD Fee-Based Income"),
+            kpi_card(f"{df_card['TOTAL_TRX'].sum()/1e6:,.2f}M",             "🔄 YTD Transactions"),
+            kpi_card(f"{avg_onus*100:.1f}%",                                  "🎯 Avg On-Us Ratio"),
+        ])
 
     has_hl_file = os.path.exists(PATH_CARD)
     if not has_hl_file:
@@ -355,25 +372,19 @@ with tab1:
             data_rows = data_rows.copy()
             data_rows['Bulan'] = data_rows.apply(month_label, axis=1)
 
-            TYPE_COLORS = {
-                'DEBIT ON US':    '#1F3864',
-                'DEBIT OFF US':   '#2F80ED',
-                'CREDIT OFF US':  '#F2994A',
-                'QRIS ON US':     '#27AE60',
-                'QRIS OFF US':    '#6FCF97',
-            }
+            TYPE_COLORS = PAYMENT_COLORS
 
             SECTIONS = {
-                'TRANSACTION':     ('🔄', '#1F3864'),
-                'SALES VOLUME':    ('💰', '#1a6b3c'),
-                'FEE BASED INCOME':('📈', '#7B3F00'),
+                'TRANSACTION':     ('🔄', BLUE_ACC),
+                'SALES VOLUME':    ('💰', GREEN),
+                'FEE BASED INCOME':('📈', AMBER),
             }
 
             for sec, (icon, accent) in SECTIONS.items():
                 sec_cols = [c for c in df_hl.columns if c.startswith(f'{sec}__') and '__col' not in c]
                 if not sec_cols: continue
 
-                st.markdown(f"<div class='section'>{icon} {sec}</div>", unsafe_allow_html=True)
+                section_label(f"{icon} {sec}")
 
                 display = data_rows[['Bulan'] + sec_cols].copy()
                 raw_col_names = [c.split('__', 1)[1] for c in sec_cols]
@@ -399,14 +410,12 @@ with tab1:
 
                 def style_table(row):
                     is_ytd = row.name == len(disp_fmt) - 1
-                    base = f'background:{accent}15;' if not is_ytd else f'background:{accent};color:white;font-weight:bold;'
-                    # Highlight TOTAL col more
                     styles = []
                     for col in disp_fmt.columns:
                         if is_ytd:
-                            styles.append(base)
+                            styles.append(f'background-color:{accent};color:white;font-weight:bold;')
                         elif total_col and col == total_col:
-                            styles.append(f'background:{accent}22;font-weight:600;')
+                            styles.append(f'font-weight:600;')
                         else:
                             styles.append('')
                     return styles
@@ -428,11 +437,8 @@ with tab1:
                                    title=f"{sec} — Monthly Payment Type Composition",
                                    text_auto=False)
                     fig_s.update_layout(
-                        height=340, legend=dict(orientation='h', y=-0.3),
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        xaxis=dict(showgrid=False),
-                        yaxis=dict(showgrid=True, gridcolor='#e8e8e8')
+                        height=360, legend=dict(orientation='h', y=-0.3, font=dict(color=_p()['TEXT_PRI'])),
+                        **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis(),
                     )
                     fig_s.update_traces(marker_line_width=0)
                     st.plotly_chart(fig_s, use_container_width=True)
@@ -467,12 +473,8 @@ with tab1:
                     ))
                     fig_l.update_layout(
                         title=f"{sec} — {total_col} Monthly Trend & MoM Growth",
-                        height=340,
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        xaxis=dict(showgrid=False),
-                        yaxis=dict(showgrid=True, gridcolor='#e8e8e8', title=''),
-                        showlegend=False
+                        height=360, showlegend=False,
+                        **_chart_base(), xaxis=_xaxis(), yaxis={**_yaxis(), 'title':''},
                     )
                     st.plotly_chart(fig_l, use_container_width=True)
 
@@ -491,14 +493,15 @@ with tab1:
                         ))
                         fig_pie.update_layout(height=300, showlegend=True,
                                               margin=dict(t=10, b=10, l=10, r=10),
-                                              legend=dict(orientation='h', y=-0.2))
+                                              **_chart_base(),
+                                              legend=dict(orientation='h', y=-0.2, font=dict(color=_p()['TEXT_PRI'])))
                         st.plotly_chart(fig_pie, use_container_width=True)
 
                 st.markdown("---")
 
         # Top Merchants overview from DB
         if not df_card.empty:
-            st.markdown("<div class='section'>🏆 Top Merchants Analytics (YTD)</div>", unsafe_allow_html=True)
+            section_label("🏆 Top Merchants Analytics (YTD)")
             
             # Create a rich dataframe with calculated metrics
             df_c = df_card.copy()
@@ -545,7 +548,8 @@ with tab1:
 
 
             # ── GROWTH ANALYTICS (Realisasi) ──────────────────────────────────
-            st.markdown("<br><div class='section'>📈 Top & Bottom Merchant Growth (MoM YoY)</div>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+            section_label("📈 Top & Bottom Merchant Growth (MoM YoY)")
             df_real = parse_realisasi(PATH_CARD)
             
             if not df_real.empty:
@@ -631,7 +635,7 @@ with tab1:
 # TAB 2 — WEEKLY MONITORING
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab2:
-    st.markdown("<div class='tab-desc'>Weekly monitoring — <b>PM View</b>: total per Account Manager | <b>Merchant Monitor</b>: per-merchant weekly matrix. Select periods and see achievement vs target, heatmaps, and weekly trends.</div>", unsafe_allow_html=True)
+    tab_desc("Weekly monitoring — <b>PM View</b>: total per Account Manager | <b>Merchant Monitor</b>: per-merchant weekly matrix. Select periods and see achievement vs target, heatmaps, and weekly trends.")
 
     has_mon_file = os.path.exists(PATH_MON)
     if not has_mon_file:
@@ -676,7 +680,7 @@ with tab2:
 
             # ── ANCHOR AGGREGATE (PM view only) ──────────────────────────────
             if sheet == "PerPM" and not df_anchor.empty:
-                st.markdown("<div class='section'>🏛️ ANCHOR — Portfolio Aggregate</div>", unsafe_allow_html=True)
+                section_label("🏛️ ANCHOR — Portfolio Aggregate")
                 anc_2026 = df_anchor[df_anchor['PERIODE'].astype(str) == '2026'].copy()
                 anc_tgt  = df_anchor[df_anchor['PERIODE'].astype(str) == 'Target'].copy()
 
@@ -685,10 +689,21 @@ with tab2:
                     fy_tgt   = pd.to_numeric(anc_tgt['FY'].iloc[0],  errors='coerce') or 1
                     ach_pct  = min(ytd_2026 / fy_tgt * 100, 200) if fy_tgt else 0
                     ak1, ak2, ak3 = st.columns(3)
-                    ak1.markdown(f"<div class='kpi'><div class='val'>Rp {ytd_2026/1e9:,.2f}M</div><div class='lbl'>📊 YTD 2026 Volume</div></div>", unsafe_allow_html=True)
-                    ak2.markdown(f"<div class='kpi'><div class='val'>Rp {fy_tgt/1e9:,.2f}M</div><div class='lbl'>🎯 FY Target</div></div>", unsafe_allow_html=True)
-                    color_ach = '#27AE60' if ach_pct >= 80 else ('#F2C94C' if ach_pct >= 50 else '#EB5757')
-                    ak3.markdown(f"<div class='kpi' style='background:linear-gradient(135deg,{color_ach}cc,{color_ach});'><div class='val'>{ach_pct:.1f}%</div><div class='lbl'>✅ Achievement vs Target</div></div>", unsafe_allow_html=True)
+                    ach_color = 'success' if ach_pct >= 80 else ('accent' if ach_pct >= 50 else 'danger')
+
+                    def _fmt_juta(v):
+                        """Smart format: values from PerPM are in Juta (millions Rp)."""
+                        v = abs(v)
+                        if v >= 1e6:      return f"Rp {v/1e6:,.2f}T"   # Triliun
+                        if v >= 1e3:      return f"Rp {v/1e3:,.1f}M"   # Milyar
+                        if v >= 1:        return f"Rp {v:,.0f}Jt"      # Juta
+                        return f"Rp {v:,.2f}Jt"
+
+                    kpi_row([
+                        kpi_card(_fmt_juta(ytd_2026), "📊 YTD 2026 Volume"),
+                        kpi_card(_fmt_juta(fy_tgt),   "🎯 FY Target"),
+                        kpi_card(f"{ach_pct:.1f}%",   "✅ Achievement vs Target", ach_color),
+                    ])
 
                 avail_anc_cols = [c for c in ['KET','PERIODE','FY','YTD'] + active_weeks if c in df_anchor.columns]
                 anc_disp = df_anchor[df_anchor['PERIODE'].isin(sel_periode)][avail_anc_cols].fillna(0)
@@ -697,18 +712,39 @@ with tab2:
 
             # ── MAIN TABLE ────────────────────────────────────────────────────
             sec_label = "👤 PM Summary" if sheet == "PerPM" else "🏪 Merchant Weekly Matrix"
-            st.markdown(f"<div class='section'>{sec_label}</div>", unsafe_allow_html=True)
+            section_label(sec_label)
 
             if len(sel_periode) < 4:
-                st.markdown(f"<div class='filter-active'>🔶 <b>Filter:</b> {', '.join(sel_periode)} · {df_pm_filt['NAME'].nunique()} entities</div>", unsafe_allow_html=True)
+                filter_pill(f"Filter: {', '.join(sel_periode)} · {df_pm_filt['NAME'].nunique()} entities")
 
             disp_cols      = ['NAME', 'KET', 'PERIODE', 'FY', 'YTD'] + active_weeks
             available_disp = [c for c in disp_cols if c in df_pm_filt.columns]
             st.dataframe(df_pm_filt[available_disp].fillna(0).reset_index(drop=True),
                          use_container_width=True, height=430)
 
-            # ── ACHIEVEMENT vs TARGET BAR ─────────────────────────────────────
-            df_2026  = df_pm_filt[df_pm_filt['PERIODE'].astype(str) == '2026'].copy()
+            # ── CHARTS SECTION ────────────────────────────────────────────────
+            df_2026_all = df_pm_filt[df_pm_filt['PERIODE'].astype(str) == '2026'].copy()
+            
+            if not df_2026_all.empty:
+                st.markdown("---")
+                section_label("📊 Visual Analysis")
+                
+                # Chart Entity Filter to prevent clutter
+                all_names = sorted(df_2026_all['NAME'].unique())
+                # Default to top 10 by YTD if possible
+                default_names = df_2026_all.sort_values('YTD', ascending=False)['NAME'].unique().tolist()[:10]
+                
+                c_filt1, c_filt2 = st.columns([3, 1])
+                with c_filt1:
+                    sel_chart_names = st.multiselect(
+                        "🔍 Select Entities to Chart", 
+                        all_names, 
+                        default=default_names,
+                        key=f"t2_chart_names_{sheet}"
+                    )
+                
+                df_2026 = df_2026_all[df_2026_all['NAME'].isin(sel_chart_names)].copy() if sel_chart_names else pd.DataFrame()
+
             df_target_mon = df_pm[df_pm['PERIODE'].astype(str) == 'Target'].copy()
             if not df_2026.empty and not df_target_mon.empty:
                 df_2026['YTD']   = pd.to_numeric(df_2026['YTD'], errors='coerce').fillna(0)
@@ -721,76 +757,94 @@ with tab2:
                 df_ach['ACH_PCT'] = (df_ach['YTD_2026'] / df_ach['TARGET_FY'].replace(0, np.nan) * 100).clip(0, 300).fillna(0)
                 df_ach = df_ach.sort_values('ACH_PCT', ascending=False)
 
-                st.markdown("<div class='section'>🏆 Achievement vs Target (YTD 2026 / FY Target)</div>", unsafe_allow_html=True)
+                section_label("🏆 Achievement vs Target (YTD 2026 / FY Target)")
                 fig_ach = go.Figure()
-                bar_colors = ['#27AE60' if v >= 80 else '#F2C94C' if v >= 50 else '#EB5757' for v in df_ach['ACH_PCT']]
+                _pp = _p()
+                bar_colors = [_pp['GREEN'] if v >= 80 else _pp['AMBER'] if v >= 50 else _pp['RED'] for v in df_ach['ACH_PCT']]
                 fig_ach.add_trace(go.Bar(
                     x=df_ach['NAME'], y=df_ach['ACH_PCT'],
                     marker_color=bar_colors,
                     text=[f"{v:.1f}%" for v in df_ach['ACH_PCT']],
                     textposition='outside',
+                    textfont=dict(color=_pp['TEXT_PRI']),
                     name='Achievement %'
                 ))
-                fig_ach.add_hline(y=100, line_dash='dash', line_color='#1F3864',
-                                   annotation_text='100% Target', annotation_position='top right')
+                fig_ach.add_hline(y=100, line_dash='dash', line_color=_pp['GOLD'],
+                                   annotation_text='100% Target', annotation_position='top right',
+                                   annotation_font_color=_pp['GOLD'])
                 fig_ach.update_layout(
-                    height=360, xaxis_tickangle=-40,
-                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                    yaxis=dict(title='Achievement (%)', showgrid=True, gridcolor='#e8e8e8'),
-                    showlegend=False, title=("PM" if sheet=="PerPM" else "Merchant") + " Achievement vs FY Target"
+                    height=380, xaxis_tickangle=-40, showlegend=False,
+                    title=("PM" if sheet=="PerPM" else "Merchant") + " Achievement vs FY Target",
+                    **_chart_base(), xaxis={**_xaxis(), 'title':''}, yaxis={**_yaxis(), 'title':'Achievement (%)'},
                 )
                 st.plotly_chart(fig_ach, use_container_width=True)
 
             # ── WEEKLY HEATMAP ────────────────────────────────────────────────
-            if df_2026.empty:
-                df_2026 = df_pm_filt[df_pm_filt['PERIODE'].astype(str) == '2026'].copy()
             # Only show heatmap for weeks that have at least some data
             data_weeks = [c for c in W_COLS if (df_2026[c].fillna(0) != 0).any()] if not df_2026.empty else []
             if not df_2026.empty and data_weeks:
-                st.markdown("<div class='section'>🗓️ Weekly Activity Heatmap (2026)</div>", unsafe_allow_html=True)
+                section_label("🗓️ Weekly Activity Heatmap (2026)")
                 df_heat = df_2026.copy()
                 df_heat[data_weeks] = df_heat[data_weeks].apply(pd.to_numeric, errors='coerce').fillna(0)
                 heat_data = df_heat.set_index('NAME')[data_weeks]
 
+                _pp = _p()
+                # Enhanced color scale (Navy to Gold)
+                _hm_scale = [
+                    [0.0, _pp['BG']],
+                    [0.1, _pp['SURFACE']],
+                    [0.3, _pp['NAVY']],
+                    [0.6, _pp['BLUE_ACC']],
+                    [1.0, _pp['GOLD']]
+                ]
                 fig_heat = px.imshow(
                     heat_data,
-                    color_continuous_scale=[[0,'#EEF2FF'],[0.3,'#6FA3EF'],[0.7,'#1F3864'],[1,'#F2C94C']],
+                    color_continuous_scale=_hm_scale,
                     aspect='auto',
-                    title="Weekly Volume Heatmap — darker = higher value",
-                    labels=dict(x="Week", y="", color="Value")
+                    title="Weekly Volume Heatmap (2026)",
+                    labels=dict(x="Week Number", y="", color="Volume")
                 )
+                # Calculate dynamic height: base 220 + 35 per row
+                h_calc = max(280, 40 * len(heat_data) + 100)
                 fig_heat.update_layout(
-                    height=max(200, 35 * len(heat_data) + 80),
-                    xaxis=dict(dtick=2),
+                    height=h_calc,
+                    xaxis=dict(dtick=2, color=_pp['TEXT_SEC'], side='top'),
                     coloraxis_showscale=True,
-                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)'
+                    margin=dict(l=10, r=10, t=80, b=10),
+                    **_chart_base(),
                 )
                 fig_heat.update_traces(hovertemplate='<b>%{y}</b><br>%{x}: %{z:,.0f}<extra></extra>')
                 st.plotly_chart(fig_heat, use_container_width=True)
 
             # ── WEEKLY TREND LINE ─────────────────────────────────────────────
             if not df_2026.empty and data_weeks:
-                st.markdown("<div class='section'>📈 Weekly Trend & WoW Growth — 2026</div>", unsafe_allow_html=True)
+                section_label("📈 Weekly Trend & WoW Growth — 2026")
                 df_trend = df_2026.copy()
                 df_trend[data_weeks] = df_trend[data_weeks].apply(pd.to_numeric, errors='coerce').fillna(0)
                 
                 # We need to calculate WoW pct change per entity
-                # Melt first
                 df_long = df_trend[['NAME'] + data_weeks].melt(id_vars='NAME', var_name='Week', value_name='Value')
-                
-                # Sort by NAME and Week to calculate properly
-                # Week format is 'W01', 'W02'... sorting string is fine
                 df_long = df_long.sort_values(['NAME', 'Week'])
                 
                 # Calculate WoW % change
                 df_long['WoW'] = df_long.groupby('NAME')['Value'].pct_change() * 100
                 
                 # Format text labels
-                df_long['Text'] = df_long.apply(
-                    lambda row: f"{row['Value']/1e9:.1f}M<br>(+{row['WoW']:.1f}%)" if pd.notna(row['WoW']) and row['WoW'] > 0 
-                                else f"{row['Value']/1e9:.1f}M<br>({row['WoW']:.1f}%)" if pd.notna(row['WoW']) and row['WoW'] < 0
-                                else f"{row['Value']/1e9:.1f}M", axis=1
-                )
+                # Format text labels — values from PerPM are in Juta
+                def _wk_lbl(row):
+                    v = row['Value']
+                    mom = row['WoW']
+                    if v >= 1e3:
+                        vlbl = f"{v/1e3:,.1f}M"
+                    else:
+                        vlbl = f"{v:,.0f}Jt"
+                    if pd.notna(mom) and mom > 0:
+                        return f"{vlbl}<br>(+{mom:.1f}%)"
+                    elif pd.notna(mom) and mom < 0:
+                        return f"{vlbl}<br>({mom:.1f}%)"
+                    return vlbl
+
+                df_long['Text'] = df_long.apply(_wk_lbl, axis=1)
                 
                 fig_line = px.line(
                     df_long, x='Week', y='Value', color='NAME', text='Text',
@@ -798,11 +852,11 @@ with tab2:
                 )
                 fig_line.update_traces(marker=dict(size=6), line=dict(width=2.5), textposition='top center', textfont_size=9)
                 fig_line.update_layout(
-                    height=450,
-                    legend=dict(orientation='h', y=-0.35, title=None),
-                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                    xaxis=dict(showgrid=False, dtick=2),
-                    yaxis=dict(showgrid=True, gridcolor='#e8e8e8', title='')
+                    height=460,
+                    legend=dict(orientation='h', y=-0.35, title=None, font=dict(color=_p()['TEXT_PRI'])),
+                    **_chart_base(),
+                    xaxis={**_xaxis(), 'dtick':2},
+                    yaxis={**_yaxis(), 'title':''},
                 )
                 st.plotly_chart(fig_line, use_container_width=True)
 
@@ -813,16 +867,17 @@ with tab2:
     # KPI footer from DB
     if not df_mon.empty:
         st.markdown("---")
-        k1, k2, k3 = st.columns(3)
-        k1.markdown(f"<div class='kpi'><div class='val'>{len(df_mon):,}</div><div class='lbl'>🏪 Merchants in DB</div></div>", unsafe_allow_html=True)
         avg_wa = df_mon['WEEKS_ACTIVE'].mean() if 'WEEKS_ACTIVE' in df_mon.columns else 0
-        k2.markdown(f"<div class='kpi'><div class='val'>{avg_wa:.1f}</div><div class='lbl'>📆 Avg Weeks Active</div></div>", unsafe_allow_html=True)
         ytd_v  = df_mon['YTD_VOL'].sum() if 'YTD_VOL' in df_mon.columns else 0
-        k3.markdown(f"<div class='kpi'><div class='val'>Rp {ytd_v/1e9:,.2f}M</div><div class='lbl'>💰 YTD Volume Total</div></div>", unsafe_allow_html=True)
+        kpi_row([
+            kpi_card(f"{len(df_mon):,}",        "🏪 Merchants in DB"),
+            kpi_card(f"{avg_wa:.1f}",            "📆 Avg Weeks Active"),
+            kpi_card(f"Rp {ytd_v/1e9:,.2f}M", "💰 YTD Volume Total"),
+        ])
 
 
 with tab3:
-    st.markdown("<div class='tab-desc'>K-Means++ Clustering (K=3) segments every merchant into PREMIUM, REGULER, or PASIF based on SV, FBI, growth rate, achievement, and activity.</div>", unsafe_allow_html=True)
+    tab_desc("K-Means++ Clustering (K=3) segments every merchant into PREMIUM, REGULER, or PASIF based on SV, FBI, growth rate, achievement, and activity.")
 
     if not (has_card and has_mon):
         st.warning("⚠️ ML analysis requires **both** Card Share and Monitoring data to be processed first.")
@@ -846,9 +901,9 @@ with tab3:
 
         filtered = len(sel_pm_ml) < len(all_pm_ml) or len(sel_clust) < 3
         if filtered:
-            st.markdown(f"<div class='filter-active'>🔶 <b>Filter Active:</b> {len(df_f)} of {len(df_ml)} merchants shown</div>", unsafe_allow_html=True)
+            filter_pill(f"Filter Active: {len(df_f)} of {len(df_ml)} merchants shown")
         else:
-            st.markdown(f"<div class='tab-desc'>Showing all <b>{len(df_f)}</b> merchants across all clusters.</div>", unsafe_allow_html=True)
+            tab_desc(f"Showing all <b>{len(df_f)}</b> merchants across all clusters.")
 
         # Cluster counts
         cc1, cc2, cc3 = st.columns(3)
@@ -869,7 +924,7 @@ with tab3:
             fig_pie = px.pie(counts, names='CLUSTER', values='COUNT', hole=0.45,
                              title='Merchant Segmentation (K=3)',
                              color='CLUSTER', color_discrete_map=CLAMP)
-            fig_pie.update_layout(height=360)
+            fig_pie.update_layout(height=360, **_chart_base())
             st.plotly_chart(fig_pie, use_container_width=True)
 
         with sc2:
@@ -880,10 +935,10 @@ with tab3:
                                 log_x=True, log_y=True,
                                 title="SV vs FBI — Cluster View (hover for details)",
                                 color_discrete_map=CLAMP)
-            fig_sc.update_layout(height=360)
+            fig_sc.update_layout(height=360, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
             st.plotly_chart(fig_sc, use_container_width=True)
 
-        st.markdown("<div class='section'>Cluster Radar Profile</div>", unsafe_allow_html=True)
+        section_label("Cluster Radar Profile")
         radar_m = ['AVG_SV','AVG_FBI','RASIO_ONUS','ACHIEVEMENT_PCT','WEEKS_ACTIVE']
         cm = df_f.groupby('CLUSTER')[radar_m].mean()
         norm = (cm - cm.min()) / (cm.max() - cm.min() + 1e-9)
@@ -894,17 +949,22 @@ with tab3:
                 cats = radar_m + [radar_m[0]]
                 fig_r.add_trace(go.Scatterpolar(r=vals, theta=cats, fill='toself',
                     name=clust, line_color=CLAMP[clust]))
-        fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0,1])),
-                             height=420, title="Each cluster's normalised characteristic profile")
+        _pp = _p()
+        fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0,1],
+                                                       gridcolor=_pp['BORDER'], tickfont=dict(color=_pp['TEXT_SEC'])),
+                                       angularaxis=dict(color=_pp['TEXT_SEC']),
+                                       bgcolor='rgba(0,0,0,0)'),
+                             **_chart_base(),
+                             height=430, title="Each cluster's normalised characteristic profile")
         st.plotly_chart(fig_r, use_container_width=True)
 
         if 'PM' in df_f.columns:
-            st.markdown("<div class='section'>PM × Cluster Breakdown</div>", unsafe_allow_html=True)
+            section_label("PM × Cluster Breakdown")
             pm_cl = df_f.groupby(['PM','CLUSTER']).size().reset_index(name='COUNT')
             fig_stk = px.bar(pm_cl, x='PM', y='COUNT', color='CLUSTER',
                              barmode='stack', title="Cluster Distribution per Account Manager",
                              color_discrete_map=CLAMP)
-            fig_stk.update_layout(height=380)
+            fig_stk.update_layout(height=380, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
             st.plotly_chart(fig_stk, use_container_width=True)
 
         with st.expander("📋 View ML Results Table"):
@@ -916,7 +976,7 @@ with tab3:
 # TAB 4 — CHURN & RISK
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab4:
-    st.markdown("<div class='tab-desc'>Merchants flagged as <b>HIGH RISK ⚠️</b> meet at least one churn condition: low activity weeks, severe negative growth, PASIF cluster with near-zero achievement, or extreme negative Z-Score.</div>", unsafe_allow_html=True)
+    tab_desc("Merchants flagged as <b>HIGH RISK ⚠️</b> meet at least one churn condition: low activity weeks, severe negative growth, PASIF cluster with near-zero achievement, or extreme negative Z-Score.")
 
     if not (has_card and has_mon):
         st.warning("⚠️ Churn analysis requires both Card Share and Monitoring data.")
@@ -938,10 +998,10 @@ with tab4:
         churn_mask = df_c4['CHURN_RISK'].str.contains("HIGH", na=False)
         if risk_view == "High Risk Only":
             df_c4 = df_c4[churn_mask]
-            st.markdown(f"<div class='filter-active'>🔶 <b>Filter Active: High Risk Only</b> — {len(df_c4)} merchants shown</div>", unsafe_allow_html=True)
+            filter_pill(f"Filter Active: High Risk Only — {len(df_c4)} merchants shown")
         elif risk_view == "Stable Only":
             df_c4 = df_c4[~churn_mask]
-            st.markdown(f"<div class='filter-active'>🟢 <b>Filter Active: Stable Only</b> — {len(df_c4)} merchants shown</div>", unsafe_allow_html=True)
+            filter_pill(f"Filter Active: Stable Only — {len(df_c4)} merchants shown")
 
         df_high = df_c4[df_c4['CHURN_RISK'].str.contains("HIGH", na=False)]
         df_safe = df_c4[~df_c4['CHURN_RISK'].str.contains("HIGH", na=False)]
@@ -949,10 +1009,10 @@ with tab4:
 
         # KPI
         ch_a, ch_b, ch_c = st.columns(3)
-        ch_a.markdown(f"<div class='kpi-danger'><div style='font-size:2.2rem;font-weight:700;'>{len(df_high)}</div><div>⚠️ High Churn Risk</div></div>", unsafe_allow_html=True)
-        ch_b.markdown(f"<div class='kpi-success'><div style='font-size:2.2rem;font-weight:700;'>{len(df_safe)}</div><div>✅ Stable</div></div>", unsafe_allow_html=True)
+        ch_a.markdown(kpi_card(str(len(df_high)), "⚠️ High Churn Risk", "danger"), unsafe_allow_html=True)
+        ch_b.markdown(kpi_card(str(len(df_safe)), "✅ Stable", "success"), unsafe_allow_html=True)
         rate = len(df_high)/total*100 if total > 0 else 0
-        ch_c.markdown(f"<div class='kpi'><div class='val'>{rate:.1f}%</div><div class='lbl'>Churn Rate (filtered)</div></div>", unsafe_allow_html=True)
+        ch_c.markdown(kpi_card(f"{rate:.1f}%", "Churn Rate (filtered)"), unsafe_allow_html=True)
 
         st.markdown("")
 
@@ -963,7 +1023,7 @@ with tab4:
                                 color='CHURN_RISK',
                                 color_discrete_map={'HIGH RISK ⚠️':'#C0392B','STABLE ✅':'#27AE60'},
                                 hole=0.4, title="Churn Risk Breakdown")
-                fig_rc.update_layout(height=340)
+                fig_rc.update_layout(height=350, **_chart_base())
                 st.plotly_chart(fig_rc, use_container_width=True)
             with ch_y:
                 if 'PM' in df_high.columns and len(df_high) > 0:
@@ -972,22 +1032,23 @@ with tab4:
                                     x='PM', y='HIGH_RISK_COUNT',
                                     color='HIGH_RISK_COUNT', color_continuous_scale='Reds',
                                     title="High-Risk Merchants per PM")
-                    fig_pc.update_layout(height=340)
+                    fig_pc.update_layout(height=350, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
                     st.plotly_chart(fig_pc, use_container_width=True)
 
             if 'ZSCORE_SV' in df_c4.columns:
-                st.markdown("<div class='section'>Z-Score Distribution — Churn vs Stable</div>", unsafe_allow_html=True)
+                section_label("Z-Score Distribution — Churn vs Stable")
                 fig_z = px.histogram(df_c4, x='ZSCORE_SV', color='CHURN_RISK',
                                      nbins=25, barmode='overlay',
-                                     color_discrete_map={'HIGH RISK ⚠️':'#EB5757','STABLE ✅':'#2F80ED'},
+                                     color_discrete_map={'HIGH RISK ⚠️': RED, 'STABLE ✅': BLUE_ACC},
                                      title="Z-Score Distribution")
-                fig_z.add_vline(x=-1.2, line_dash='dash', line_color='red',
-                                annotation_text="Churn threshold (−1.2)")
-                fig_z.update_layout(height=360)
+                fig_z.add_vline(x=-1.2, line_dash='dash', line_color=RED,
+                                annotation_text="Churn threshold (−1.2)",
+                                annotation_font_color=RED)
+                fig_z.update_layout(height=380, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
                 st.plotly_chart(fig_z, use_container_width=True)
 
         if len(df_high) > 0:
-            st.markdown("<div class='section'>⚠️ High-Risk Merchant Details</div>", unsafe_allow_html=True)
+            section_label("⚠️ High-Risk Merchant Details")
             risk_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK',
                                       'WEEKS_ACTIVE','SV_GROWTH_RATE',
                                       'ACHIEVEMENT_PCT','ZSCORE_SV'] if c in df_high.columns]
@@ -1006,7 +1067,7 @@ with tab4:
 # TAB 5 — MERCHANT EXPLORER
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab5:
-    st.markdown("<div class='tab-desc'>Fully interactive explorer. Apply any combination of filters, search, sort, and export to CSV. Your personal decision-making workspace.</div>", unsafe_allow_html=True)
+    tab_desc("Fully interactive explorer. Apply any combination of filters, search, sort, and export to CSV. Your personal decision-making workspace.")
 
     if has_card and has_mon:
         df_exp = run_ml(df_card, df_mon, df_target)
@@ -1043,7 +1104,7 @@ with tab5:
     active_count = len(df_exp)
     all_count    = len(run_ml(df_card, df_mon, df_target)) if (has_card and has_mon) else len(df_exp)
     if active_count < all_count:
-        st.markdown(f"<div class='filter-active'>🔶 <b>Filter Active:</b> Showing <b>{active_count:,}</b> of {all_count:,} merchants</div>", unsafe_allow_html=True)
+        filter_pill(f"Filter Active: Showing {active_count:,} of {all_count:,} merchants")
     else:
         st.info(f"No filters applied — showing all **{active_count:,}** merchants.")
 

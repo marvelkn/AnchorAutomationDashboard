@@ -4,16 +4,27 @@ import re
 from collections import Counter
 import io
 import os
+import sys
 import shutil
 from datetime import datetime
 
-st.title("🧹 ALL MID Cleaner (Ultimate Pipeline)")
-st.markdown("""
-This tool processes raw MID data using the advanced 3-step classification pipeline:
-1. **Anchor Identification** (Regex pattern matching)
-2. **Smart Retail Classification** (Learning from Master File)
-3. **Accurate Dataset Merger** (`keep_better` strategy)
-""")
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _BASE not in sys.path:
+    sys.path.insert(0, _BASE)
+from utils.theme import apply_theme, page_header, section_label, GOLD, SURFACE, BORDER, TEXT_SEC
+
+st.set_page_config(page_title="MID Cleaner — BTN Anchor", page_icon="🧹", layout="wide")
+apply_theme()
+page_header("🧹", "ALL MID Cleaner", "3-step classification pipeline: Anchor → Smart Retail → Merger")
+
+st.markdown(
+    """<div class="tab-desc">
+    <b>Step 1</b> Anchor Identification (regex matching) → 
+    <b>Step 2</b> Smart Retail Classification (learning from Master) → 
+    <b>Step 3</b> Dataset Merger (<code>keep_better</code> strategy)
+    </div>""",
+    unsafe_allow_html=True,
+)
 
 # ==========================================
 # PATHS & BACKUP SETUP
@@ -432,9 +443,10 @@ if new_data_file:
             anchor_total = len(df_merged[df_merged['SEGMEN'] == 'ANCHOR'])
             retail_total = len(df_merged[df_merged['SEGMEN'] == 'RETAIL'])
             
-            st.write("### Data Distribution")
-            st.info(f"**ANCHOR**: {anchor_total:,} records")
-            st.info(f"**RETAIL**: {retail_total:,} records")
+            section_label("Data Distribution")
+            d1, d2 = st.columns(2)
+            d1.metric("ANCHOR Records", f"{anchor_total:,}")
+            d2.metric("RETAIL Records", f"{retail_total:,}")
             
             # ── Backup old master BEFORE overwriting ──
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -2,13 +2,26 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import os
+import sys
 import io
 import re
 import shutil
 from datetime import datetime
 
-st.title("📅 Monitoring Weekly (Master + CSV Merge)")
-st.markdown("Upload your existing **Master Monitoring Excel** and the **New Weekly Data**. The system updates weekly specific columns, preserves formatting safely, and extracts database analytics.")
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _BASE not in sys.path:
+    sys.path.insert(0, _BASE)
+from utils.theme import apply_theme, page_header, section_label, GOLD, SURFACE, BORDER, TEXT_SEC
+
+st.set_page_config(page_title="Monitoring Processor — BTN Anchor", page_icon="📅", layout="wide")
+apply_theme()
+page_header("📅", "Monitoring Weekly Processor", "Merge Master Excel with new weekly data, update Staging DB")
+
+st.markdown(
+    """<div class="tab-desc">Upload your existing <b>Master Monitoring Excel</b> and the <b>New Weekly Data</b>.
+    The system updates weekly-specific columns, preserves formatting safely, and extracts database analytics.</div>""",
+    unsafe_allow_html=True,
+)
 
 BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PATH_DB    = os.path.join(BASE_DIR, "database", "staging.db")

@@ -2,12 +2,25 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import os
+import sys
 import io
 import shutil
 from datetime import datetime
 
-st.title("💳 Card Share Processor (Master + New Data)")
-st.markdown("Upload your existing **Master Excel** and the **New Data** fetch. The system will safely merge them, update the Staging DB, and provide the fully intact Microsoft Excel file for download.")
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _BASE not in sys.path:
+    sys.path.insert(0, _BASE)
+from utils.theme import apply_theme, page_header, section_label, GOLD, SURFACE, BORDER, TEXT_SEC
+
+st.set_page_config(page_title="Card Share Processor — BTN Anchor", page_icon="💳", layout="wide")
+apply_theme()
+page_header("💳", "Card Share Processor", "Merge Master + New Data, update Staging DB, download intact Excel")
+
+st.markdown(
+    """<div class="tab-desc">Upload your existing <b>Master Excel</b> and the <b>New Data</b> fetch.
+    The system safely merges them, updates the Staging DB, and provides the fully intact Microsoft Excel file for download.</div>""",
+    unsafe_allow_html=True,
+)
 
 BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PATH_DB    = os.path.join(BASE_DIR, "database", "staging.db")

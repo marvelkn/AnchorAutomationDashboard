@@ -27,8 +27,10 @@
   * `2_Card_Share_Processor.py`: Excel ingestion using `win32com.client` to retain formulas/charts.
   * `3_Monitoring_Processor.py`: Weekly matrix restructurer.
   * `4_Dashboard.py`: Dynamic telemetry hub, live K-Means clustering, and anomaly alerts.
+* **`utils/`**: 
+  * `theme.py`: Centralized UI/UX engine managing Dark/Light mode palettes, dynamic CSS injection, and Plotly chart theming.
 * **`database/`**: `btn_anchor.db` (Target) and `staging.db` (Intermediate).
-* **`data/`**: Subfolders `raw/` and `real/` for hard-coded source files.
+* **`data/`**: Subfolders `raw/` and `real/` for hard-coded source files. Subfolder `master/` for tracking Master Excel templates.
 * **`output/`**: Generates `checkpoint_01_clean.csv`, `checkpoint_02_ml.csv`, `Data_Mart_Ready.csv`, `Summary_PM.csv`, and evaluation charts.
 
 ## 🏗️ ETL PIPELINE ARCHITECTURE (Python scripts)
@@ -55,19 +57,22 @@
 * **Churn Logic (OR logic):** WEEKS_ACTIVE ≤ 2 OR (Growth ≤ -99% AND Achievement < 5%) OR (PASSIVE AND Achievement < 1%) OR ZSCORE_SV < -1.2.
 * **Churn Detection Results:** 6 merchants flagged (Sushi Tei, Kimia Farma, Hokben, Banban Tea, Popeyes, Optik Melawai).
 
-## 🖥️ STREAMLIT APPLICATION LOGIC (Updated)
+## 🖥️ STREAMLIT APPLICATION LOGIC (Updated Mar 2026)
 *The architecture relies on headless execution of Excel COM objects to interact safely with legacy corporate files without destroying built-in formulas or pivot structures.*
-* **`app.py`:** Handles page routing and sidebar navigation.
+* **`app.py`:** Main entry point with modern `st.navigation`. Prioritizes **ANALYTICS** as the landing page. Integrates a sidebar-top branding header and a native theme toggle switch.
 * **Page 1 (MID Cleaner):** Ingests Master Reference, processes regex/dictionary mapping.
 * **Page 2 (Card Share Processor):** Uses `win32com.client` to parse and safely merge new transaction data natively via temporary files. 
 * **Page 3 (Monitoring Processor):** Flattens and structures new wide-format CSV files against the Master Monitoring `.xlsx` target.
   * **Critical:** Overrides `PARAMETER!X2` ceiling natively via COM to adapt to the dataset length, preventing `=U14+18` equations from returning `#VALUE!` past Week 11.
-* **Page 4 (Dashboard):** Reads from `staging.db` to visualize Card Share telemetry, re-compute the K-Means logic dynamically, and alert PMs to the multi-layer Anomaly detection system.
-  * *Card Share:* Avoids trailing `Dec-26` duplication via explicit row logic. Extracts `Realisasi` sheets dynamically for Top/Bottom MoM and YoY growth (TRX, SV, FBI).
-  * *Monitoring:* Discards implicit Excel integer rows and extracts Week columns `W01` to `W53` implicitly from `Week-XX` strings. Coerces data directly to numeric arrays (`pd.to_numeric()`) to power Heatmaps and Trend graphs. Utilizes `mtime` as a Streamlit cache invalidator against `@st.cache_data` preventing stale data rendering.
+* **Page 4 (Dashboard):** Decision Intelligence hub with real-time telemetry.
+  * *Theme Engine:* Dynamic palette switching (Dark Navy/Gold vs Warm Cream) handled via `utils/theme.py`.
+  * *Card Share:* Extracts `Realisasi` sheets for MoM and YoY growth. Features unit-aware formatting (`Rp X.XM/Jt`).
+  * *Monitoring:* Implements `NAME` forward-fill to capture all 2026/2025/2024 trends. Includes a "Chart Entity Filter" to selectively visualize PMs or Merchants, preventing Plotly clutter.
+  * *KPIs:* Uses smart Juta-level scaling for consistent reporting (e.g. `Rp 351.7M` vs `Rp 0.00M` errors).
 
 ## 🐛 RECENT BUG FIXES & ARCHITECTURE UPGRADES
-* **Week 11 Invisible Ceiling (`master_monitoring.xlsx`):** Discovered the Master file possessed a hidden `X2` parameter hardcoded to 11. Implemented a Python automation override to natively bump this threshold based on uploaded CSV length, resolving `#VALUE!` cascade crashes across the `PerMerchant` aggregations.
-* **Streamlit Caching Ghost Data (`@st.cache_data`):** The dashboard previously held stale data in memory after Excel updates. Injected `os.path.getmtime(PATH_MON)` into the caching signature to cleanly invalidate the memory states whenever the Python COM processor touched the Master files.
-* **String Coercion (`PerMerchant` DataFrame):** Weekly visualizations completely collapsed if Excel cell formulas yielded `""` empty strings. Forced `pd.to_numeric(errors='coerce').fillna(0)` over all 53 weeks upon initial parsing.
-* **Data Growth Analytics (`Realisasi`):** Wrote a bespoke `parse_realisasi` pipeline inside `4_Dashboard.py` pulling MoM and YoY Delta/Growth percentages for SV, TRX, and FBI dynamically using the underlying `Realisasi` history since the SQLite staging DB rolled up values strictly to YTD limits.
+* **Missing Heatmap Rows:** Fixed a parsing bug where rows with empty names (inheriting from the block header) were dropped. Implemented `NAME.ffill()` in `parse_monitoring_sheet`.
+* **Plotly Chart Clutter:** Added entity-level multiselect filters for the Weekly Trend and Heatmap charts to allow focused analysis of specific PMs/Merchants.
+* **Unit Mismatch (Juta vs Rupiah):** Monitoring Excel values are in Millions (Juta). Updated KPIs and Trend charts to use `_fmt_juta()` for correct Triliun/Milyar/Juta scaling.
+* **Streamlit Table Rendering:** Resolved a CSS conflict that caused `st.dataframe` to appear blank. Narrowed global CSS selectors to exempt the Glide data grid canvas.
+* **Navigation Restructure:** Reordered pages to lead with Visualizations, moved settings to the final tab, and replaced the button toggle with a modern switch.
