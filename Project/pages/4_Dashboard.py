@@ -517,14 +517,14 @@ with tab1:
             # Format display dataframe
             disp_top = df_top[['MERCHANT_GROUP', 'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'AVG_TRX_VAL', 'FBI_YIELD', 'RASIO_ONUS']].copy()
             
-            # Add formatted strings
+            # Add formatted strings (keys match col_names / _disp_top)
             format_dict = {
-                'TOTAL_SV': lambda x: f"Rp {x/1e9:,.2f} M",
-                'TOTAL_FBI': lambda x: f"Rp {x/1e6:,.1f} Jt",
-                'TOTAL_TRX': lambda x: f"{x:,.0f}",
-                'AVG_TRX_VAL': lambda x: f"Rp {x:,.0f}",
-                'FBI_YIELD': lambda x: f"{x:.4f}%",
-                'RASIO_ONUS': lambda x: f"{x*100:.1f}%"
+                'Sales Volume': lambda x: f"Rp {x/1e9:,.2f} M",
+                'Fee Based Income': lambda x: f"Rp {x/1e6:,.1f} Jt",
+                'Transactions': lambda x: f"{x:,.0f}",
+                'Avg Trx Size': lambda x: f"Rp {x:,.0f}",
+                'FBI Yield': lambda x: f"{x:.4f}%",
+                'On-Us Ratio': lambda x: f"{x*100:.1f}%",
             }
             
             col_names = {
@@ -537,8 +537,11 @@ with tab1:
                 'RASIO_ONUS': 'On-Us Ratio'
             }
             
+            _disp_top = disp_top.rename(columns=col_names)
             st.dataframe(
-                disp_top.rename(columns=col_names).style.format(format_dict).background_gradient(cmap='Blues', subset=['Sales Volume', 'Transactions']).background_gradient(cmap='Greens', subset=['Fee Based Income', 'FBI Yield']),
+                _disp_top.style.format(format_dict)
+                .background_gradient(cmap='Blues', subset=['Sales Volume', 'Transactions'])
+                .background_gradient(cmap='Greens', subset=['Fee Based Income', 'FBI Yield']),
                 use_container_width=True, height=min(38 * len(disp_top) + 40, 500)
             )
 
