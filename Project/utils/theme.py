@@ -120,33 +120,68 @@ def _make_css(p: dict) -> str:
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
+/* ══════════════════════════════════════════════════════════════════════════
+   LAYER 1 — CSS CUSTOM PROPERTIES (single source of truth for all colors)
+   Python re-injects this block on every theme toggle. Every downstream
+   var() reference auto-updates — no hardcoded hex in rules below.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root {{
+    /* Streamlit native var overrides — ensures native components inherit theme */
+    --background-color:            {BG};
+    --secondary-background-color:  {SURFACE};
+    --text-color:                  {TEXT_PRI};
+    --primary-color:               {GOLD};
+
+    /* BTN brand palette tokens */
+    --btn-bg:        {BG};
+    --btn-surface:   {SURFACE};
+    --btn-surface2:  {SURFACE2};
+    --btn-border:    {BORDER};
+    --btn-text-pri:  {TEXT_PRI};
+    --btn-text-sec:  {TEXT_SEC};
+    --btn-navy:      {NAVY};
+    --btn-navy2:     {NAVY2};
+    --btn-gold:      {GOLD};
+    --btn-gold-dim:  {GOLD_DIM};
+    --btn-green:     {GREEN};
+    --btn-red:       {RED};
+    --btn-amber:     {AMBER};
+    --btn-blue:      {BLUE_ACC};
+    --btn-sidebar:   {SIDEBAR_BG};
+    --btn-alert-bg:  {ALERT_BG};
+    --btn-dropdown:  {DROP_BG};
+    --btn-scroll:    {SCROLL};
+}}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LAYER 2 — STRUCTURAL RULES  (var() only — zero hardcoded hex)
+   ══════════════════════════════════════════════════════════════════════════ */
+
 *, *::before, *::after {{ box-sizing: border-box; }}
 html, body {{
     font-family: 'Inter', -apple-system, sans-serif;
-    background-color: {BG} !important;
-    color: {TEXT_PRI} !important;
+    background-color: var(--btn-bg) !important;
+    color: var(--btn-text-pri) !important;
 }}
-/* Theme text — targeted selectors so we don't break Glide data grid */
+
 .stApp, [data-testid="stAppViewContainer"],
 [data-testid="block-container"],
 [data-testid="stMarkdown"],
 [data-testid="stText"],
 .stMarkdown, .stText, p, h1, h2, h3, h4, h5, h6, span, li, label {{
-    color: {TEXT_PRI} !important;
+    color: var(--btn-text-pri) !important;
     font-family: 'Inter', -apple-system, sans-serif;
 }}
 
 /* ── Sidebar ── */
 [data-testid="stSidebar"] {{
-    background: {SIDEBAR_BG} !important;
-    border-right: 1px solid {NAVY2} !important;
+    background: var(--btn-sidebar) !important;
+    border-right: 1px solid var(--btn-navy2) !important;
 }}
-[data-testid="stSidebar"] * {{ color: #E8EDF5 !important; }}
-[data-testid="stSidebar"] [data-testid="stSidebarNav"] li a {{
-    border-radius: 8px; transition: background 0.2s;
-}}
-[data-testid="stSidebar"] [data-testid="stSidebarNav"] li a:hover {{
-    background: rgba(240,190,72,0.12) !important;
+[data-testid="stSidebar"] div,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] span {{
+    color: #E8EDF5;  /* intentionally fixed — sidebar is always dark navy */
 }}
 
 /* ── Main background ── */
@@ -154,49 +189,49 @@ html, body {{
 [data-testid="stAppViewContainer"],
 .stApp,
 [data-testid="block-container"] {{
-    background-color: {BG} !important;
+    background-color: var(--btn-bg) !important;
 }}
 [data-testid="stHeader"] {{
-    background: {BG} !important;
-    border-bottom: 1px solid {BORDER};
+    background: var(--btn-bg) !important;
+    border-bottom: 1px solid var(--btn-border);
 }}
 
 /* ── Metric cards ── */
 [data-testid="metric-container"] {{
-    background: {SURFACE} !important;
-    border: 1px solid {BORDER} !important;
+    background: var(--btn-surface) !important;
+    border: 1px solid var(--btn-border) !important;
     border-radius: 12px !important;
     padding: 16px !important;
     box-shadow: 0 2px 12px rgba(0,0,0,0.2) !important;
 }}
 [data-testid="metric-container"] label {{
-    color: {TEXT_SEC} !important; font-size: 0.78rem !important;
+    color: var(--btn-text-sec) !important; font-size: 0.78rem !important;
 }}
 [data-testid="metric-container"] [data-testid="stMetricValue"] {{
-    color: {TEXT_PRI} !important; font-size: 1.2rem !important; font-weight: 700 !important;
+    color: var(--btn-text-pri) !important; font-size: 1.2rem !important; font-weight: 700 !important;
 }}
 
 /* ── Tabs ── */
 [data-testid="stTabs"] [data-baseweb="tab-list"] {{
-    background: {SURFACE} !important;
-    border-radius: 12px; border: 1px solid {BORDER}; padding: 4px; gap: 2px;
+    background: var(--btn-surface) !important;
+    border-radius: 12px; border: 1px solid var(--btn-border); padding: 4px; gap: 2px;
 }}
 [data-testid="stTabs"] [data-baseweb="tab"] {{
-    background: transparent !important; color: {TEXT_SEC} !important;
+    background: transparent !important; color: var(--btn-text-sec) !important;
     border-radius: 9px !important; font-weight: 500 !important;
     font-size: 0.85rem !important; padding: 8px 16px !important; transition: all 0.2s;
 }}
 [data-testid="stTabs"] [aria-selected="true"] {{
-    background: linear-gradient(135deg, {NAVY2}, {NAVY}) !important;
-    color: {GOLD} !important; font-weight: 700 !important;
+    background: linear-gradient(135deg, var(--btn-navy2), var(--btn-navy)) !important;
+    color: var(--btn-gold) !important; font-weight: 700 !important;
     box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
 }}
 [data-testid="stTabs"] [data-baseweb="tab-highlight"] {{ display: none !important; }}
 
 /* ── Buttons ── */
 [data-testid="stButton"] > button[kind="primary"] {{
-    background: linear-gradient(135deg, {GOLD_DIM}, {GOLD}) !important;
-    color: {NAVY} !important; border: none !important; font-weight: 700 !important;
+    background: linear-gradient(135deg, var(--btn-gold-dim), var(--btn-gold)) !important;
+    color: var(--btn-navy) !important; border: none !important; font-weight: 700 !important;
     border-radius: 8px !important; transition: all 0.2s;
     box-shadow: 0 2px 8px rgba(184,134,11,0.35) !important;
 }}
@@ -204,117 +239,99 @@ html, body {{
     transform: translateY(-1px); box-shadow: 0 4px 14px rgba(184,134,11,0.45) !important;
 }}
 [data-testid="stButton"] > button:not([kind="primary"]) {{
-    background: {SURFACE} !important; color: {TEXT_PRI} !important;
-    border: 1px solid {BORDER} !important; border-radius: 8px !important;
+    background: var(--btn-surface) !important; color: var(--btn-text-pri) !important;
+    border: 1px solid var(--btn-border) !important; border-radius: 8px !important;
 }}
 
 /* ── Inputs & Selects ── */
 [data-testid="stTextInput"] input,
 [data-baseweb="select"] > div:first-child,
 [data-baseweb="input"] input {{
-    background: {SURFACE} !important; color: {TEXT_PRI} !important;
-    border-color: {BORDER} !important; border-radius: 8px !important;
+    background: var(--btn-surface) !important; color: var(--btn-text-pri) !important;
+    border-color: var(--btn-border) !important; border-radius: 8px !important;
 }}
 [data-baseweb="popover"] [data-baseweb="menu"] {{
-    background: {DROP_BG} !important; border: 1px solid {BORDER} !important;
+    background: var(--btn-dropdown) !important; border: 1px solid var(--btn-border) !important;
 }}
-[data-baseweb="option"] {{ color: {TEXT_PRI} !important; background: {DROP_BG} !important; }}
-[data-baseweb="option"]:hover {{ background: {NAVY2} !important; color: #E8EDF5 !important; }}
+[data-baseweb="option"] {{ color: var(--btn-text-pri) !important; background: var(--btn-dropdown) !important; }}
+[data-baseweb="option"]:hover {{ background: var(--btn-navy2) !important; color: #E8EDF5 !important; }}
 
 /* ── File uploader ── */
 [data-testid="stFileUploader"] {{
-    background: {SURFACE} !important; border: 2px dashed {BORDER} !important;
+    background: var(--btn-surface) !important; border: 2px dashed var(--btn-border) !important;
     border-radius: 12px !important; padding: 8px !important;
 }}
-[data-testid="stFileUploader"]:hover {{ border-color: {GOLD_DIM} !important; }}
+[data-testid="stFileUploader"]:hover {{ border-color: var(--btn-gold-dim) !important; }}
 
-/* ── Data tables (Glide Data Editor) ── */
+/* ── Data tables ── */
 [data-testid="stDataFrame"] {{
-    border: 1px solid {BORDER} !important; border-radius: 10px !important; overflow: hidden;
+    border: 1px solid var(--btn-border) !important; border-radius: 10px !important; overflow: hidden;
 }}
-[data-testid="stDataFrame"] > div {{
-    background: {SURFACE} !important;
-}}
+[data-testid="stDataFrame"] > div {{ background: var(--btn-surface) !important; }}
 
 /* ── Expanders ── */
 [data-testid="stExpander"] {{
-    background: {SURFACE} !important; border: 1px solid {BORDER} !important;
+    background: var(--btn-surface) !important; border: 1px solid var(--btn-border) !important;
     border-radius: 10px !important;
 }}
 
 /* ── Alerts ── */
 [data-testid="stAlert"] {{
-    background: {ALERT_BG} !important; border-radius: 10px !important;
-    border-left-width: 4px !important; color: {TEXT_PRI} !important;
+    background: var(--btn-alert-bg) !important; border-radius: 10px !important;
+    border-left-width: 4px !important; color: var(--btn-text-pri) !important;
 }}
 
-/* ── Divider ── */
-hr {{ border-color: {BORDER} !important; opacity: 0.5; }}
-
-/* ── Scrollbar ── */
+/* ── Divider / Scrollbar ── */
+hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
-::-webkit-scrollbar-track {{ background: {BG}; }}
-::-webkit-scrollbar-thumb {{ background: {SCROLL}; border-radius: 3px; }}
+::-webkit-scrollbar-track {{ background: var(--btn-bg); }}
+::-webkit-scrollbar-thumb {{ background: var(--btn-scroll); border-radius: 3px; }}
 
-/* ── Radio / Checkbox / Toggle ── */
-[data-testid="stRadio"] label {{ color: {TEXT_PRI} !important; }}
-[data-testid="stCheckbox"] label {{ color: {TEXT_PRI} !important; }}
-[data-testid="stToggle"] label {{ color: {TEXT_PRI} !important; }}
-
-/* ── Multiselect chips ── */
-[data-testid="stMultiSelect"] span {{ color: {TEXT_PRI} !important; }}
-[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
-    background: {GOLD_DIM} !important; color: #fff !important;
-    border-radius: 16px !important;
+/* ── Form controls ── */
+[data-testid="stRadio"] label, [data-testid="stCheckbox"] label,
+[data-testid="stToggle"] label, [data-testid="stSlider"] label,
+[data-testid="stSelectbox"] label, [data-testid="stMultiSelect"] span {{
+    color: var(--btn-text-pri) !important;
 }}
-
-/* ── Slider ── */
-[data-testid="stSlider"] label {{ color: {TEXT_PRI} !important; }}
 [data-testid="stSlider"] [data-testid="stTickBarMin"],
-[data-testid="stSlider"] [data-testid="stTickBarMax"] {{ color: {TEXT_SEC} !important; }}
-
-/* ── Selectbox label ── */
-[data-testid="stSelectbox"] label {{ color: {TEXT_PRI} !important; }}
-
-/* ── Expander summary ── */
-[data-testid="stExpander"] summary span {{ color: {TEXT_PRI} !important; }}
-
-/* ── Download button ── */
-[data-testid="stDownloadButton"] > button {{
-    background: {SURFACE} !important; color: {TEXT_PRI} !important;
-    border: 1px solid {BORDER} !important; border-radius: 8px !important;
+[data-testid="stSlider"] [data-testid="stTickBarMax"] {{ color: var(--btn-text-sec) !important; }}
+[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
+    background: var(--btn-gold-dim) !important; color: #fff !important; border-radius: 16px !important;
 }}
-
-/* ── Spinner ── */
-[data-testid="stSpinner"] {{ color: {TEXT_SEC} !important; }}
+[data-testid="stExpander"] summary span {{ color: var(--btn-text-pri) !important; }}
+[data-testid="stDownloadButton"] > button {{
+    background: var(--btn-surface) !important; color: var(--btn-text-pri) !important;
+    border: 1px solid var(--btn-border) !important; border-radius: 8px !important;
+}}
+[data-testid="stSpinner"] {{ color: var(--btn-text-sec) !important; }}
 
 /* ════════════════════════════════════════════════════
-   CUSTOM COMPONENT CLASSES
+   CUSTOM COMPONENT CLASSES  (var() only)
    ════════════════════════════════════════════════════ */
 
 .page-header {{
     display: flex; align-items: center; gap: 12px;
     padding: 18px 0 16px 0;
-    border-bottom: 2px solid {GOLD_DIM}; margin-bottom: 24px;
+    border-bottom: 2px solid var(--btn-gold-dim); margin-bottom: 24px;
 }}
 .page-header h1 {{
     font-size: 1.65rem; font-weight: 800;
-    background: linear-gradient(90deg, {TEXT_PRI}, {GOLD});
+    background: linear-gradient(90deg, var(--btn-text-pri), var(--btn-gold));
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;
 }}
 .page-header .subtitle {{
-    font-size: 0.82rem; color: {TEXT_SEC}; margin-top: 3px;
+    font-size: 0.82rem; color: var(--btn-text-sec); margin-top: 3px;
 }}
 
 .section-label {{
     font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em;
-    text-transform: uppercase; color: {GOLD_DIM};
-    border-left: 3px solid {GOLD}; padding-left: 10px; margin: 22px 0 12px 0;
+    text-transform: uppercase; color: var(--btn-gold-dim);
+    border-left: 3px solid var(--btn-gold); padding-left: 10px; margin: 22px 0 12px 0;
 }}
 
 .kpi-card {{
-    background: linear-gradient(135deg, {SURFACE} 0%, {SURFACE2} 100%);
-    border: 1px solid {BORDER}; border-radius: 14px; padding: 20px 18px;
+    background: linear-gradient(135deg, var(--btn-surface) 0%, var(--btn-surface2) 100%);
+    border: 1px solid var(--btn-border); border-radius: 14px; padding: 20px 18px;
     box-shadow: 0 4px 18px rgba(0,0,0,.25);
     transition: transform 0.2s, box-shadow 0.2s;
     position: relative; overflow: hidden; text-align: center;
@@ -322,70 +339,166 @@ hr {{ border-color: {BORDER} !important; opacity: 0.5; }}
 .kpi-card:hover {{ transform: translateY(-2px); box-shadow: 0 6px 22px rgba(0,0,0,.35); }}
 .kpi-card::before {{
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-    background: linear-gradient(90deg, {GOLD_DIM}, {GOLD});
+    background: linear-gradient(90deg, var(--btn-gold-dim), var(--btn-gold));
 }}
 .kpi-card .kpi-val {{
-    font-size: 1.75rem; font-weight: 800; color: {GOLD};
+    font-size: 1.75rem; font-weight: 800; color: var(--btn-gold);
     line-height: 1.1; margin-bottom: 5px;
 }}
 .kpi-card .kpi-lbl {{
-    font-size: 0.74rem; color: {TEXT_SEC}; text-transform: uppercase; letter-spacing: 0.06em;
+    font-size: 0.74rem; color: var(--btn-text-sec); text-transform: uppercase; letter-spacing: 0.06em;
 }}
-.kpi-card.danger::before  {{ background: linear-gradient(90deg, #7f1d1d, {RED}); }}
-.kpi-card.danger .kpi-val {{ color: {RED}; }}
-.kpi-card.success::before {{ background: linear-gradient(90deg, #14532d, {GREEN}); }}
-.kpi-card.success .kpi-val {{ color: {GREEN}; }}
-.kpi-card.accent::before  {{ background: linear-gradient(90deg, #1e3a8a, {BLUE_ACC}); }}
-.kpi-card.accent .kpi-val {{ color: {BLUE_ACC}; }}
+.kpi-card.danger::before  {{ background: linear-gradient(90deg, #7f1d1d, var(--btn-red)); }}
+.kpi-card.danger .kpi-val {{ color: var(--btn-red); }}
+.kpi-card.success::before {{ background: linear-gradient(90deg, #14532d, var(--btn-green)); }}
+.kpi-card.success .kpi-val {{ color: var(--btn-green); }}
+.kpi-card.accent::before  {{ background: linear-gradient(90deg, #1e3a8a, var(--btn-blue)); }}
+.kpi-card.accent .kpi-val {{ color: var(--btn-blue); }}
 
 .tab-desc {{
-    background: {SURFACE2}; border-left: 4px solid {GOLD_DIM};
+    background: var(--btn-surface2); border-left: 4px solid var(--btn-gold-dim);
     padding: 10px 16px; border-radius: 8px;
-    font-size: 0.85rem; color: {TEXT_SEC}; margin-bottom: 18px;
+    font-size: 0.85rem; color: var(--btn-text-sec); margin-bottom: 18px;
 }}
 
 .filter-pill {{
     display: inline-block; background: rgba(184,134,11,.12);
-    border: 1px solid {GOLD_DIM}; border-radius: 20px; padding: 4px 14px;
-    font-size: 0.78rem; color: {GOLD}; margin-bottom: 14px; font-weight: 600;
+    border: 1px solid var(--btn-gold-dim); border-radius: 20px; padding: 4px 14px;
+    font-size: 0.78rem; color: var(--btn-gold); margin-bottom: 14px; font-weight: 600;
 }}
 
 .status-badge {{
-    display: inline-block; border-radius: 6px;
-    padding: 3px 10px; font-size: 0.75rem; font-weight: 600;
+    display: inline-block; border-radius: 6px; padding: 3px 10px;
+    font-size: 0.75rem; font-weight: 600;
 }}
-.status-badge.ok   {{ background: rgba(34,197,94,.15);  color: {GREEN}; border: 1px solid rgba(34,197,94,.3); }}
-.status-badge.err  {{ background: rgba(239,68,68,.15);   color: {RED};   border: 1px solid rgba(239,68,68,.3); }}
-.status-badge.warn {{ background: rgba(245,158,11,.15);  color: {AMBER}; border: 1px solid rgba(245,158,11,.3); }}
+.status-badge.ok   {{ background: rgba(34,197,94,.15);  color: var(--btn-green); border: 1px solid rgba(34,197,94,.3); }}
+.status-badge.err  {{ background: rgba(239,68,68,.15);   color: var(--btn-red);   border: 1px solid rgba(239,68,68,.3); }}
+.status-badge.warn {{ background: rgba(245,158,11,.15);  color: var(--btn-amber); border: 1px solid rgba(245,158,11,.3); }}
 
 .config-card {{
-    background: linear-gradient(135deg, {SURFACE}, {SURFACE2});
-    border: 1px solid {BORDER}; border-radius: 14px; padding: 22px 20px;
+    background: linear-gradient(135deg, var(--btn-surface), var(--btn-surface2));
+    border: 1px solid var(--btn-border); border-radius: 14px; padding: 22px 20px;
     height: 100%; box-shadow: 0 4px 14px rgba(0,0,0,.25);
     position: relative; overflow: hidden;
 }}
 .config-card::before {{
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-    background: linear-gradient(90deg, {GOLD_DIM}, {GOLD});
+    background: linear-gradient(90deg, var(--btn-gold-dim), var(--btn-gold));
 }}
-.config-card h3 {{ font-size: 1rem; font-weight: 700; color: {TEXT_PRI}; margin: 0 0 12px 0; }}
+.config-card h3 {{ font-size: 1rem; font-weight: 700; color: var(--btn-text-pri); margin: 0 0 12px 0; }}
 
-/* Status strip card */
 .status-strip {{
-    background: {SURFACE}; border: 1px solid {BORDER};
+    background: var(--btn-surface); border: 1px solid var(--btn-border);
     border-radius: 12px; padding: 14px 18px;
     display: flex; align-items: center; gap: 10px;
 }}
 .status-strip .ss-icon {{ font-size: 1.4rem; }}
 .status-strip .ss-label {{
-    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: {TEXT_SEC};
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--btn-text-sec);
 }}
 .status-strip .ss-value {{
-    font-size: 0.9rem; font-weight: 700; color: {TEXT_PRI}; margin-top: 2px;
+    font-size: 0.9rem; font-weight: 700; color: var(--btn-text-pri); margin-top: 2px;
 }}
-.status-strip.ok   {{ border-left: 4px solid {GREEN}; }}
-.status-strip.err  {{ border-left: 4px solid {RED}; }}
-.status-strip.warn {{ border-left: 4px solid {AMBER}; }}
+.status-strip.ok   {{ border-left: 4px solid var(--btn-green); }}
+.status-strip.err  {{ border-left: 4px solid var(--btn-red); }}
+.status-strip.warn {{ border-left: 4px solid var(--btn-amber); }}
+
+/* ── Pipeline Stepper ── */
+.pipeline-stepper {{
+    display: flex; align-items: flex-start; gap: 0; margin: 24px 0 28px 0;
+    background: var(--btn-surface); border: 1px solid var(--btn-border);
+    border-radius: 14px; padding: 20px 24px; overflow-x: auto;
+}}
+.step-item {{
+    display: flex; flex-direction: column; align-items: center;
+    flex: 1; min-width: 110px; position: relative;
+}}
+.step-item:not(:last-child)::after {{
+    content: ''; position: absolute; top: 20px; left: calc(50% + 22px);
+    right: calc(-50% + 22px); height: 2px; background: var(--btn-border); z-index: 0;
+}}
+.step-item.complete:not(:last-child)::after {{ background: var(--btn-green); }}
+.step-item.active:not(:last-child)::after   {{ background: var(--btn-gold-dim); }}
+.step-circle {{
+    width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--btn-border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; font-weight: 700; background: var(--btn-surface2);
+    color: var(--btn-text-sec); position: relative; z-index: 1; transition: all 0.25s;
+}}
+.step-item.complete .step-circle {{
+    background: var(--btn-green); border-color: var(--btn-green); color: #fff;
+}}
+.step-item.active .step-circle {{
+    background: linear-gradient(135deg, var(--btn-gold-dim), var(--btn-gold));
+    border-color: var(--btn-gold); color: var(--btn-navy);
+    box-shadow: 0 0 0 4px rgba(240,190,72,0.2);
+}}
+.step-label {{
+    margin-top: 8px; font-size: 0.72rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--btn-text-sec); text-align: center; line-height: 1.3;
+}}
+.step-item.active .step-label  {{ color: var(--btn-gold); }}
+.step-item.complete .step-label {{ color: var(--btn-green); }}
+
+/* ── Info Chip ── */
+.info-chip {{
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 20px; font-size: 0.73rem;
+    font-weight: 700; letter-spacing: 0.05em;
+}}
+.info-chip.production {{ background: rgba(52,211,153,.12); color: var(--btn-green); border: 1px solid rgba(52,211,153,.3); }}
+.info-chip.staging    {{ background: rgba(251,191,36,.12);  color: var(--btn-amber); border: 1px solid rgba(251,191,36,.3); }}
+.info-chip.neutral    {{ background: var(--btn-surface2); color: var(--btn-text-sec); border: 1px solid var(--btn-border); }}
+
+/* ── Prerequisite Checklist ── */
+.prereq-card {{
+    background: var(--btn-surface); border: 1px solid var(--btn-border);
+    border-radius: 12px; padding: 16px 18px; margin-bottom: 14px;
+}}
+.prereq-row {{
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 0; border-bottom: 1px solid var(--btn-border);
+    font-size: 0.88rem; color: var(--btn-text-pri);
+}}
+.prereq-row:last-child {{ border-bottom: none; }}
+.prereq-row .prereq-icon {{ font-size: 1.1rem; min-width: 24px; }}
+
+/* ── Stale Data Banner ── */
+.stale-banner {{
+    background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.3);
+    border-left: 4px solid var(--btn-amber); border-radius: 10px;
+    padding: 10px 16px; margin-bottom: 16px;
+    display: flex; align-items: flex-start; gap: 10px;
+    font-size: 0.84rem; color: var(--btn-amber);
+}}
+.stale-banner strong {{ color: var(--btn-amber); }}
+
+/* ── Sidebar App Header ── */
+.sidebar-app-header {{
+    padding: 16px 12px 14px 12px;
+    border-bottom: 1px solid rgba(43,68,112,0.7);
+    margin-bottom: 10px;
+}}
+.sidebar-app-header .app-name {{
+    font-size: 1.05rem; font-weight: 800; color: #E8EDF5;
+    line-height: 1.2;
+}}
+.sidebar-app-header .app-sub {{
+    font-size: 0.7rem; color: #7B96BC; margin-top: 2px; letter-spacing: 0.04em;
+}}
+
+/* ── KPI Shimmer animation on hover ── */
+@keyframes shimmer {{
+    0%   {{ background-position: -200px 0; }}
+    100% {{ background-position: calc(200px + 100%) 0; }}
+}}
+.kpi-card:hover::after {{
+    content: ''; position: absolute; inset: 0; border-radius: 14px;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%);
+    background-size: 200px 100%; animation: shimmer 1.5s infinite;
+    pointer-events: none;
+}}
 </style>
 """
 
@@ -432,6 +545,47 @@ def section_label(text: str):
     st.markdown(f'<div class="section-label">{text}</div>', unsafe_allow_html=True)
 
 
+def section_header(icon: str, title: str, subtitle: str = "", accent_color: str = None):
+    """
+    Large, visually distinct section header for separating major data blocks.
+    Renders a gradient card with icon, bold title, and optional subtitle.
+    """
+    p     = _palette()
+    color = accent_color or p["GOLD"]
+    surf  = p["SURFACE"]
+    surf2 = p["SURFACE2"]
+    txt   = p["TEXT_PRI"]
+    txt2  = p["TEXT_SEC"]
+    sub_html = (
+        f'<div style="font-size:0.8rem;color:{txt2};margin-top:3px;">{subtitle}</div>'
+        if subtitle else ""
+    )
+    html = (
+        '<div style="display:flex;align-items:center;gap:14px;'
+        'margin:28px 0 14px 0;padding:14px 20px;'
+        f'background:linear-gradient(135deg,{surf} 0%,{surf2} 100%);'
+        f'border-radius:12px;border-left:4px solid {color};'
+        'box-shadow:0 2px 10px rgba(0,0,0,.15);">'
+        f'<span style="font-size:1.8rem;line-height:1;">{icon}</span>'
+        '<div>'
+        f'<div style="font-size:1.05rem;font-weight:800;color:{txt};letter-spacing:0.03em;">{title}</div>'
+        f'{sub_html}'
+        '</div>'
+        '</div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def styled_divider():
+    """Gradient horizontal rule — replaces plain st.markdown('---')."""
+    p = _palette()
+    st.markdown(
+        f'<div style="height:1px;background:linear-gradient(90deg,{p["GOLD_DIM"]},transparent);'
+        f'margin:22px 0 8px 0;"></div>',
+        unsafe_allow_html=True,
+    )
+
+
 def kpi_card(value: str, label: str, kind: str = "default") -> str:
     cls = f"kpi-card {kind}" if kind != "default" else "kpi-card"
     return f'<div class="{cls}"><div class="kpi-val">{value}</div><div class="kpi-lbl">{label}</div></div>'
@@ -472,3 +626,86 @@ def apply_plotly_theme(fig):
     fig.update_xaxes(showgrid=False, color=p["TEXT_SEC"], linecolor=p["BORDER"], zerolinecolor=p["BORDER"])
     fig.update_yaxes(gridcolor=p["BORDER"], color=p["TEXT_SEC"], linecolor=p["BORDER"], zerolinecolor=p["BORDER"])
     return fig
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# NEW HELPER COMPONENTS
+# ──────────────────────────────────────────────────────────────────────────────
+
+def pipeline_stepper(steps: list, current_step: int):
+    """
+    Render a horizontal visual stepper.
+    steps: list of (icon, label) tuples
+    current_step: 0-based index of the active step (-1 = not started, len(steps) = all done)
+    """
+    items = []
+    for i, (icon, label) in enumerate(steps):
+        if i < current_step:
+            state = "complete"
+            circle_content = "✓"
+        elif i == current_step:
+            state = "active"
+            circle_content = icon
+        else:
+            state = "pending"
+            circle_content = str(i + 1)
+        items.append(
+            f'<div class="step-item {state}">'
+            f'<div class="step-circle">{circle_content}</div>'
+            f'<div class="step-label">{label}</div>'
+            f'</div>'
+        )
+    st.markdown(
+        f'<div class="pipeline-stepper">{" ".join(items)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def info_chip(label: str, kind: str = "neutral") -> str:
+    """
+    Return HTML for a small pill chip.
+    kind: 'production' | 'staging' | 'neutral'
+    """
+    icons = {"production": "🟢", "staging": "🟡", "neutral": "⚪"}
+    icon = icons.get(kind, "⚪")
+    return f'<span class="info-chip {kind}">{icon} {label}</span>'
+
+
+def stale_data_banner(db_path: str = None, threshold_hours: int = 24):
+    """
+    Show a stale-data notice banner if the staging.db is older than threshold_hours.
+    Always shows if db_path is None (data came from Excel fallback).
+    """
+    import os
+    from datetime import datetime
+    p = _palette()
+
+    is_stale = True
+    age_str = "unknown age"
+
+    if db_path and os.path.exists(db_path):
+        mtime = os.path.getmtime(db_path)
+        age_h = (datetime.now().timestamp() - mtime) / 3600
+        is_stale = age_h > threshold_hours
+        if is_stale:
+            if age_h >= 24:
+                age_str = f"{age_h/24:.0f} day(s) ago"
+            else:
+                age_str = f"{age_h:.1f} hour(s) ago"
+
+    if is_stale:
+        st.markdown(
+            f"""
+<div class="stale-banner">
+  <span style="font-size:1.3rem;">⚠️</span>
+  <div>
+    <strong>You are viewing cached data</strong> — last updated {age_str}.<br>
+    <span style="color:{p['TEXT_SEC']};font-size:0.82rem;">
+      For the most current analytics, upload a new <code>staging.db</code> in
+      <b>🚀 Automated Pipeline</b> or refresh the Master Excel files in <b>⚙️ Global Settings</b>.
+    </span>
+  </div>
+</div>""",
+            unsafe_allow_html=True,
+        )
+    return is_stale

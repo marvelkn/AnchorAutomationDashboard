@@ -1,0 +1,22 @@
+[server]
+maxUploadSize = 2000
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BTN Anchor Dashboard — Premium Dark Theme
+#
+# Color rationale:
+#   primaryColor          → BTN Gold  (brand accent, buttons, active states)
+#   backgroundColor       → Deep Navy (immersive, professional dark canvas)
+#   secondaryBackgroundColor → Navy Surface (cards, sidebar, inputs)
+#   textColor             → Off-White (high-contrast, easy on eyes)
+#   font                  → "sans serif" (overridden to Inter via CSS @import)
+#
+# The app's Python toggle (theme_mode in session_state) re-injects themed
+# CSS variables on top of these defaults, enabling a smooth dark/light switch.
+# ─────────────────────────────────────────────────────────────────────────────
+[theme]
+primaryColor            = "#F0BE48"
+backgroundColor         = "#0D1520"
+secondaryBackgroundColor = "#1A2538"
+textColor               = "#EDF1F7"
+font                    = "sans serif"

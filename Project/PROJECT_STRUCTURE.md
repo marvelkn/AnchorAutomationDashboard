@@ -1,78 +1,39 @@
-# 🚀 MASTER PROJECT HANDOVER — BTN ETL, ML & Streamlit Pipeline
-> **Focus:** Technical Architecture, Codebase, Database Structure, and Machine Learning
-> **Last updated:** March 2026 (Reflects updated Streamlit structure)
+# 🚀 MASTER PROJECT HANDOVER: BTN Anchor ETL & Streamlit Pipeline
+> **State:** Development/Validation
+> **Last updated:** April 2026
 
-## 🔧 TECH STACK
-* **Data Processing:** Python, Pandas, Regular Expressions (Regex)
-* **Machine Learning:** Scikit-Learn (K-Means++), SciPy, NumPy (Z-Score + IQR)
-* **Database Layer:** SQLite (Built-in Python)
-* **Visualization/UI:** Streamlit, Plotly
-* **Excel Manipulation:** `win32com.client` (COM-interface for non-destructive Excel appending)
+## 🎯 PROJECT PURPOSE & ARCHITECTURE
+An automated Streamlit application and ETL pipeline designed to ingest, classify, and visualize EDC and QRIS merchant transaction data. The pipeline aggregates raw weekly/monthly database dumps into clean Card Share and Weekly Monitoring trend metrics for top-tier "Anchor" merchants, running K-Means clustering for anomaly/churn analytics.
 
-## 🗂️ PROJECT DIRECTORY STRUCTURE
-**Root (`Materi Sidang/`)**
-* `CARD_SHARE_MERCHANT_ANCHOR_2026.xlsx` & `Monitoring_Weekly_Anchor_2026.xlsx` (Raw data)
-* `SQL.txt` / `SQL.xlsx` (Exploratory scripts)
-* `Project/` (Main Application Directory)
+## 🗂️ CORE DIRECTORY (Inside `Project/`)
 
-**Inside `Project/`**
-* `AnchorData.ipynb`: Active Jupyter Notebook for EDA and prototyping.
-* `setup_database.py`: Foundational DDL script creating the star schema in `btn_anchor.db` and staging tables.
-* `01_extract_and_clean.py`: ETL Step 1 (Regex matching, cleaning, long-format pivoting).
-* `02_transform_and_ml.py`: ETL Step 2 (Log transform, scaling, K-Means++, Z-Score/IQR).
-* `03_load_to_datamart.py`: ETL Step 3 (Schema validation, tier labeling, YoY trends, PM summaries).
-* `app.py`: Main Streamlit application entry point.
-* **`pages/`** (Streamlit multipage apps):
-  * `1_MID_Cleaner.py`: Regex extraction and duplicate resolution.
-  * `2_Card_Share_Processor.py`: Excel ingestion using `win32com.client` to retain formulas/charts.
-  * `3_Monitoring_Processor.py`: Weekly matrix restructurer.
-  * `4_Dashboard.py`: Dynamic telemetry hub, live K-Means clustering, and anomaly alerts.
-* **`utils/`**: 
-  * `theme.py`: Centralized UI/UX engine managing Dark/Light mode palettes, dynamic CSS injection, and Plotly chart theming.
-* **`database/`**: `btn_anchor.db` (Target) and `staging.db` (Intermediate).
-* **`data/`**: Subfolders `raw/` and `real/` for hard-coded source files. Subfolder `master/` for tracking Master Excel templates.
-* **`output/`**: Generates `checkpoint_01_clean.csv`, `checkpoint_02_ml.csv`, `Data_Mart_Ready.csv`, `Summary_PM.csv`, and evaluation charts.
+### 1. Data Extraction (SQL) - *WHERE WE LEFT OFF*
+These queries extract raw metrics directly from the base database (`EDC_YYYYMM` & `QRIS_YYYYMM`). 
+*Note: We recently optimized these by replacing massive static CASE statements with dynamic MySQL arithmetic intervals and manual date filters.*
+* `1_fetch_mid_null.sql`: Scans monthly tables via `UNION ALL` for unclassified MIDs. Output feeds into `1_MID_Cleaner.py`.
+* `2_fetch_card_share.sql`: Efficiently aggregates volumes and fees conditionally grouped by `PAYMENT_TYPE` (ONUS/OFFUS).
+* `3_fetch_weekly_series.sql`: Pivots 7-day transaction intervals dynamically using `CEIL(DAYOFYEAR()/7.0)`.
 
-## 🏗️ ETL PIPELINE ARCHITECTURE (Python scripts)
-1. **Extract & Clean (`01_extract_and_clean.py`):**
-   * Applies regex to classify Anchor vs Retail merchants on the ALL MID List.
-   * Extracts data using the Anchor list as the JOIN key (using `MERCHANT_GROUP`, not MID).
-   * Standardizes text, pivots wide-to-long, aggregates totals (ONUS, OFFUS, CREDIT, QRIS).
-2. **Transform & ML (`02_transform_and_ml.py`):**
-   * Generates 6 features (AVG_SV, AVG_FBI, RASIO_ONUS, SV_GROWTH, ACHIEVEMENT_PCT, WEEKS_ACTIVE).
-   * Applies `log1p` to AVG_SV and AVG_FBI, then `StandardScaler`.
-   * Runs K-Means++ (K=3, n_init=50).
-   * Runs anomaly detection (Z-Score < -1.2 + IQR criteria).
-3. **Load (`03_load_to_datamart.py`):**
-   * Enriches data with `TIER_LABEL`, `GROWTH_STATUS`, `RISK_LABEL`.
-   * Outputs `Data_Mart_Ready.csv` (utf-8-sig) and `Summary_PM.csv`.
+### 2. Streamlit UI & Processing (`pages/`)
+The UI heavily relies on `win32com.client` alongside pandas for safe, non-destructive Excel manipulation (retaining macros/formulas).
+* `app.py`: Entry point emphasizing analytics and native theme toggling.
+* `pages/0_Master_Configuration.py`: Global environment setup and master template provisioning.
+* `pages/1_MID_Cleaner.py`: Regex-based categorization and duplicate resolution algorithm for unmapped MIDs.
+* `pages/2_Card_Share_Processor.py`: Ingests the SQL Card Share output, merging it into the legacy Excel template securely.
+* `pages/3_Monitoring_Processor.py`: Flattens the weekly SQL series against the master tracking template. Features a COM-level fix to override Excel formula bounds, preventing `#VALUE!` crashes.
+* `pages/4_Dashboard.py`: Dynamic telemetry hub. Displays live Plotly clusters, unit-aware YoY/MoM KPIs, and Churn detection.
+* `utils/theme.py`: Handles global CSS injection and dynamic UI palettes.
 
-## 📊 MACHINE LEARNING METRICS & RESULTS
-* **Algorithm:** K-Means++ (K=3)
-* **Metrics:** Silhouette (0.3253), Davies-Bouldin (1.0969), Calinski-Harabasz (18.39).
-* **Clusters:**
-  * PREMIUM (13 merchants, Avg SV 9.2B, e.g., MAP GROUP, INDOMARET)
-  * REGULER (20 merchants, Avg SV 264M)
-  * PASIF (5 merchants, Avg SV 1M, e.g., SUSHI TEI, POPEYES)
-* **Churn Logic (OR logic):** WEEKS_ACTIVE ≤ 2 OR (Growth ≤ -99% AND Achievement < 5%) OR (PASSIVE AND Achievement < 1%) OR ZSCORE_SV < -1.2.
-* **Churn Detection Results:** 6 merchants flagged (Sushi Tei, Kimia Farma, Hokben, Banban Tea, Popeyes, Optik Melawai).
+### 3. ML Analytics Engine (CLI Batch Scripts)
+* `01_extract_and_clean.py`: Standalone CLI pipeline extractor.
+* `02_transform_and_ml.py`: Scikit-Learn logic (K-Means++ K=3, Log-transform, Z-Score Anomaly & IQR churn detection).
+* `03_load_to_datamart.py`: Finalizes reporting attributes (e.g., `TIER_LABEL`, `RISK_LABEL`).
 
-## 🖥️ STREAMLIT APPLICATION LOGIC (Updated Mar 2026)
-*The architecture relies on headless execution of Excel COM objects to interact safely with legacy corporate files without destroying built-in formulas or pivot structures.*
-* **`app.py`:** Main entry point with modern `st.navigation`. Prioritizes **ANALYTICS** as the landing page. Integrates a sidebar-top branding header and a native theme toggle switch.
-* **Page 1 (MID Cleaner):** Ingests Master Reference, processes regex/dictionary mapping.
-* **Page 2 (Card Share Processor):** Uses `win32com.client` to parse and safely merge new transaction data natively via temporary files. 
-* **Page 3 (Monitoring Processor):** Flattens and structures new wide-format CSV files against the Master Monitoring `.xlsx` target.
-  * **Critical:** Overrides `PARAMETER!X2` ceiling natively via COM to adapt to the dataset length, preventing `=U14+18` equations from returning `#VALUE!` past Week 11.
-* **Page 4 (Dashboard):** Decision Intelligence hub with real-time telemetry.
-  * *Theme Engine:* Dynamic palette switching (Dark Navy/Gold vs Warm Cream) handled via `utils/theme.py`.
-  * *Card Share:* Extracts `Realisasi` sheets for MoM and YoY growth. Features unit-aware formatting (`Rp X.XM/Jt`).
-  * *Monitoring:* Implements `NAME` forward-fill to capture all 2026/2025/2024 trends. Includes a "Chart Entity Filter" to selectively visualize PMs or Merchants, preventing Plotly clutter.
-  * *KPIs:* Uses smart Juta-level scaling for consistent reporting (e.g. `Rp 351.7M` vs `Rp 0.00M` errors).
+### 4. Database & Storage (`database/` & `data/`)
+* `database/`: Contains `staging.db` (intermediate SQLite cache) and structural scripts (`upgrade_*_table.py`).
+* `data/master/`: The source-of-truth Excel templates (`master_mid.xlsx`, etc.). Features an automated `backups/` system that triggers before any destructive ETL writes.
+* `data/raw/` & `data/testing/`: Dump folders for CSV outputs (from the SQL extracts) and historic test sheets.
 
-## 🐛 RECENT BUG FIXES & ARCHITECTURE UPGRADES
-* **Missing Heatmap Rows:** Fixed a parsing bug where rows with empty names (inheriting from the block header) were dropped. Implemented `NAME.ffill()` in `parse_monitoring_sheet`.
-* **Plotly Chart Clutter:** Added entity-level multiselect filters for the Weekly Trend and Heatmap charts to allow focused analysis of specific PMs/Merchants.
-* **Unit Mismatch (Juta vs Rupiah):** Monitoring Excel values are in Millions (Juta). Updated KPIs and Trend charts to use `_fmt_juta()` for correct Triliun/Milyar/Juta scaling.
-* **Streamlit Table Rendering:** Resolved a CSS conflict that caused `st.dataframe` to appear blank. Narrowed global CSS selectors to exempt the Glide data grid canvas.
-* **Navigation Restructure:** Reordered pages to lead with Visualizations, moved settings to the final tab, and replaced the button toggle with a modern switch.
+## 🏁 NEXT ACTIONABLE STEPS
+* **Current Checkpoint:** The base SQL extraction layer has been completely refactored. You now have 3 highly optimized `.sql` scripts capable of accurately summarizing raw base data into the exact schema the Streamlit app expects. 
+* **To Do:** Execute these SQL scripts on your main database, export the resulting CSVs, and ingest them into the Streamlit pipeline (`1_MID_Cleaner.py` -> `2_Card_Share_Processor.py` -> `3_Monitoring_Processor.py`) to validate that the endpoints marry up perfectly.
