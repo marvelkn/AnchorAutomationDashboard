@@ -59,171 +59,95 @@ def table_exists(conn, name):
         f"SELECT count(name) FROM sqlite_master WHERE type='table' AND name='{name}'", conn
     ).iloc[0, 0] == 1
 
-# ── EXCEL PARSERS ────────────────────────────────────────────────────────────
+# ── MACHINE LEARNING ENGINE ───────────────────────────────────────────────────
 @st.cache_data
-def parse_highlight(path):
-    """Parse the Highlight sheet: merchant group monthly TRX/SV/FBI breakdown."""
+def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
+    """
+    Btn Anchor ML Pipeline:
+    1. Merge Card Share + Monitoring
+    2. Feature Engineering (Log Scaling + Clipping)
+    3. K-Means++ Clustering
+    4. Tri-Factor Z-Score Anomaly detection
+    """
+    if df_c.empty: return pd.DataFrame()
+    
+    # Merge datasets
+    if not df_m.empty:
+        # Monitoring is at Group level, Card is at Merchant/Group level
+        # We aggregate Group-level for ML
+        df = df_c.groupby('MERCHANT_GROUP').agg({
+            'TOTAL_SV':'sum', 'TOTAL_TRX':'sum', 'TOTAL_FBI':'sum', 'RASIO_ONUS':'mean'
+        }).reset_index()
+        df = pd.merge(df, df_m, on='MERCHANT_GROUP', how='left')
+    else:
+        df = df_c.copy()
+        
+    if df.empty: return df
+    
+    # Feature Engineering
+    df['AVG_SV']  = df['TOTAL_SV'] / 12  # Approximation
+    df['AVG_FBI'] = df['TOTAL_FBI'] / 12
+    df['RASIO_ONUS'] = df['RASIO_ONUS'].clip(0, 1).fillna(0)
+    
+    # Growth & Weeks Active (from Monitoring)
+    df['WEEKS_ACTIVE'] = df.get('WEEKS_ACTIVE', pd.Series([0]*len(df))).fillna(0)
+    df['SV_GROWTH_RATE'] = pd.to_numeric(df.get('SV_GROWTH_RATE', pd.Series([0]*len(df))), errors='coerce').fillna(0)
+    low, high = df['SV_GROWTH_RATE'].quantile([0.05, 0.95])
+    df['SV_GROWTH_CLIPPED'] = df['SV_GROWTH_RATE'].clip(low, high)
+    
+    # Target Achievement
+    if df_t is not None and not df_t.empty and 'TARGET_VOL_2026' in df_t.columns:
+        df = pd.merge(df, df_t[['MERCHANT_GROUP', 'TARGET_VOL_2026']], on='MERCHANT_GROUP', how='left')
+        df['ACHIEVEMENT_PCT'] = np.where(
+            df['TARGET_VOL_2026'].fillna(0) > 0,
+            (df['TOTAL_SV'] / df['TARGET_VOL_2026'] * 100).clip(0, 200), 0
+        )
+    else:
+        df['ACHIEVEMENT_PCT'] = 0
+    
+    # Clustering Preparation
+    FEAT = ['AVG_SV', 'AVG_FBI', 'RASIO_ONUS', 'SV_GROWTH_CLIPPED', 'ACHIEVEMENT_PCT', 'WEEKS_ACTIVE']
+    X = df[FEAT].fillna(0).copy()
+    X['AVG_SV']  = np.log1p(X['AVG_SV'])
+    X['AVG_FBI'] = np.log1p(X['AVG_FBI'])
+    
     try:
-        raw = pd.read_excel(path, sheet_name='Highlight', header=None)
-    except Exception:
-        return pd.DataFrame()
-    # Row 16 = section headers (TRANSACTION / SALES VOLUME / FEE BASED INCOME)
-    # Row 17 = col headers; col 0 = merchant group name or month code
-    # Find header row (contains 'TRANSACTION')
-    hdr_row = None
-    for i, row in raw.iterrows():
-        if 'TRANSACTION' in str(row.values):
-            hdr_row = i
-            break
-    if hdr_row is None:
-        return pd.DataFrame()
-    col_row   = hdr_row + 1
-    data_start = col_row + 1
-    cols = raw.iloc[col_row].tolist()
-    # Build column name list by forward-filling section headers
-    section_row = raw.iloc[hdr_row].tolist()
-    section = ''
-    named_cols = []
-    for i, (sec, col) in enumerate(zip(section_row, cols)):
-        if pd.notna(sec) and str(sec).strip() not in ('', 'nan'):
-            section = str(sec).strip()
-        named_cols.append(f"{section}__{str(col).strip()}" if pd.notna(col) and str(col).strip() not in ('', 'nan') else f'__col{i}')
-    df = raw.iloc[data_start:].copy()
-    df.columns = named_cols
-    # Extract merchant group from the first non-NaN entry in col 0 area
-    merch_col = named_cols[0]
-    label_col = named_cols[1]
-    df = df.rename(columns={merch_col: 'MONTH_CODE', label_col: 'LABEL'})
-    df['MONTH_CODE'] = df['MONTH_CODE'].ffill()
-    
-    # We must explicitly drop rows where LABEL is NaN AND there's no transaction data
-    # The trailing rows at the bottom of the Excel sheet usually have NaN across all value cols
-    val_cols = [c for c in df.columns if c not in ['MONTH_CODE', 'LABEL']]
-    df = df.dropna(subset=val_cols, how='all')
-    
-    # We must also drop trailing Summary blocks that just list Years (e.g. 2024, 2025, 2026) 
-    # instead of datetime dates or YTD/Average, otherwise they inherit the last forward-filled MONTH_CODE
-    df = df.dropna(subset=['LABEL'])
-    df = df[~df['LABEL'].astype(str).str.match(r'^\s*20\d{2}\s*$', na=False)]
-    
-    # Now we can safely keep only rows that are month codes (6-digit ints like 202401) or YTD/Average
-    df = df[df['MONTH_CODE'].astype(str).str.match(r'\d{6}|YTD|Average', na=False)].copy()
-    df['MONTH_CODE'] = df['MONTH_CODE'].astype(str)
-    df['YEAR'] = df['MONTH_CODE'].str[:4]
+        X_s = StandardScaler().fit_transform(X)
+        km = KMeans(n_clusters=k_clusters, init='k-means++', n_init=20, random_state=42)
+        df['CLUSTER_RAW'] = km.fit_predict(X_s)
+        
+        # Consistent labels (Premium > Reguler > Pasif) based on Sales Volume
+        sv_order = df.groupby('CLUSTER_RAW')['AVG_SV'].mean().sort_values(ascending=False)
+        rank = {c: i for i, c in enumerate(sv_order.index)}
+        
+        lbl_maps = {
+            3: {0: 'PREMIUM', 1: 'REGULER', 2: 'PASIF'},
+            4: {0: 'ELITE', 1: 'PREMIUM', 2: 'REGULER', 3: 'PASIF'},
+            5: {0: 'ELITE', 1: 'PREMIUM', 2: 'REGULER', 3: 'PASIF', 4: 'DORMANT'}
+        }
+        lbl = lbl_maps.get(k_clusters, {i: f'TIER {i+1}' for i in range(k_clusters)})
+        df['CLUSTER'] = df['CLUSTER_RAW'].map(lambda c: lbl[rank[c]])
+        
+        # Z-Scores
+        df['ZSCORE_SV'] = stats.zscore(np.log1p(df['AVG_SV']))
+        df['ZSCORE_FBI'] = stats.zscore(np.log1p(df['AVG_FBI']))
+        df['ZSCORE_GROWTH'] = stats.zscore(df['SV_GROWTH_CLIPPED'])
+        
+        # Churn Risk
+        df['CHURN_RISK'] = (
+            (df['WEEKS_ACTIVE'] <= 2) |
+            ((df['SV_GROWTH_RATE'] <= -0.95) & (df['ACHIEVEMENT_PCT'] < 5)) |
+            ((df['CLUSTER'].isin(['PASIF', 'DORMANT'])) & (df['ACHIEVEMENT_PCT'] < 1)) |
+            (df['ZSCORE_SV'] < z_thresh) |
+            (df['ZSCORE_FBI'] < z_thresh) |
+            (df['ZSCORE_GROWTH'] < z_thresh)
+        ).map({True: 'HIGH RISK ⚠️', False: 'STABLE ✅'})
+    except:
+        df['CLUSTER'] = 'UNKNOWN'
+        df['CHURN_RISK'] = 'STABLE ✅'
+        
     return df
 
-
-@st.cache_data
-def parse_realisasi(path):
-    try:
-        df = pd.read_excel(path, sheet_name='Realisasi')
-        trx_cols = [c for c in df.columns if c.startswith('TRX_') and c != 'TRX_MONTH']
-        sv_cols  = [c for c in df.columns if c.startswith('SV_')]
-        fbi_cols = [c for c in df.columns if c.startswith('FBI_')]
-        df['TRX'] = df[trx_cols].sum(axis=1)
-        df['SV']  = df[sv_cols].sum(axis=1)
-        df['FBI'] = df[fbi_cols].sum(axis=1)
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-@st.cache_data
-def parse_monitoring_sheet(path, sheet, _mtime=None):
-    """Parse PerPM or PerMerchant sheet into a clean long DataFrame."""
-    try:
-        raw = pd.read_excel(path, sheet_name=sheet, header=None)
-    except Exception:
-        return pd.DataFrame()
-    hdr_idx = None
-    for i, row in raw.iterrows():
-        vals = [str(v) for v in row if pd.notna(v)]
-        if 'KET' in vals and 'Periode' in vals:
-            hdr_idx = i
-    if hdr_idx is None:
-        return pd.DataFrame()
-    headers = raw.iloc[hdr_idx].tolist()
-    def ci(name):
-        for idx, h in enumerate(headers):
-            if str(h).strip() == name: return idx
-        return None
-    c_name    = next((i for i,h in enumerate(headers) if str(h).strip() in ('SEGMEN','PM') and i > 0), 1)
-    c_ket     = ci('KET')
-    c_periode = ci('Periode')
-    c_fy      = ci('FY')
-    c_ytd     = ci('YTD')
-    week_start = next((i for i,h in enumerate(headers) if 'Week-01' in str(h)), None)
-    if week_start is None:
-        return pd.DataFrame()
-    week_labels = []
-    week_indices = []
-    for i, h in enumerate(headers[week_start:], start=week_start):
-        h_str = str(h).strip()
-        if h_str.startswith('Week-'):
-            num_part = h_str.split('-')[-1]
-            if num_part.isdigit():
-                week_labels.append(f"W{int(num_part):02d}")
-                week_indices.append(i)
-    data_rows = raw.iloc[hdr_idx+2:].reset_index(drop=True)
-    records = []
-    for _, row in data_rows.iterrows():
-        name_val    = str(row.iloc[c_name]).strip()   if c_name is not None and pd.notna(row.iloc[c_name]) else None
-        ket_val     = str(row.iloc[c_ket]).strip()    if c_ket  is not None and pd.notna(row.iloc[c_ket])  else ''
-        periode_val = str(row.iloc[c_periode]).strip() if c_periode is not None and pd.notna(row.iloc[c_periode]) else ''
-        fy_val      = row.iloc[c_fy]  if c_fy  is not None else None
-        ytd_val     = row.iloc[c_ytd] if c_ytd is not None else None
-        merch_code  = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else None
-        row_num     = pd.to_numeric(row.iloc[0], errors='coerce')
-        rec = {'NAME': name_val, 'KET': ket_val, 'PERIODE': periode_val,
-               'FY': fy_val, 'YTD': ytd_val,
-               'MERCHANT_CODE': merch_code, 'ROW_NUM': row_num}
-        for lbl, idx in zip(week_labels, week_indices):
-            val = row.iloc[idx]
-            rec[lbl] = pd.to_numeric(val, errors='coerce') if pd.notna(val) else 0
-        records.append(rec)
-    df_out = pd.DataFrame(records)
-    df_out['NAME'] = df_out['NAME'].replace('', np.nan).ffill()
-    for w in week_labels:
-        df_out[w] = pd.to_numeric(df_out[w], errors='coerce').fillna(0)
-    return df_out
-
-
-@st.cache_data
-def parse_2026_sheet(path, _mtime=None):
-    """Parse the '2026' sheet — flat table with MERCHANT_GROUP, DIMENSI, PM, weekly data.
-    Returns a DataFrame with columns: NAME, KET, PERIODE, PM, FY, YTD, W01..W53."""
-    try:
-        df = pd.read_excel(path, sheet_name='2026')
-    except Exception:
-        return pd.DataFrame()
-    if df.empty:
-        return pd.DataFrame()
-    # Rename to match the existing UI column conventions
-    rename_map = {'MERCHANT_GROUP': 'NAME', 'DIMENSI': 'KET', 'VALUE': 'PERIODE'}
-    df = df.rename(columns=rename_map)
-    # Rename numeric week columns (1,2,3...) to W01, W02, W03...
-    week_rename = {}
-    for c in df.columns:
-        try:
-            n = int(c)
-            if 1 <= n <= 53:
-                week_rename[c] = f'W{n:02d}'
-        except (ValueError, TypeError):
-            pass
-    df = df.rename(columns=week_rename)
-    # Clean up PM column
-    if 'PM' in df.columns:
-        df['PM'] = df['PM'].fillna('–').astype(str).str.strip().str.title()
-    # Ensure week columns are numeric
-    w_cols = sorted([c for c in df.columns if c.startswith('W') and c[1:].isdigit()])
-    for w in w_cols:
-        df[w] = pd.to_numeric(df[w], errors='coerce').fillna(0)
-    # Ensure FY, YTD are numeric
-    for col in ['FY', 'YTD']:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-    # Drop helper columns not needed for display
-    df = df.drop(columns=['KEY1', 'KEY2'], errors='ignore')
-    return df
 
 # ── DB LOAD ───────────────────────────────────────────────────────────────────
 if not os.path.exists(PATH_DB):
@@ -231,80 +155,90 @@ if not os.path.exists(PATH_DB):
     st.stop()
 
 conn = sqlite3.connect(PATH_DB)
-has_card = table_exists(conn, "raw_card_share")
-has_mon  = table_exists(conn, "raw_monitoring")
-has_tgt  = table_exists(conn, "raw_target")
-df_card   = pd.read_sql_query("SELECT * FROM raw_card_share", conn) if has_card else pd.DataFrame()
-df_mon    = pd.read_sql_query("SELECT * FROM raw_monitoring", conn) if has_mon  else pd.DataFrame()
-df_target = pd.read_sql_query("SELECT * FROM raw_target", conn) if has_tgt else pd.DataFrame(columns=['MERCHANT_GROUP','TARGET_VOL_2026'])
+has_card       = table_exists(conn, "PROCESSED_CARD_SHARE")
+has_card_hist  = table_exists(conn, "PROCESSED_CARD_HISTORY")
+has_mon        = table_exists(conn, "PROCESSED_MONITORING")
+has_mon_weekly = table_exists(conn, "PROCESSED_MONITORING_WEEKLY")
+has_tgt        = table_exists(conn, "TARGET")
+
+df_card        = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_SHARE", conn) if has_card else pd.DataFrame()
+df_card_hist   = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_HISTORY", conn) if has_card_hist else pd.DataFrame()
+df_mon         = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING", conn) if has_mon else pd.DataFrame()
+df_mon_weekly  = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING_WEEKLY", conn) if has_mon_weekly else pd.DataFrame()
+df_target      = pd.read_sql_query("SELECT * FROM TARGET", conn) if has_tgt else pd.DataFrame()
 conn.close()
 
-# ── ML PIPELINE ──────────────────────────────────────────────────────────────
-@st.cache_data
-def run_ml(card, mon, tgt, k_clusters=3, z_thresh=-1.2):
-    df = pd.merge(card, mon, on='MERCHANT_GROUP', how='inner')
-    df = pd.merge(df, tgt, on='MERCHANT_GROUP', how='left')
-    if 'PM_x' in df.columns:
-        df['PM'] = df['PM_x'].fillna(df.get('PM_y', '')).fillna('Unassigned')
-    elif 'PM' not in df.columns:
-        df['PM'] = 'Unassigned'
-    df['AVG_SV']  = df['TOTAL_SV']  / df['N_BULAN'].clip(lower=1)
-    df['AVG_FBI'] = df['TOTAL_FBI'] / df['N_BULAN'].clip(lower=1)
-    df['AVG_TRX'] = df['TOTAL_TRX'] / df['N_BULAN'].clip(lower=1)
-    df['RASIO_ONUS'] = df['RASIO_ONUS'].clip(0, 1)
-    df['SV_GROWTH_RATE'] = pd.to_numeric(df.get('SV_GROWTH_RATE', pd.Series([0]*len(df))), errors='coerce').fillna(0)
-    low, high = df['SV_GROWTH_RATE'].quantile([0.05, 0.95])
-    df['SV_GROWTH_CLIPPED'] = df['SV_GROWTH_RATE'].clip(low, high)
-    if 'TARGET_VOL_2026' in df.columns and 'YTD_VOL' in df.columns:
-        df['ACHIEVEMENT_PCT'] = np.where(
-            df['TARGET_VOL_2026'].fillna(0) > 0,
-            (df['YTD_VOL'] / df['TARGET_VOL_2026'] * 100).clip(0, 200), 0
-        )
-    else:
-        df['ACHIEVEMENT_PCT'] = 0
-    df['WEEKS_ACTIVE'] = df.get('WEEKS_ACTIVE', pd.Series([0]*len(df))).fillna(0)
-    FEAT = ['AVG_SV', 'AVG_FBI', 'RASIO_ONUS', 'SV_GROWTH_CLIPPED', 'ACHIEVEMENT_PCT', 'WEEKS_ACTIVE']
-    X = df[FEAT].fillna(0).copy()
-    X['AVG_SV']  = np.log1p(X['AVG_SV'])
-    X['AVG_FBI'] = np.log1p(X['AVG_FBI'])
-    X_s = StandardScaler().fit_transform(X)
+# ── SIDEBAR FILTERS ───────────────────────────────────────────────────────────
+with st.sidebar:
+    st.image("https://www.btn.co.id/Content/Images/logo-btn.png", width=120)
+    st.markdown("### 🔍 Portfolio Filters")
     
-    km = KMeans(n_clusters=k_clusters, init='k-means++', n_init=20, random_state=42)
-    df['CLUSTER_RAW'] = km.fit_predict(X_s)
-    sv_order = df.groupby('CLUSTER_RAW')['AVG_SV'].mean().sort_values(ascending=False)
-    rank = {c: i for i, c in enumerate(sv_order.index)}
+    # 1. Merchant Group Filter
+    all_groups = ["ALL GROUPS"]
+    if not df_card.empty:
+        all_groups += sorted(df_card['MERCHANT_GROUP'].unique().tolist())
+    sel_group = st.selectbox("🏬 Merchant Group", all_groups, key="sb_group")
     
-    # Dynamic Cluster Naming based on K
-    if k_clusters == 3:
-        lbl = {0: 'PREMIUM', 1: 'REGULER', 2: 'PASIF'}
-    elif k_clusters == 4:
-        lbl = {0: 'ELITE', 1: 'PREMIUM', 2: 'REGULER', 3: 'PASIF'}
-    elif k_clusters == 5:
-        lbl = {0: 'ELITE', 1: 'PREMIUM', 2: 'REGULER', 3: 'PASIF', 4: 'DORMANT'}
-    else:
-        lbl = {i: f'TIER {i+1}' for i in range(k_clusters)}
+    # 2. Merchant Brand (Anchor) Filter
+    filtered_brands = ["TOTAL GROUP"]
+    if sel_group != "ALL GROUPS" and not df_card.empty:
+        brands = df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR'].unique().tolist()
+        filtered_brands += sorted(brands)
+    elif sel_group == "ALL GROUPS" and not df_card.empty:
+        filtered_brands = ["TOTAL PORTFOLIO"]
+    
+    sel_brand = st.selectbox("⚓ Merchant Brand (Anchor)", filtered_brands, key="sb_brand")
+    
+    # 3. Apply Filters to dataframes
+    if sel_group != "ALL GROUPS":
+        df_card = df_card[df_card['MERCHANT_GROUP'] == sel_group]
+        df_card_hist = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_group]
         
-    df['CLUSTER'] = df['CLUSTER_RAW'].map(lambda c: lbl[rank[c]])
+        # Monitoring is at Group level, so we filter it only by Group
+        if not df_mon.empty: df_mon = df_mon[df_mon['MERCHANT_GROUP'] == sel_group]
+        if not df_mon_weekly.empty: df_mon_weekly = df_mon_weekly[df_mon_weekly['MERCHANT_GROUP'] == sel_group]
+        if not df_target.empty: df_target = df_target[df_target['MERCHANT_GROUP'] == sel_group]
+        
+        # Brand-level filter applies to Card Share only (unless we have detailed monitoring)
+        if sel_brand not in ["TOTAL GROUP", "TOTAL PORTFOLIO"]:
+            df_card = df_card[df_card['MERCHANT_ANCHOR'] == sel_brand]
+            df_card_hist = df_card_hist[df_card_hist['MERCHANT_ANCHOR'] == sel_brand]
+
     
-    # Tri-Factor Z-Score Calculations
-    df['ZSCORE_SV'] = stats.zscore(np.log1p(df['AVG_SV']))
-    df['ZSCORE_FBI'] = stats.zscore(np.log1p(df['AVG_FBI']))
-    df['ZSCORE_GROWTH'] = stats.zscore(df['SV_GROWTH_CLIPPED'])
-    
-    # Outlier Detection Engine
-    df['CHURN_RISK'] = (
-        (df['WEEKS_ACTIVE'] <= 2) |
-        ((df['SV_GROWTH_RATE'] <= -0.99) & (df['ACHIEVEMENT_PCT'] < 5)) |
-        ((df['CLUSTER'].isin(['PASIF', 'DORMANT'])) & (df['ACHIEVEMENT_PCT'] < 1)) |
-        (df['ZSCORE_SV'] < z_thresh) |
-        (df['ZSCORE_FBI'] < z_thresh) |
-        (df['ZSCORE_GROWTH'] < z_thresh)
-    ).map({True: 'HIGH RISK ⚠️', False: 'STABLE ✅'})
-    
-    return df
+    st.markdown("---")
+    st.caption(f"Showing results for: **{sel_group}** > **{sel_brand}**")
+
+
+
+# ── BATCH METADATA & SIGNALS ──────────────────────────────────────────────────
+_last_update = "Unknown"
+_show_new_badge = False
+if os.path.exists(PATH_DB):
+    try:
+        _conn_meta = sqlite3.connect(PATH_DB)
+        _df_meta = pd.read_sql_query("SELECT * FROM APP_METADATA", _conn_meta)
+        _conn_meta.close()
+        _meta_dict = dict(zip(_df_meta['key'], _df_meta['value']))
+        _last_update = _meta_dict.get('LAST_DATA_UPDATE', 'Unknown')
+        _show_new_badge = _meta_dict.get('NEW_DATA_SIGNAL') == '1'
+    except:
+        pass
 
 # ── HEADER + STATUS STRIP ────────────────────────────────────────────────────
-page_header("🏦", "BTN Anchor Merchant", "Decision Intelligence Platform")
+header_col1, header_col2 = st.columns([0.8, 0.2])
+with header_col1:
+    page_header("🏦", "BTN Anchor Merchant", "Decision Intelligence Platform")
+with header_col2:
+    if _show_new_badge:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🆕 NEW DATA", help=f"Last updated: {_last_update}. Click to clear.", type="primary"):
+            try:
+                _conn_meta = sqlite3.connect(PATH_DB)
+                _conn_meta.execute("UPDATE APP_METADATA SET value = '0' WHERE key = 'NEW_DATA_SIGNAL'")
+                _conn_meta.commit()
+                _conn_meta.close()
+                st.rerun()
+            except: pass
 
 # ── Stale Data Banner ─────────────────────────────────────────────────────────
 # Show amber notice if staging.db is older than 24 hours
@@ -359,11 +293,14 @@ def _sc(icon, label, ok, ok_text="Ready", fail_text="Missing", warn=False):
     </div>"""
 
 sc1, sc2, sc3, sc4, sc5 = st.columns(5)
-sc1.markdown(_sc("📊", "Card Share DB",   has_card,                          "Loaded",       "Not processed"), unsafe_allow_html=True)
-sc2.markdown(_sc("📅", "Monitoring DB",   has_mon,                           "Loaded",       "Not processed"), unsafe_allow_html=True)
+sc1.markdown(_sc("📊", "Card Share DB",   has_card,                          f"Connected: {os.path.basename(PATH_DB)}",       "Not processed"), unsafe_allow_html=True)
+sc2.markdown(_sc("📅", "Monitoring DB",   has_mon,                           f"Connected: {os.path.basename(PATH_DB)}",       "Not processed"), unsafe_allow_html=True)
 sc3.markdown(_sc("🎯", "Target Data",     has_tgt,                           "Loaded",       "Not uploaded",  warn=not has_tgt), unsafe_allow_html=True)
-sc4.markdown(_sc("📄", "Card Share File", os.path.exists(PATH_CARD),         "Configured",   "Upload in Settings"), unsafe_allow_html=True)
-sc5.markdown(_sc("📄", "Monitoring File", os.path.exists(PATH_MON),          "Configured",   "Upload in Settings"), unsafe_allow_html=True)
+sc4.markdown(_sc("📄", "Card Share File", os.path.exists(PATH_CARD),         f"Found: {os.path.basename(PATH_CARD)}",   "Upload in Settings"), unsafe_allow_html=True)
+sc5.markdown(_sc("📄", "Monitoring File", os.path.exists(PATH_MON),          f"Found: {os.path.basename(PATH_MON)}",          "Upload in Settings"), unsafe_allow_html=True)
+
+with st.expander("📂 Environment & Path Visibility"):
+    st.code(f"DB Path:   {os.path.abspath(PATH_DB)}\nCARD Path: {os.path.abspath(PATH_CARD)}\nMON Path:  {os.path.abspath(PATH_MON)}")
 
 st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 styled_divider()
@@ -372,22 +309,23 @@ styled_divider()
 CLAMP = CLUSTER_COLORS
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "💰  Card Share",
     "📅  Weekly Monitoring",
     "🤖  ML Segmentation",
     "⚠️  Churn & Risk",
     "🔍  Merchant Explorer",
     "🔮  AI Insights",
+    "📊  Batch Impact",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — CARD SHARE
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab1:
-    tab_desc("Monthly payment type breakdown — TRANSACTION / SALES VOLUME / FEE BASED INCOME. Use <b>Year Filter</b> to focus on one year.")
+    tab_desc("Monthly payment type breakdown — TRANSACTION / SALES VOLUME / FEE BASED INCOME. Data is sourced directly from the database and respects the sidebar Filters.")
 
-    # KPIs from DB
+    # KPIs from DB (already filtered in sidebar)
     if not df_card.empty:
         avg_onus = df_card['RASIO_ONUS'].mean() if 'RASIO_ONUS' in df_card.columns else 0
         kpi_row([
@@ -397,371 +335,286 @@ with tab1:
             kpi_card(f"{avg_onus*100:.1f}%",                                  "🎯 Avg On-Us Ratio"),
         ])
 
-    has_hl_file = os.path.exists(PATH_CARD)
-    if not has_hl_file:
-        st.warning("⚠️ Master Card Share file not configured. Upload it in ⚙️ Master Configuration.")
-    else:
-        df_hl = parse_highlight(PATH_CARD)
-        if df_hl.empty:
-            st.warning("⚠️ Could not parse the Highlight sheet.")
+    # Reconstruct Monthly Matrix from PROCESSED_CARD_MONTHLY
+    conn = sqlite3.connect(PATH_DB)
+    if table_exists(conn, "PROCESSED_CARD_MONTHLY"):
+        df_monthly_raw = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_MONTHLY", conn)
+        conn.close()
+        
+        # Apply Sidebar Filters to detailed monthly data
+        if sel_group != "ALL GROUPS":
+            df_monthly_raw = df_monthly_raw[df_monthly_raw['MERCHANT_GROUP'] == sel_group]
+            if sel_brand not in ["TOTAL GROUP", "TOTAL PORTFOLIO"]:
+                df_monthly_raw = df_monthly_raw[df_monthly_raw['MERCHANT_ANCHOR'] == sel_brand]
+        
+        # Aggregate across merchants/brands if multiple selected (Exclude grouping columns from sum)
+        agg_cols = [c for c in df_monthly_raw.columns if any(p in c for p in ['TRX_','SV_','FBI_','TOTAL_'])]
+        agg_cols = [c for c in agg_cols if c not in ['TRX_MONTH', 'YEAR']]
+        df_monthly_agg = df_monthly_raw.groupby(['TRX_MONTH', 'YEAR'])[agg_cols].sum().reset_index()
+        
+        if df_monthly_agg.empty:
+            st.info("ℹ️ No monthly trend data found for the current filter.")
         else:
             MONTH_ABB = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+            def get_mo_lbl(row):
+                code = str(int(row['TRX_MONTH']))
+                yr, mo = code[:4], int(code[4:])
+                return f"{MONTH_ABB[mo-1]}-{yr[2:]}"
+            
+            df_monthly_agg['Bulan'] = df_monthly_agg.apply(get_mo_lbl, axis=1)
+            avail_years = sorted(df_monthly_agg['YEAR'].unique().tolist(), reverse=True)
+            
+            col_yr, col_vm = st.columns([2,3])
+            with col_yr:
+                sel_yr = st.selectbox("📅 Year", ['All'] + [str(y) for y in avail_years], key="t1_year")
+            with col_vm:
+                chart_type = st.radio("📊 Chart Style", ["Stacked Bar", "Line Trend", "Both"], horizontal=True, key="t1_chart")
 
-            def month_label(row):
-                lbl = row.get('LABEL', '')
-                
-                # 1. If it's YTD 202X or Average
-                if pd.notna(lbl) and any(x in str(lbl) for x in ['YTD', 'Average']):
-                    return str(lbl).strip()
-                    
-                # 2. Try to use the DATE column (row['LABEL']) if it's parsed as datetime
-                if pd.notna(lbl) and hasattr(lbl, 'strftime'):
-                    return lbl.strftime('%b-%y')
-                
-                # 3. Fallback to MONTH_CODE parsing
-                code = str(row['MONTH_CODE']).replace('.0','')
-                if len(code) == 6 and code.isdigit():
-                    yr, mo = code[:4], int(code[4:])
-                    if 1 <= mo <= 12:
-                        return f"{MONTH_ABB[mo-1]}-{yr[2:]}"
-                    
-                return str(code)
+            if sel_yr != 'All':
+                df_monthly_agg = df_monthly_agg[df_monthly_agg['YEAR'] == int(sel_yr)]
 
-            def fmt_num(v, sec):
-                try:
-                    v = float(v)
-                except:
-                    return str(v)
-                if 'SALES' in sec or 'FEE' in sec:
+            # Core Payment Type Mapping
+            SECTIONS = {
+                'TRANSACTION':      ('🔄', BLUE_ACC, ['TRX_DEBIT_ONUS','TRX_DEBIT_OFFUS','TRX_CREDIT_OFFUS','TRX_QRIS_ONUS','TRX_QRIS_OFFUS'], 'TOTAL_TRX'),
+                'SALES VOLUME':     ('💰', GREEN,    ['SV_DEBIT_ONUS','SV_DEBIT_OFFUS','SV_CREDIT_OFFUS','SV_QRIS_ONUS','SV_QRIS_OFFUS'],  'TOTAL_SV'),
+                'FEE BASED INCOME': ('📈', AMBER,    ['FBI_DEBIT_ONUS','FBI_DEBIT_OFFUS','FBI_CREDIT_OFFUS','FBI_QRIS_ONUS','FBI_QRIS_OFFUS'],'TOTAL_FBI'),
+            }
+            
+            TYPE_LABELS = {
+                'DEBIT_ONUS': 'Debit BTN (On-Us)',
+                'DEBIT_OFFUS':'Debit Other (Off-Us)',
+                'CREDIT_OFFUS':'Credit Card',
+                'QRIS_ONUS':  'QRIS BTN (On-Us)',
+                'QRIS_OFFUS': 'QRIS Other (Off-Us)'
+            }
+
+            def fmt_num_db(v, sec_name):
+                if v == 0: return "-"
+                if 'SALES' in sec_name or 'FEE' in sec_name:
                     if abs(v) >= 1e9: return f"Rp {v/1e9:,.2f}M"
                     if abs(v) >= 1e6: return f"Rp {v/1e6:,.1f}Jt"
                     return f"Rp {v:,.0f}"
                 return f"{v:,.0f}"
 
-            # Detect rows that are strictly Data (has month code or YTD/Avg label)
-            data_rows = df_hl[df_hl['MONTH_CODE'].str.match(r'\d{6}|YTD|Average', na=False)].copy()
-            avail_years = sorted(data_rows['YEAR'].unique(), reverse=True)
-
-            col_yr, col_vm = st.columns([2,3])
-            with col_yr:
-                sel_yr = st.selectbox("📅 Year", ['All'] + avail_years, key="t1_year")
-            with col_vm:
-                chart_type = st.radio("📊 Chart Style", ["Stacked Bar", "Line Trend", "Both"], horizontal=True, key="t1_chart")
-
-            if sel_yr != 'All':
-                data_rows = data_rows[data_rows['YEAR'] == sel_yr]
-
-            data_rows = data_rows.copy()
-            data_rows['Bulan'] = data_rows.apply(month_label, axis=1)
-
-            TYPE_COLORS = PAYMENT_COLORS
-
-            SECTIONS = {
-                'TRANSACTION':     ('🔄', BLUE_ACC),
-                'SALES VOLUME':    ('💰', GREEN),
-                'FEE BASED INCOME':('📈', AMBER),
-            }
-
-            for sec, (icon, accent) in SECTIONS.items():
-                sec_cols = [c for c in df_hl.columns if c.startswith(f'{sec}__') and '__col' not in c]
-                if not sec_cols: continue
-
-                section_header(icon, sec, accent_color=accent)
-
-                display = data_rows[['Bulan'] + sec_cols].copy()
-                raw_col_names = [c.split('__', 1)[1] for c in sec_cols]
-                display.columns = ['Bulan'] + raw_col_names
-
-                # Convert to numeric
-                for col in raw_col_names:
-                    display[col] = pd.to_numeric(display[col], errors='coerce').fillna(0)
-
-                # Identify the TOTAL col and the 5 type cols
-                total_col = next((c for c in raw_col_names if 'TOTAL' in c.upper()), None)
-                type_cols = [c for c in raw_col_names if c != total_col]
-
-                # YTD row
-                ytd_nums   = display[raw_col_names].sum()
-                ytd_row    = pd.DataFrame([['YTD'] + ytd_nums.tolist()], columns=['Bulan'] + raw_col_names)
-                disp_full  = pd.concat([display, ytd_row], ignore_index=True)
-
-                # Formatted display table
+            for sec_name, (icon, accent, sub_cols, total_col) in SECTIONS.items():
+                section_header(icon, sec_name, accent_color=accent)
+                
+                # Check which subcols exist in data
+                valid_sub = [c for c in sub_cols if c in df_monthly_agg.columns]
+                all_display_cols = ['Bulan'] + valid_sub + [total_col]
+                
+                display = df_monthly_agg[all_display_cols].copy()
+                
+                # Rename columns for cleaner display
+                clean_map = {total_col: 'TOTAL'}
+                for c in valid_sub:
+                    suffix = c.replace('TRX_','').replace('SV_','').replace('FBI_','')
+                    clean_map[c] = TYPE_LABELS.get(suffix, suffix)
+                display = display.rename(columns=clean_map)
+                
+                # YTD row calculation
+                ytd_vals = display.drop(columns=['Bulan']).sum()
+                ytd_row = pd.DataFrame([['YTD (Selected)'] + ytd_vals.tolist()], columns=display.columns)
+                disp_full = pd.concat([display, ytd_row], ignore_index=True)
+                
+                # Formatted Table
                 disp_fmt = disp_full.copy()
-                for col in raw_col_names:
-                    disp_fmt[col] = disp_fmt[col].apply(lambda v: fmt_num(v, sec))
-
-                def style_table(row):
+                val_cols = [c for c in disp_fmt.columns if c != 'Bulan']
+                for col in val_cols:
+                    disp_fmt[col] = disp_fmt[col].apply(lambda v: fmt_num_db(v, sec_name))
+                
+                def style_table_db(row):
                     is_ytd = row.name == len(disp_fmt) - 1
                     styles = []
                     for col in disp_fmt.columns:
                         if is_ytd:
                             styles.append(f'background-color:{accent};color:white;font-weight:bold;')
-                        elif total_col and col == total_col:
+                        elif col == 'TOTAL':
                             styles.append(f'font-weight:600;')
                         else:
                             styles.append('')
                     return styles
 
                 st.dataframe(
-                    disp_fmt.style.apply(style_table, axis=1),
+                    disp_fmt.style.apply(style_table_db, axis=1),
                     width='stretch', hide_index=True, height=min(38 * len(disp_fmt) + 40, 520)
                 )
 
-                # ── Charts — always visible, side-by-side layout ───────────
-                chart_data = display.copy()   # excludes the YTD summary row
-                _pp = _p()
-
+                # Charts
                 ch_left, ch_right = st.columns([3, 2])
-
                 with ch_left:
-                    if chart_type in ("Stacked Bar", "Both") and type_cols:
-                        melted = chart_data.melt(
-                            id_vars="Bulan", value_vars=type_cols,
-                            var_name="Type", value_name="Value",
-                        )
-                        color_map = {t: TYPE_COLORS.get(t, "#999") for t in type_cols}
+                    if chart_type in ("Stacked Bar", "Both"):
+                        # Composition chart
+                        type_cols_clean = [clean_map[c] for c in valid_sub]
+                        melted = display.melt(id_vars="Bulan", value_vars=type_cols_clean, var_name="Type", value_name="Value")
+                        
                         fig_s = px.bar(
                             melted, x="Bulan", y="Value", color="Type",
-                            color_discrete_map=color_map,
+                            color_discrete_map=PAYMENT_COLORS,
                             barmode="stack",
-                            title=f"{sec} — Payment Type Composition",
+                            title=f"{sec_name} — Composition",
                         )
-                        fig_s.update_traces(
-                            marker_line_width=0,
-                            hovertemplate=(
-                                "<b>%{x}</b><br>"
-                                "%{fullData.name}: <b>%{y:,.0f}</b>"
-                                "<extra></extra>"
-                            ),
-                        )
-                        fig_s.update_layout(
-                            height=340,
-                            margin=dict(l=0, r=0, t=36, b=0),
-                            legend=dict(
-                                orientation="h", y=-0.28, x=0,
-                                font=dict(size=10, color=_pp["TEXT_PRI"]),
-                                bgcolor="rgba(0,0,0,0)",
-                            ),
-                            **_chart_base(),
-                            xaxis={**_xaxis(), "showgrid": False},
-                            yaxis={**_yaxis(), "title": ""},
-                        )
+                        fig_s.update_layout(height=340, margin=dict(l=0, r=0, t=36, b=0), **_chart_base())
                         st.plotly_chart(fig_s, width="stretch")
-
-                    if chart_type in ("Line Trend", "Both") and total_col:
-                        cht = chart_data[["Bulan", total_col]].copy()
-                        cht["MoM"] = cht[total_col].pct_change() * 100
-                        text_labels = []
-                        for _, _row in cht.iterrows():
-                            _val = fmt_num(_row[total_col], sec)
-                            _mom = _row["MoM"]
-                            if pd.isna(_mom):
-                                text_labels.append(_val)
-                            else:
-                                _sign = "+" if _mom > 0 else ""
-                                text_labels.append(f"{_val} ({_sign}{_mom:.1f}%)")
+                    
+                    if chart_type in ("Line Trend", "Both"):
                         fig_l = go.Figure()
                         fig_l.add_trace(go.Scatter(
-                            x=cht["Bulan"], y=cht[total_col],
+                            x=display["Bulan"], y=display["TOTAL"],
                             mode="lines+markers+text",
-                            name=total_col,
                             line=dict(color=accent, width=2.5),
-                            marker=dict(size=7, color=accent,
-                                        line=dict(color=_pp["BG"], width=1.5)),
-                            text=text_labels,
+                            text=[fmt_num_db(v, sec_name) for v in display["TOTAL"]],
                             textposition="top center",
-                            textfont=dict(size=9, color=_pp["TEXT_SEC"]),
-                            hovertemplate=(
-                                "<b>%{x}</b><br>"
-                                "Total: <b>%{y:,.0f}</b>"
-                                "<extra></extra>"
-                            ),
+                            marker=dict(size=7, color=accent, line=dict(color=_p()['BG'], width=1.5)),
                         ))
-                        fig_l.update_layout(
-                            title=f"{sec} — {total_col} Trend",
-                            height=340,
-                            showlegend=False,
-                            margin=dict(l=0, r=0, t=36, b=0),
-                            **_chart_base(),
-                            xaxis={**_xaxis(), "showgrid": False},
-                            yaxis={**_yaxis(), "title": "", "zeroline": False},
-                        )
+                        fig_l.update_layout(title=f"{sec_name} — Total Trend", height=340, margin=dict(l=0, r=0, t=36, b=0), **_chart_base())
                         st.plotly_chart(fig_l, width="stretch")
-
+                
                 with ch_right:
-                    if type_cols:
-                        ytd_type = {t: float(ytd_nums.get(t, 0)) for t in type_cols}
-                        if sum(ytd_type.values()) > 0:
-                            section_label("🍩 YTD Mix")
-                            fig_pie = go.Figure(go.Pie(
-                                labels=list(ytd_type.keys()),
-                                values=list(ytd_type.values()),
-                                hole=0.60,
-                                marker_colors=[TYPE_COLORS.get(t, "#999") for t in ytd_type],
-                                textinfo="percent",
-                                textfont_size=11,
-                                hovertemplate=(
-                                    "<b>%{label}</b><br>"
-                                    "%{value:,.0f}<br>%{percent}"
-                                    "<extra></extra>"
-                                ),
-                            ))
-                            fig_pie.update_layout(
-                                height=340,
-                                showlegend=True,
-                                margin=dict(t=10, b=50, l=10, r=10),
-                                **_chart_base(),
-                                legend=dict(
-                                    orientation="h", y=-0.15, x=0.5,
-                                    xanchor="center",
-                                    font=dict(size=9, color=_pp["TEXT_PRI"]),
-                                    bgcolor="rgba(0,0,0,0)",
-                                ),
-                            )
-                            st.plotly_chart(fig_pie, width="stretch")
-
+                    section_label("🍩 Mix Composition (Selected Period)")
+                    fig_pie = px.pie(
+                        values=ytd_vals.drop('TOTAL'),
+                        names=[clean_map[c] for c in valid_sub],
+                        hole=0.6,
+                        color=[clean_map[c] for c in valid_sub],
+                        color_discrete_map=PAYMENT_COLORS
+                    )
+                    fig_pie.update_layout(height=340, margin=dict(t=10, b=50, l=10, r=10), **_chart_base())
+                    st.plotly_chart(fig_pie, width="stretch")
+                
                 styled_divider()
+    else:
+        conn.close()
+        st.warning("⚠️ PROCESSED_CARD_MONTHLY table is missing. Re-run the Automated Pipeline.")
 
-        # Top Merchants overview from DB
-        if not df_card.empty:
-            section_label("🏆 Top Merchants Analytics (YTD)")
-            
-            # Create a rich dataframe with calculated metrics
-            df_c = df_card.copy()
-            df_c['AVG_TRX_VAL'] = np.where(df_c['TOTAL_TRX'] > 0, df_c['TOTAL_SV'] / df_c['TOTAL_TRX'], 0)
-            df_c['FBI_YIELD'] = np.where(df_c['TOTAL_SV'] > 0, (df_c['TOTAL_FBI'] / df_c['TOTAL_SV']) * 100, 0)
-            
-            cc1s, cc2s = st.columns([3, 1])
-            top_n_c = cc1s.slider("Top N Merchants", 10, 50, 20, key="t1_topn")
-            sort_by = cc2s.selectbox("Rank By", ['TOTAL_SV','TOTAL_TRX','TOTAL_FBI','RASIO_ONUS', 'FBI_YIELD'], key="t1_sort")
-            
-            df_top = df_c.sort_values(sort_by, ascending=False).head(top_n_c)
-            
-            # Format display dataframe
-            disp_top = df_top[['MERCHANT_GROUP', 'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'AVG_TRX_VAL', 'FBI_YIELD', 'RASIO_ONUS']].copy()
-            
-            # Add formatted strings (keys match col_names / _disp_top)
-            format_dict = {
-                'Sales Volume': lambda x: f"Rp {x/1e9:,.2f} M",
-                'Fee Based Income': lambda x: f"Rp {x/1e6:,.1f} Jt",
-                'Transactions': lambda x: f"{x:,.0f}",
-                'Avg Trx Size': lambda x: f"Rp {x:,.0f}",
-                'FBI Yield': lambda x: f"{x:.4f}%",
-                'On-Us Ratio': lambda x: f"{x*100:.1f}%",
-            }
-            
-            col_names = {
-                'MERCHANT_GROUP': 'Merchant Group',
-                'TOTAL_SV': 'Sales Volume',
-                'TOTAL_TRX': 'Transactions',
-                'TOTAL_FBI': 'Fee Based Income',
-                'AVG_TRX_VAL': 'Avg Trx Size',
-                'FBI_YIELD': 'FBI Yield',
-                'RASIO_ONUS': 'On-Us Ratio'
-            }
-            
-            _disp_top = disp_top.rename(columns=col_names)
-            st.dataframe(
-                _disp_top.style.format(format_dict)
-                .background_gradient(cmap='Blues', subset=['Sales Volume', 'Transactions'])
-                .background_gradient(cmap='Greens', subset=['Fee Based Income', 'FBI Yield']),
-                width='stretch', height=min(38 * len(disp_top) + 40, 500)
-            )
-
-            with st.expander("📋 Raw Card Share Data"):
-                st.dataframe(df_c.reset_index(drop=True), width='stretch')
-                st.download_button("⬇️ Download CSV", df_c.to_csv(index=False, encoding='utf-8-sig'), "card_share_data.csv", "text/csv")
+    styled_divider()
 
 
-            # ── GROWTH ANALYTICS (Realisasi) ──────────────────────────────────
-            st.markdown("<br>", unsafe_allow_html=True)
-            df_real = parse_realisasi(PATH_CARD)
-            
-            if not df_real.empty:
-                max_month = df_real['TRX_MONTH'].max()
-                try:
-                    curr_yr = int(str(max_month)[:4])
-                    curr_mo = int(str(max_month)[4:])
-                    prev_yr = curr_yr - 1
-                    prev_month = int(f"{prev_yr}{curr_mo:02d}")
+    # Top Merchants overview from DB
+    if not df_card.empty:
+        section_label("🏆 Top Merchants Analytics (YTD)")
+        
+        # Create a rich dataframe with calculated metrics
+        df_c = df_card.copy()
+        df_c['AVG_TRX_VAL'] = np.where(df_c['TOTAL_TRX'] > 0, df_c['TOTAL_SV'] / df_c['TOTAL_TRX'], 0)
+        df_c['FBI_YIELD'] = np.where(df_c['TOTAL_SV'] > 0, (df_c['TOTAL_FBI'] / df_c['TOTAL_SV']) * 100, 0)
+        
+        cc1s, cc2s = st.columns([3, 1])
+        top_n_c = cc1s.slider("Top N Merchants", 10, 50, 20, key="t1_topn")
+        sort_by = cc2s.selectbox("Rank By", ['TOTAL_SV','TOTAL_TRX','TOTAL_FBI','RASIO_ONUS', 'FBI_YIELD'], key="t1_sort")
+        
+        df_top = df_c.sort_values(sort_by, ascending=False).head(top_n_c)
+        
+        # Format display dataframe
+        disp_top = df_top[['MERCHANT_GROUP', 'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'AVG_TRX_VAL', 'FBI_YIELD', 'RASIO_ONUS']].copy()
+        
+        # Add formatted strings
+        format_dict = {
+            'Sales Volume': lambda x: f"Rp {x/1e9:,.2f} M",
+            'Fee Based Income': lambda x: f"Rp {x/1e6:,.1f} Jt",
+            'Transactions': lambda x: f"{x:,.0f}",
+            'Avg Trx Size': lambda x: f"Rp {x:,.0f}",
+            'FBI Yield': lambda x: f"{x:.4f}%",
+            'On-Us Ratio': lambda x: f"{x*100:.1f}%",
+        }
+        
+        col_names = {
+            'MERCHANT_GROUP': 'Merchant Group',
+            'TOTAL_SV': 'Sales Volume',
+            'TOTAL_TRX': 'Transactions',
+            'TOTAL_FBI': 'Fee Based Income',
+            'AVG_TRX_VAL': 'Avg Trx Size',
+            'FBI_YIELD': 'FBI Yield',
+            'RASIO_ONUS': 'On-Us Ratio'
+        }
+        
+        _disp_top = disp_top.rename(columns=col_names)
+        st.dataframe(
+            _disp_top.style.format(format_dict)
+            .background_gradient(cmap='Blues', subset=['Sales Volume', 'Transactions'])
+            .background_gradient(cmap='Greens', subset=['Fee Based Income', 'FBI Yield']),
+            width='stretch', height=min(38 * len(disp_top) + 40, 500)
+        )
+
+        with st.expander("📋 Raw Card Share Data"):
+            st.dataframe(df_c.reset_index(drop=True), width='stretch')
+            st.download_button("⬇️ Download CSV", df_c.to_csv(index=False, encoding='utf-8-sig'), "card_share_data.csv", "text/csv")
+
+        # ── GROWTH ANALYTICS (Realisasi) ──────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        # We can now use df_card_hist from DB for growth instead of re-parsing Excel
+        if not df_card_hist.empty:
+            max_month = df_card_hist['TRX_MONTH'].max()
+            try:
+                curr_yr = int(str(max_month)[:4])
+                curr_mo = int(str(max_month)[4:])
+                prev_yr = curr_yr - 1
+                prev_month = int(f"{prev_yr}{curr_mo:02d}")
+                
+                MONTH_ABB = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                col_curr = f"{MONTH_ABB[curr_mo-1]}-{str(curr_yr)[2:]}"
+                col_prev = f"{MONTH_ABB[curr_mo-1]}-{str(prev_yr)[2:]}"
+                col_fy_prev = f"FY-{str(prev_yr)[2:]}"
+                
+                gh1, gh2 = st.columns([3, 1])
+                with gh1:
+                    section_label("📈 Top & Bottom Merchant Growth (MoM YoY)")
+                with gh2:
+                    metric_sel = st.selectbox(
+                        "Metric",
+                        ["SALES VOLUME", "TRANSACTION", "FEE BASED INCOME"],
+                        key="t1_metric_growth",
+                        label_visibility="collapsed"
+                    )
+                m_col = 'TOTAL_SV' if 'SALES' in metric_sel else ('TOTAL_TRX' if 'TRANS' in metric_sel else 'TOTAL_FBI')
+                
+                # Current month
+                df_curr = df_card_hist[df_card_hist['TRX_MONTH'] == max_month].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_curr)
+                # Previous month
+                df_prev = df_card_hist[df_card_hist['TRX_MONTH'] == prev_month].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_prev)
+                # FY Previous
+                df_fy = df_card_hist[df_card_hist['YEAR'] == prev_yr].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_fy_prev)
+                
+                df_growth = pd.merge(df_curr, df_prev, on='MERCHANT_GROUP', how='outer')
+                df_growth = pd.merge(df_growth, df_fy, on='MERCHANT_GROUP', how='outer').fillna(0)
+                
+                df_growth['Delta'] = df_growth[col_curr] - df_growth[col_prev]
+                df_growth['Growth %'] = np.where(df_growth[col_prev] > 0, 
+                                                (df_growth['Delta'] / df_growth[col_prev]) * 100, 
+                                                np.where(df_growth[col_curr] > 0, 100, 0))
+                
+                df_growth = df_growth[(df_growth[col_curr] > 0) | (df_growth[col_prev] > 0) | (df_growth[col_fy_prev] > 0)]
+                top_10 = df_growth.sort_values('Growth %', ascending=False).head(10)
+                bot_10 = df_growth.sort_values('Growth %', ascending=True).head(10)
+                
+                def val_fmt_g(x):
+                    if 'TOTAL_TRX' in m_col: return f"{x:,.0f}"
+                    if x >= 1e9 or x <= -1e9: return f"{x/1e9:,.2f} M"
+                    return f"{x/1e6:,.0f} Jt"
+                
+                def style_growth(row):
+                    styles = [''] * len(row)
+                    pct = row['Growth %']
+                    color = '#27AE60' if pct > 0 else ('#EB5757' if pct < 0 else '#888')
+                    styles[4] = f'color: {color}; font-weight: bold;'
+                    styles[5] = f'color: {color}; font-weight: bold;'
+                    return styles
                     
-                    MONTH_ABB = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-                    col_curr = f"{MONTH_ABB[curr_mo-1]}-{str(curr_yr)[2:]}"
-                    col_prev = f"{MONTH_ABB[curr_mo-1]}-{str(prev_yr)[2:]}"
-                    col_fy_prev = f"FY-{str(prev_yr)[2:]}"
-                    
-                    # Target metric selection — inline with section header
-                    gh1, gh2 = st.columns([3, 1])
-                    with gh1:
-                        section_label("📈 Top & Bottom Merchant Growth (MoM YoY)")
-                    with gh2:
-                        metric_sel = st.selectbox(
-                            "Metric",
-                            ["SALES VOLUME", "TRANSACTION", "FEE BASED INCOME"],
-                            key="t1_metric_growth",
-                            label_visibility="collapsed"
-                        )
-                    m_col = 'SV' if 'SALES' in metric_sel else ('TRX' if 'TRANS' in metric_sel else 'FBI')
-                    
-                    # Group data
-                    # Current month
-                    df_curr = df_real[df_real['TRX_MONTH'] == max_month].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_curr)
-                    # Previous month
-                    df_prev = df_real[df_real['TRX_MONTH'] == prev_month].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_prev)
-                    # FY Previous
-                    df_fy = df_real[df_real['YEAR'] == prev_yr].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_fy_prev)
-                    
-                    # Merge all
-                    df_growth = pd.merge(df_curr, df_prev, on='MERCHANT_GROUP', how='outer')
-                    df_growth = pd.merge(df_growth, df_fy, on='MERCHANT_GROUP', how='outer').fillna(0)
-                    
-                    # Calculate Growth and Delta
-                    df_growth['Delta'] = df_growth[col_curr] - df_growth[col_prev]
-                    df_growth['Growth %'] = np.where(df_growth[col_prev] > 0, 
-                                                    (df_growth['Delta'] / df_growth[col_prev]) * 100, 
-                                                    np.where(df_growth[col_curr] > 0, 100, 0))
-                    
-                    # Clean zeroes
-                    df_growth = df_growth[(df_growth[col_curr] > 0) | (df_growth[col_prev] > 0) | (df_growth[col_fy_prev] > 0)]
-                    
-                    # Split Top and Bottom
-                    top_10 = df_growth.sort_values('Growth %', ascending=False).head(10)
-                    bot_10 = df_growth.sort_values('Growth %', ascending=True).head(10)
-                    
-                    # Formatter
-                    def val_fmt(x):
-                        if m_col == 'TRX': return f"{x:,.0f}"
-                        if x >= 1e9 or x <= -1e9: return f"{x/1e9:,.2f} M"
-                        return f"{x/1e6:,.0f} Jt"
-                    
-                    def style_growth(row):
-                        styles = [''] * len(row)
-                        pct = row['Growth %']
-                        color = '#27AE60' if pct > 0 else ('#EB5757' if pct < 0 else '#888')
-                        styles[4] = f'color: {color}; font-weight: bold;'
-                        styles[5] = f'color: {color}; font-weight: bold;'
-                        return styles
-                        
-                    formatters = {
-                        col_curr: val_fmt, 
-                        col_prev: val_fmt, 
-                        col_fy_prev: val_fmt,
-                        'Delta': val_fmt,
-                        'Growth %': lambda x: f"{x:,.0f}%"
-                    }
-                    
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        section_label(f"🟢 Top 10 by {metric_sel} Growth")
-                        st.dataframe(top_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), width='stretch')
-                    with c2:
-                        section_label(f"🔴 Bottom 10 by {metric_sel} Growth")
-                        st.dataframe(bot_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), width='stretch')
-                        
-                except Exception as e:
-                    st.error(f"Could not calculate growth from Realisasi dates: {e}")
-            else:
-                st.info("Realisasi data for growth analytics not available in Master file.")
+                formatters = {
+                    col_curr: val_fmt_g, col_prev: val_fmt_g, col_fy_prev: val_fmt_g,
+                    'Delta': val_fmt_g, 'Growth %': lambda x: f"{x:,.0f}%"
+                }
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    section_label(f"🟢 Top 10 by {metric_sel} Growth")
+                    st.dataframe(top_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), width='stretch')
+                with c2:
+                    section_label(f"🔴 Bottom 10 by {metric_sel} Growth")
+                    st.dataframe(bot_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), width='stretch')
+            except Exception as e:
+                st.error(f"Growth calculation failed: {e}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — WEEKLY MONITORING (reads from '2026' sheet directly)
@@ -770,191 +623,100 @@ with tab2:
     tab_desc("Weekly monitoring — merchant-level weekly matrix read directly from the <b>2026</b> sheet. "
              "Filter by <b>PM</b> and <b>Metric</b> (TRX / VOL / FBI) to drill down.")
 
-    # Determine which monitoring file to read from
-    _mon_path = PATH_RAW_MON if os.path.exists(PATH_RAW_MON) else PATH_MON
-    has_mon_file = os.path.exists(_mon_path)
-
-    if not has_mon_file:
-        st.warning("⚠️ Monitoring file not found. Place 'Monitoring Weekly Anchor 2026.xlsx' in data/raw/real/.")
+    if not has_mon_weekly:
+        st.warning("⚠️ Weekly Monitoring database table is missing. Please run the Automated Pipeline first.")
     else:
-        mon_mtime = os.path.getmtime(_mon_path)
-        df_2026_raw = parse_2026_sheet(_mon_path, mon_mtime)
+        # ── 1. Filters ───────────
+        f_col1, f_col2, f_col3 = st.columns([1, 1, 1])
+        
+        with f_col1:
+            avail_years_mon = sorted(df_mon_weekly['YEAR'].unique().tolist(), reverse=True)
+            sel_yr_mon = st.selectbox("📅 Year", [str(y) for y in avail_years_mon], key="t2_year_mon")
+            df_mon_yr = df_mon_weekly[df_mon_weekly['YEAR'] == str(sel_yr_mon)]
+        
+        with f_col2:
+            pm_names_mon = sorted([p for p in df_mon_yr['PM'].dropna().unique() if str(p).strip().upper() not in ['NAN', 'NONE', 'UNKNOWN', 'UNASSIGNED']])
+            sel_pm_mon = st.selectbox("👤 Filter by PM", ["All PMs"] + pm_names_mon, key="t2_pm_mon")
+        
+        with f_col3:
+            avail_ket_mon = sorted(df_mon_yr['DIMENSI'].dropna().unique())
+            sel_ket_mon = st.multiselect("📊 Metric (Dimensi)", avail_ket_mon, default=avail_ket_mon, key="t2_ket_mon")
 
-        if df_2026_raw.empty:
-            st.warning("⚠️ Could not parse the '2026' sheet from the monitoring file.")
+        # ── 2. Data Processing ───────────
+        df_filt_mon = df_mon_yr.copy()
+        if sel_pm_mon != "All PMs":
+            df_filt_mon = df_filt_mon[df_filt_mon['PM'] == sel_pm_mon]
+        if sel_ket_mon:
+            df_filt_mon = df_filt_mon[df_filt_mon['DIMENSI'].isin(sel_ket_mon)]
+        
+        W_COLS_DB = sorted([c for c in df_filt_mon.columns if c.startswith('W') and c[1:].isdigit()])
+        
+        if df_filt_mon.empty:
+            st.info("ℹ️ No monitoring data matches the current filters.")
         else:
-            W_COLS = sorted([c for c in df_2026_raw.columns if c.startswith('W') and c[1:].isdigit()])
-
-            # ── Filters ───────────────────────────────────────────────────────
-            f_col1, f_col2, f_col3 = st.columns([2, 2, 2])
-
-            # PM filter
-            with f_col1:
-                _SKIP_PM = {'–', '', 'Nan', 'nan', 'None', 'Unknown'}
-                pm_names = sorted(
-                    p for p in df_2026_raw['PM'].dropna().unique()
-                    if str(p).strip() not in _SKIP_PM
-                ) if 'PM' in df_2026_raw.columns else []
-                sel_pm = st.selectbox(
-                    "👤 Filter by PM",
-                    ["All PMs"] + pm_names,
-                    index=0,
-                    key="t2_pm_2026",
-                )
-
-            # Metric filter (DIMENSI = TRX / VOL / FBI)
-            with f_col2:
-                avail_ket = sorted(df_2026_raw['KET'].dropna().unique())
-                sel_ket = st.multiselect(
-                    "📊 Metric (Dimensi)",
-                    avail_ket,
-                    default=avail_ket,
-                    key="t2_ket_2026",
-                )
-
-            # Apply filters
-            df_filt = df_2026_raw.copy()
-            if sel_pm != "All PMs" and 'PM' in df_filt.columns:
-                df_filt = df_filt[df_filt['PM'] == sel_pm]
-            if sel_ket:
-                df_filt = df_filt[df_filt['KET'].isin(sel_ket)]
-
-            active_weeks = W_COLS
-
-            # ── KPI summary for filtered data ─────────────────────────────────
-            _n_merchants = df_filt['NAME'].nunique()
-            _n_pms = df_filt['PM'].nunique() if 'PM' in df_filt.columns else 0
-            _total_ytd = df_filt['YTD'].sum() if 'YTD' in df_filt.columns else 0
-
-            # Smart format
-            if _total_ytd >= 1e12:
-                _ytd_label = f"Rp {_total_ytd/1e12:,.2f}T"
-            elif _total_ytd >= 1e9:
-                _ytd_label = f"Rp {_total_ytd/1e9:,.1f}M"
-            elif _total_ytd >= 1e6:
-                _ytd_label = f"Rp {_total_ytd/1e6:,.0f}Jt"
-            else:
-                _ytd_label = f"{_total_ytd:,.0f}"
+            grp_cols_mon = ['MERCHANT_GROUP', 'DIMENSI', 'PM', 'FY', 'YTD']
+            avail_grp_mon = [c for c in grp_cols_mon if c in df_filt_mon.columns]
+            
+            _n_merch_mon = df_filt_mon['MERCHANT_GROUP'].nunique()
+            _total_ytd_mon = df_filt_mon[df_filt_mon['DIMENSI']=='VOL']['YTD'].sum()
+            
+            def fmt_ytd_mon(v):
+                if v >= 1e12: return f"Rp {v/1e12:,.2f}T"
+                if v >= 1e9:  return f"Rp {v/1e9:,.1f}M"
+                if v >= 1e6:  return f"Rp {v/1e6:,.0f}Jt"
+                return f"{v:,.0f}"
 
             kpi_row([
-                kpi_card(f"{_n_merchants}", "🏪 Merchants"),
-                kpi_card(f"{_n_pms}", "👤 PMs"),
-                kpi_card(_ytd_label, "📊 Total YTD (filtered)"),
-                kpi_card(f"{len(df_filt)}", "📋 Rows Displayed"),
+                kpi_card(f"{_n_merch_mon}", "🏪 Merchants Filtered"),
+                kpi_card(fmt_ytd_mon(_total_ytd_mon), "📊 Filtered YTD Volume"),
+                kpi_card(str(sel_yr_mon), "📅 Selected Year", "accent"),
+                kpi_card(f"{len(df_filt_mon)}", "📋 Total Metrics Tracked")
             ])
 
-            # ── MAIN TABLE ────────────────────────────────────────────────────
-            section_label("🏪 Merchant Weekly Matrix")
-            filter_pill(f"PM: {sel_pm} · Metrics: {', '.join(sel_ket) if sel_ket else 'All'} · {_n_merchants} merchants")
-
-            disp_cols = ['NAME', 'KET', 'PM', 'PERIODE', 'FY', 'YTD'] + active_weeks
-            available_disp = [c for c in disp_cols if c in df_filt.columns]
-            st.dataframe(df_filt[available_disp].fillna(0).reset_index(drop=True),
-                         width='stretch', height=430)
-
-            # ── CHARTS SECTION ────────────────────────────────────────────────
-            df_2026 = df_filt.copy()
-
-            if not df_2026.empty:
-                st.markdown("---")
-                section_label("📊 Visual Analysis")
-
-                all_names = sorted(df_2026['NAME'].unique())
-                default_names = df_2026.sort_values('YTD', ascending=False)['NAME'].unique().tolist()[:10]
-
-                c_filt1, c_filt2 = st.columns([3, 1])
-                with c_filt1:
-                    sel_chart_names = st.multiselect(
-                        "🔍 Select Merchants to Chart",
-                        all_names,
-                        default=default_names,
-                        key="t2_chart_names_2026"
-                    )
-
-                df_chart = df_2026[df_2026['NAME'].isin(sel_chart_names)].copy() if sel_chart_names else pd.DataFrame()
-
-            # ── WEEKLY HEATMAP ────────────────────────────────────────────────
-            data_weeks = [c for c in W_COLS if (df_chart[c].fillna(0) != 0).any()] if not df_chart.empty else []
-            if not df_chart.empty and data_weeks:
-                section_label("🗓️ Weekly Activity Heatmap (2026)")
-                df_heat = df_chart.copy()
-                df_heat['LABEL'] = df_heat['NAME'] + ' (' + df_heat['KET'].astype(str) + ')'
-                df_heat[data_weeks] = df_heat[data_weeks].apply(pd.to_numeric, errors='coerce').fillna(0)
-                heat_data = df_heat.set_index('LABEL')[data_weeks]
-
-                _pp = _p()
-                _hm_scale = [
-                    [0.0, _pp['BG']],
-                    [0.1, _pp['SURFACE']],
-                    [0.3, _pp['NAVY']],
-                    [0.6, _pp['BLUE_ACC']],
-                    [1.0, _pp['GOLD']]
-                ]
-                fig_heat = px.imshow(
-                    heat_data,
-                    color_continuous_scale=_hm_scale,
+            # ── 3. Main Data Matrix ───────────
+            section_label(f"🗓️ Weekly Matrix — {sel_yr_mon}")
+            st.dataframe(df_filt_mon[avail_grp_mon + W_COLS_DB].fillna(0).reset_index(drop=True), width='stretch', height=400)
+            
+            # ── 4. Trend & Visuals ───────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            section_label("📈 Weekly Aggregated Trend")
+            
+            all_merch_mon = sorted(df_filt_mon['MERCHANT_GROUP'].unique().tolist())
+            def_merch_mon = df_filt_mon[df_filt_mon['DIMENSI']=='VOL'].sort_values('YTD', ascending=False)['MERCHANT_GROUP'].head(5).tolist()
+            
+            sel_plot_merch = st.multiselect("🔍 Select Merchants to Plot", all_merch_mon, default=def_merch_mon, key="t2_plot_merch")
+            
+            if sel_plot_merch:
+                df_plot_mon = df_filt_mon[df_filt_mon['MERCHANT_GROUP'].isin(sel_plot_merch)].copy()
+                df_plot_mon['LABEL'] = df_plot_mon['MERCHANT_GROUP'] + ' (' + df_plot_mon['DIMENSI'] + ')'
+                df_long_mon = df_plot_mon.melt(id_vars='LABEL', value_vars=W_COLS_DB, var_name='Week', value_name='Value')
+                df_long_mon = df_long_mon.sort_values(['LABEL', 'Week'])
+                
+                fig_trend_mon = px.line(
+                    df_long_mon, x='Week', y='Value', color='LABEL', markers=True,
+                    title=f"Weekly Trend Analysis — {sel_yr_mon}",
+                )
+                fig_trend_mon.update_layout(height=450, legend=dict(orientation='h', y=-0.3), **_chart_base())
+                st.plotly_chart(fig_trend_mon, width='stretch')
+                
+                # Heatmap
+                st.markdown("<br>", unsafe_allow_html=True)
+                section_label("🔥 Performance Heatmap")
+                heat_data_mon = df_plot_mon.set_index('LABEL')[W_COLS_DB].fillna(0).apply(pd.to_numeric, errors='coerce').fillna(0)
+                
+                fig_heat_mon = px.imshow(
+                    heat_data_mon,
+                    color_continuous_scale='Viridis',
                     aspect='auto',
-                    title="Weekly Heatmap (2026)",
-                    labels=dict(x="Week Number", y="", color="Value")
+                    title=f"Weekly Performance Patterns — {sel_yr_mon}"
                 )
-                h_calc = max(280, 40 * len(heat_data) + 100)
-                fig_heat.update_layout(
-                    height=h_calc,
-                    xaxis=dict(dtick=2, color=_pp['TEXT_SEC'], side='top'),
-                    coloraxis_showscale=True,
-                    margin=dict(l=10, r=10, t=80, b=10),
-                    **_chart_base(),
-                )
-                fig_heat.update_traces(hovertemplate='<b>%{y}</b><br>%{x}: %{z:,.0f}<extra></extra>')
-                st.plotly_chart(fig_heat, width='stretch')
-
-            # ── WEEKLY TREND LINE ─────────────────────────────────────────────
-            if not df_chart.empty and data_weeks:
-                section_label("📈 Weekly Trend & WoW Growth — 2026")
-                df_trend = df_chart.copy()
-                df_trend['LABEL'] = df_trend['NAME'] + ' (' + df_trend['KET'].astype(str) + ')'
-                df_trend[data_weeks] = df_trend[data_weeks].apply(pd.to_numeric, errors='coerce').fillna(0)
-
-                df_long = df_trend[['LABEL'] + data_weeks].melt(id_vars='LABEL', var_name='Week', value_name='Value')
-                df_long = df_long.sort_values(['LABEL', 'Week'])
-                df_long['WoW'] = df_long.groupby('LABEL')['Value'].pct_change() * 100
-
-                def _wk_lbl(row):
-                    v = row['Value']
-                    mom = row['WoW']
-                    if v >= 1e9:
-                        vlbl = f"{v/1e9:,.1f}M"
-                    elif v >= 1e6:
-                        vlbl = f"{v/1e6:,.0f}Jt"
-                    elif v >= 1e3:
-                        vlbl = f"{v/1e3:,.0f}K"
-                    else:
-                        vlbl = f"{v:,.0f}"
-                    if pd.notna(mom) and mom > 0:
-                        return f"{vlbl}<br>(+{mom:.1f}%)"
-                    elif pd.notna(mom) and mom < 0:
-                        return f"{vlbl}<br>({mom:.1f}%)"
-                    return vlbl
-
-                df_long['Text'] = df_long.apply(_wk_lbl, axis=1)
-
-                fig_line = px.line(
-                    df_long, x='Week', y='Value', color='LABEL', text='Text',
-                    markers=True, title="Weekly Trend by Merchant"
-                )
-                fig_line.update_traces(marker=dict(size=6), line=dict(width=2.5), textposition='top center', textfont_size=9)
-                fig_line.update_layout(
-                    height=460,
-                    legend=dict(orientation='h', y=-0.35, title=None, font=dict(color=_p()['TEXT_PRI'])),
-                    **_chart_base(),
-                    xaxis={**_xaxis(), 'dtick':2},
-                    yaxis={**_yaxis(), 'title':''},
-                )
-                st.plotly_chart(fig_line, width='stretch')
-
+                fig_heat_mon.update_layout(height=max(250, 30*len(heat_data_mon)+100), **_chart_base())
+                st.plotly_chart(fig_heat_mon, width='stretch')
+            
             st.download_button("⬇️ Export Table",
-                df_filt[available_disp].to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig'),
-                "monitoring_2026_export.csv", "text/csv")
+                df_filt_mon[avail_grp_mon + W_COLS_DB].to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig'),
+                f"monitoring_{sel_yr_mon}_export.csv", "text/csv")
+
 
     # KPI footer from DB
     if not df_mon.empty:
@@ -1234,7 +996,7 @@ with tab4:
                     st.caption("Raw aggregates feeding the gauge and donut charts:")
                     audit_data = {
                         "Metric": ["High Risk Count", "Stable Count", "Total", "Churn Rate %"],
-                        "Value": [len(df_high), len(df_safe), total, f"{rate:.2f}%"],
+                        "Value": [str(len(df_high)), str(len(df_safe)), str(total), f"{rate:.2f}%"],
                     }
                     st.dataframe(pd.DataFrame(audit_data), hide_index=True, width='stretch')
                     if 'CHURN_RISK' in df_c4.columns:
@@ -1374,159 +1136,105 @@ with tab5:
 # TAB 6 — AI INSIGHTS & DIAGNOSTICS
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab6:
-    tab_desc("Predictive AI capabilities that calculate Run-Rate projections vs Targets, track Historical Seasonality, and hunt for sudden 'Silent Churn' drop anomalies across the entire fleet.")
+    tab_desc("Predictive AI capabilities that calculate Run-Rate projections vs Targets, track Historical Seasonality, and hunt for sudden 'Silent Churn' drop anomalies.")
     
-    if not (has_card and has_mon):
-        st.warning("⚠️ AI Insights require both Card Share and Monitoring data to be processed.")
+    if not has_mon_weekly:
+        st.warning("⚠️ AI Insights require processed Monitoring Weekly data in the database.")
     else:
-        # Re-fetch raw monitoring for weeks and realisasi for months
-        # Pass file mtime to bust cache when master file is updated
-        mon_mtime = os.path.getmtime(PATH_MON) if os.path.exists(PATH_MON) else None
-        dt_mon = parse_monitoring_sheet(PATH_MON, "PerMerchant", mon_mtime) if has_mon else pd.DataFrame()
-        dt_real = parse_realisasi(PATH_CARD) if has_card else pd.DataFrame()
+        # Use database-loaded data (respects sidebar filters)
+        # Tab 6 logic primarily looks at 2026 for latest trends
+        df_ai_wk = df_mon_weekly[df_mon_weekly['YEAR'] == '2026'].copy()
+        W_COLS = sorted([c for c in df_ai_wk.columns if c.startswith('W') and c[1:].isdigit()])
         
-        if dt_mon.empty or dt_real.empty:
-            st.error("Error loading underlying matrix data for AI insights.")
+        if df_ai_wk.empty:
+            st.info("ℹ️ No 2026 monitoring data found for the current filter.")
         else:
-            # Prepare Target DB merging
-            df_curr_yr = dt_mon[dt_mon['PERIODE'].astype(str) == '2026'].copy()
-            W_COLS = sorted([c for c in df_curr_yr.columns if c.startswith('W') and c[1:].isdigit()])
-            for w in W_COLS:
-                df_curr_yr[w] = pd.to_numeric(df_curr_yr[w], errors='coerce').fillna(0)
-                
             # --- FEATURE 1: SILENT CHURN ANOMALY SCANNER ---
             st.markdown("<br>", unsafe_allow_html=True)
             section_label("🚨 Fleet-Wide Sudden Drop Monitor (Silent Churn)")
-            st.markdown("This algorithm scans the 53-week matrix and identifies merchants whose most recent active week crashed below a dynamic threshold compared to their own 4-week moving average.")
+            st.markdown("Scans recent weekly data for merchants whose latest activity crashed below their own 4-week moving average.")
             
-            # Find the most recent active week across the whole fleet dynamically
-            # We look for the highest week number where total volume > 0
+            # Find the most recent active week dynamically
             latest_wk_num = 0
             for w in reversed(W_COLS):
-                if df_curr_yr[w].sum() > 0:
+                if df_ai_wk[w].fillna(0).sum() > 0:
                     latest_wk_num = int(w[1:])
                     break
-                    
+            
             if latest_wk_num < 5:
-                st.info("Insufficient 2026 weeks logged to calculate a 4-week trailing average for fleet drop detection.")
+                st.info("Insufficient 2026 weeks logged to calculate a 4-week trailing average.")
             else:
                 wk_curr = f"W{latest_wk_num:02d}"
-                wk_t1   = f"W{latest_wk_num-1:02d}"
-                wk_t2   = f"W{latest_wk_num-2:02d}"
-                wk_t3   = f"W{latest_wk_num-3:02d}"
-                wk_t4   = f"W{latest_wk_num-4:02d}"
+                wk_hist = [f"W{latest_wk_num-i:02d}" for i in range(1, 5)]
                 
-                slider_drop = st.slider("Drop Threshold Alert Trigger", min_value=10, max_value=80, value=30, step=5, format="%d%%")
+                slider_drop = st.slider("Drop Threshold Alert Trigger", 10, 80, 30, 5, format="%d%%", key="ai_drop_thresh")
                 threshold_pct = -1 * (slider_drop / 100.0)
                 
-                # Filter to merchant-level rows only (exclude PM aggregates like RIFALDI)
-                _scan_cols = ['NAME', 'KET', 'YTD', wk_t4, wk_t3, wk_t2, wk_t1, wk_curr]
-                if 'ROW_NUM' in df_curr_yr.columns:
-                    _scan_cols.append('ROW_NUM')
-                    df_scan = df_curr_yr[_scan_cols].copy()
-                    df_scan = df_scan[df_scan['ROW_NUM'].notna()].drop(columns=['ROW_NUM'])
-                else:
-                    df_scan = df_curr_yr[_scan_cols].copy()
-                df_scan['Trailing_4W_Avg'] = df_scan[[wk_t4, wk_t3, wk_t2, wk_t1]].mean(axis=1)
-                
-                # Formula: (Current - Avg) / Avg. Guard against 0 div.
+                df_scan = df_ai_wk[['MERCHANT_GROUP', 'DIMENSI', 'YTD'] + wk_hist + [wk_curr]].copy()
+                df_scan['Trailing_4W_Avg'] = df_scan[wk_hist].mean(axis=1)
                 df_scan['WoW_Variance'] = np.where(
                     df_scan['Trailing_4W_Avg'] > 0,
                     (df_scan[wk_curr] - df_scan['Trailing_4W_Avg']) / df_scan['Trailing_4W_Avg'],
                     0
                 )
                 
-                # We only care about drops (negative variance) exceeding the threshold
-                # And we don't care about entirely dead merchants (Avg == 0)
                 anomalies = df_scan[(df_scan['WoW_Variance'] <= threshold_pct) & (df_scan['Trailing_4W_Avg'] > 0)].copy()
                 anomalies = anomalies.sort_values('WoW_Variance', ascending=True)
                 
-                st.markdown(f"**Anomalies found for current week ({wk_curr}):** `{len(anomalies)}` merchants dropped by `{slider_drop}%` or worse.")
+                st.markdown(f"**Anomalies found for week ({wk_curr}):** `{len(anomalies)}` records dropped by `{slider_drop}%`+.")
                 
                 if not anomalies.empty:
-                    # Formatting
-                    anom_disp = anomalies[['NAME', 'Trailing_4W_Avg', wk_curr, 'WoW_Variance']].copy()
+                    anom_disp = anomalies[['MERCHANT_GROUP', 'DIMENSI', 'Trailing_4W_Avg', wk_curr, 'WoW_Variance']].copy()
                     anom_disp['WoW_Variance'] = (anom_disp['WoW_Variance']*100).round(1).astype(str) + "%"
-                    anom_disp['Trailing_4W_Avg'] = anom_disp['Trailing_4W_Avg'].apply(lambda x: f"Rp {x/1e6:,.1f}Jt" if x>=1e6 else f"{x:,.0f}")
-                    anom_disp[wk_curr] = anom_disp[wk_curr].apply(lambda x: f"Rp {x/1e6:,.1f}Jt" if x>=1e6 else f"{x:,.0f}")
-                    anom_disp.rename(columns={'Trailing_4W_Avg': '4-Week Avg', wk_curr: 'Latest Week'}, inplace=True)
-                    
-                    st.dataframe(
-                        anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['WoW_Variance']),
-                        width='stretch', hide_index=True
-                    )
+                    st.dataframe(anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['WoW_Variance']), width='stretch', hide_index=True)
                 else:
-                    st.success(f"No massive {slider_drop}% drops detected fleet-wide! The portfolio is stable.")
-            
+                    st.success(f"No massive {slider_drop}% drops detected. Portfolio is stable.")
 
-            # --- FEATURE 2: MERCHANT DEEP DIVE (AI Text & Seasonality) ---
+            # --- FEATURE 2: MERCHANT DEEP DIVE ---
             st.markdown("<br>", unsafe_allow_html=True)
             section_label("🔍 Deep Dive & Projection (Specific Merchant)")
             
-            # ── FIX: Exclude PM-aggregate rows (they have no MERCHANT_CODE/ROW_NUM)
-            # The PerMerchant sheet has PM-level summary rows (e.g. "RIFALDI") that
-            # should NOT appear in the merchant selectbox. Real merchant rows have
-            # a numeric ROW_NUM (col 0) and a MERCHANT_CODE (col 1, e.g. "ANCOLVOL").
-            if 'ROW_NUM' in df_curr_yr.columns:
-                df_merch_only = df_curr_yr[df_curr_yr['ROW_NUM'].notna()].copy()
-            else:
-                df_merch_only = df_curr_yr.copy()
-            all_merch = sorted(df_merch_only['NAME'].dropna().unique())
-            
-            # Debug audit — verify column mapping (toggle off in production)
-            with st.expander("🔬 Data Audit: Column Mapping Debug", expanded=False):
-                st.caption("Use this panel to verify which rows are merchants vs PM aggregates.")
-                audit_cols = [c for c in ['NAME','MERCHANT_CODE','ROW_NUM','KET','PERIODE','YTD'] if c in df_curr_yr.columns]
-                st.dataframe(
-                    df_curr_yr[df_curr_yr['PERIODE'].astype(str)=='2026'][audit_cols].drop_duplicates('NAME').sort_values('NAME').reset_index(drop=True),
-                    width='stretch', hide_index=True, height=200
-                )
-                st.info(f"Selectbox populated with **{len(all_merch)}** unique merchant names (PM aggregates excluded).")
-            
-            sel_merch = st.selectbox("Select Merchant Entity to Profile:", all_merch)
+            all_merch_ai = sorted(df_ai_wk['MERCHANT_GROUP'].unique().tolist())
+            sel_merch = st.selectbox("Select Merchant Entity to Profile:", all_merch_ai, key="ai_sel_merch")
             
             if sel_merch:
                 col_txt, col_graph = st.columns([1, 1], gap="large")
                 
-                ## 1. Calculating Run Rate vs Target
-                df_m_2026 = df_curr_yr[df_curr_yr['NAME'] == sel_merch]
-                df_m_tgt  = dt_mon[(dt_mon['NAME'] == sel_merch) & (dt_mon['PERIODE'].astype(str) == 'Target')]
+                # Math for projection
+                df_m_wk = df_ai_wk[df_ai_wk['MERCHANT_GROUP'] == sel_merch]
+                # Filter to VOL for projection
+                df_m_vol = df_m_wk[df_m_wk['DIMENSI'] == 'VOL']
                 
-                ytd_actual = float(df_m_2026['YTD'].iloc[0]) if not df_m_2026.empty else 0
-                fy_target = float(df_m_tgt['FY'].iloc[0]) if not df_m_tgt.empty else 0
+                ytd_actual = float(df_m_vol['YTD'].iloc[0]) if not df_m_vol.empty else 0
                 
-                # Project EOY using active weeks
+                # Fetch Target from df_target (already filtered)
+                target_row = df_target[df_target['MERCHANT_GROUP'] == sel_merch]
+                fy_target = float(target_row['TARGET_VOL_2026'].iloc[0]) if not target_row.empty else 0
+                
+                # Active weeks count
                 active_weeks_count = 0
-                if not df_m_2026.empty:
-                    w_vals = df_m_2026[W_COLS].iloc[0].values
-                    active_w_arr = [v for v in w_vals if v > 0]
-                    active_weeks_count = len(active_w_arr)
-                    
+                if not df_m_vol.empty:
+                    active_weeks_count = (df_m_vol[W_COLS].iloc[0] > 0).sum()
+                
                 proj_eoy = (ytd_actual / active_weeks_count * 52) if active_weeks_count > 0 else 0
                 
-                ## 2. Calculating Historical Seasonality
-                # Filter realisasi for this merchant
-                merch_real = dt_real[dt_real['MERCHANT_GROUP'] == sel_merch].copy()
+                # Historical Seasonality from df_card_hist
+                merch_hist = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_merch].copy()
                 seasonality_str = "No historical seasonality data found."
-                
                 season_df = pd.DataFrame()
-                if not merch_real.empty and 'TRX_MONTH' in merch_real.columns and 'SV' in merch_real.columns:
-                    # Extract month 1-12
-                    merch_real['MonthIdx'] = merch_real['TRX_MONTH'].astype(str).str[-2:].astype(int)
-                    # Get average SV for each month across all years
-                    mo_avg = merch_real.groupby('MonthIdx')['SV'].mean().reset_index()
-                    all_mo_avg = mo_avg['SV'].mean()
-                    
+                
+                if not merch_hist.empty:
+                    # TRX_MONTH is YYYYMM
+                    merch_hist['MonthIdx'] = (merch_hist['TRX_MONTH'] % 100).astype(int)
+                    mo_avg = merch_hist.groupby('MonthIdx')['TOTAL_SV'].mean().reset_index()
+                    all_mo_avg = mo_avg['TOTAL_SV'].mean()
                     if all_mo_avg > 0:
-                        mo_avg['Multiplier'] = mo_avg['SV'] / all_mo_avg
+                        mo_avg['Multiplier'] = mo_avg['TOTAL_SV'] / all_mo_avg
                         season_df = mo_avg.copy()
-                        
-                        # Find Peak Month
                         peak_mo = season_df.loc[season_df['Multiplier'].idxmax()]
                         peak_name = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][int(peak_mo['MonthIdx'])-1]
-                        peak_mult = peak_mo['Multiplier']
-                        
-                        seasonality_str = f"They historically demonstrate a **{peak_mult:.1f}x surge in {peak_name}** compared to their baseline yearly average."
+                        seasonality_str = f"Historically shows a **{peak_mo['Multiplier']:.1f}x surge in {peak_name}** vs baseline."
+
                 
                 ## 3. Emitting the AI Text Analysis
                 with col_txt:
@@ -1594,9 +1302,9 @@ with tab6:
                             fi_scores["Target Gap"]          = round(max(0, 100 - rate_pct) / 2, 1)
                             weekly_v = ytd_actual / active_weeks_count
                             fi_scores["Low Weekly Velocity"] = round(max(0, 100 - min(weekly_v / 1e7, 100)), 1)
-                        if not merch_real.empty and 'SV' in merch_real.columns and len(merch_real) >= 6:
-                            recent = merch_real.sort_values('TRX_MONTH').tail(3)['SV'].mean()
-                            older  = merch_real.sort_values('TRX_MONTH').head(3)['SV'].mean()
+                        if not merch_hist.empty and 'TOTAL_SV' in merch_hist.columns and len(merch_hist) >= 6:
+                            recent = merch_hist.sort_values('TRX_MONTH').tail(3)['TOTAL_SV'].mean()
+                            older  = merch_hist.sort_values('TRX_MONTH').head(3)['TOTAL_SV'].mean()
                             if older > 0:
                                 fi_scores["Declining Volume Trend"] = round(min(max(0, (1 - recent / older) * 100), 100), 1)
                         defaults = {
@@ -1661,3 +1369,72 @@ with tab6:
                         st.plotly_chart(fig_sea, width='stretch')
                     else:
                         st.info(f"Insufficient historical Realisasi monthly data to chart statistical seasonality for {sel_merch}.")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — BATCH IMPACT ANALYSIS
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab7:
+    tab_desc("Analyze the impact of the latest data ingestion. Compare the newest data batch with previous records.")
+    
+    if not os.path.exists(PATH_DB):
+         st.warning("Database not found.")
+    else:
+        try:
+            conn_b = sqlite3.connect(PATH_DB)
+            # Get the two most recent EDW_FETCH_DATEs from CARD_SHARE
+            fetch_dates = pd.read_sql_query("SELECT DISTINCT EDW_FETCH_DATE FROM CARD_SHARE ORDER BY EDW_FETCH_DATE DESC LIMIT 2", conn_b)
+            
+            if len(fetch_dates) < 1:
+                st.info("Not enough batches to compare. Upload data first.")
+            else:
+                latest_date = fetch_dates.iloc[0, 0]
+                prev_date = fetch_dates.iloc[1, 0] if len(fetch_dates) > 1 else None
+                
+                st.markdown(f"### 📊 Ingestion Batch: `{latest_date}`")
+                
+                # Fetch latest batch data
+                df_latest = pd.read_sql_query(f"SELECT MERCHANT_GROUP, TOTAL_SV, TOTAL_TRX FROM CARD_SHARE WHERE EDW_FETCH_DATE = '{latest_date}'", conn_b)
+                sum_latest_sv = df_latest['TOTAL_SV'].sum()
+                sum_latest_trx = df_latest['TOTAL_TRX'].sum()
+                
+                if prev_date:
+                    df_prev = pd.read_sql_query(f"SELECT MERCHANT_GROUP, TOTAL_SV, TOTAL_TRX FROM CARD_SHARE WHERE EDW_FETCH_DATE = '{prev_date}'", conn_b)
+                    sum_prev_sv = df_prev['TOTAL_SV'].sum()
+                    sum_prev_trx = df_prev['TOTAL_TRX'].sum()
+                    
+                    delta_sv = sum_latest_sv - sum_prev_sv
+                    pct_sv = (delta_sv / sum_prev_sv * 100) if sum_prev_sv > 0 else 0
+                    
+                    delta_trx = sum_latest_trx - sum_prev_trx
+                    pct_trx = (delta_trx / sum_prev_trx * 100) if sum_prev_trx > 0 else 0
+                    
+                    c1, c2 = st.columns(2)
+                    c1.metric("Ingested Sales Volume", f"Rp {sum_latest_sv/1e9:,.2f}B", f"{delta_sv/1e6:,.1f}M ({pct_sv:+.1f}%)")
+                    c2.metric("Ingested Transactions", f"{sum_latest_trx:,.0f}", f"{delta_trx:,.0f} ({pct_trx:+.1f}%)")
+                    
+                    # Merge for gainer/loser comparison
+                    merged = pd.merge(df_latest.groupby('MERCHANT_GROUP').sum().reset_index(), 
+                                      df_prev.groupby('MERCHANT_GROUP').sum().reset_index(), 
+                                      on='MERCHANT_GROUP', suffixes=('_new', '_old'))
+                    merged['Delta SV'] = merged['TOTAL_SV_new'] - merged['TOTAL_SV_old']
+                    merged['Growth %'] = (merged['Delta SV'] / merged['TOTAL_SV_old'].replace(0, 1) * 100)
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    styled_divider()
+                    st.markdown("#### 🚀 Batch Variance vs Previous Cycle")
+                    
+                    g_col, l_col = st.columns(2)
+                    with g_col:
+                        section_label("🟢 Top Gainers in this Batch")
+                        st.dataframe(merged.sort_values('Delta SV', ascending=False).head(8)[['MERCHANT_GROUP', 'Delta SV', 'Growth %']], hide_index=True, width='stretch')
+                    with l_col:
+                        section_label("🔴 Top Losers in this Batch")
+                        st.dataframe(merged.sort_values('Delta SV', ascending=True).head(8)[['MERCHANT_GROUP', 'Delta SV', 'Growth %']], hide_index=True, width='stretch')
+                else:
+                    st.info(f"Only one batch found ({latest_date}). Comparison will be available after the next update.")
+                    st.metric("Ingested Sales Volume", f"Rp {sum_latest_sv/1e9:,.2f}B")
+                    st.metric("Ingested Transactions", f"{sum_latest_trx:,.0f}")
+                    
+            conn_b.close()
+        except Exception as e:
+            st.error(f"Error Analyzing Batch: {e}")

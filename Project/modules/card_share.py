@@ -58,6 +58,16 @@ def run_card_share_merge(df_csv, db_path, path_card, backup_dir):
 
         # ── Build data blocks ───────────────────────────────────────────────
         data_block1 = []
+        
+        # ── Pre-check existing keys to prevent duplicates ──────────────────
+        # We use pandas for a fast read of just the KEY column
+        try:
+            existing_df = pd.read_excel(path_card, sheet_name='Realisasi', usecols=['KEY'])
+            existing_keys = set(existing_df['KEY'].astype(str).tolist())
+        except Exception:
+            existing_keys = set()
+
+        processed_records = []
         data_block2 = []
         data_col4   = []  # YEAR  — computed in Python, no FormulaR1C1 needed
         data_col5   = []  # KEY   — computed in Python, no cross-sheet formula
@@ -83,6 +93,10 @@ def run_card_share_merge(df_csv, db_path, path_card, backup_dir):
 
             # Col 5: KEY — mirrors the Portfolio-driven Excel formula logic
             key_val   = (group + trx_month) if portfolio_switch == 1 else (brand + trx_month)
+            
+            # IDEMPOTENCY CHECK: Skip if key already exists in Excel
+            if key_val in existing_keys:
+                continue
 
             data_block1.append([group, brand, trx_month])
             data_col4.append([year_val])
@@ -97,19 +111,28 @@ def run_card_share_merge(df_csv, db_path, path_card, backup_dir):
                 record.get('FBI_CREDIT_OFFUS', 0), record.get('FBI_QRIS_ONUS', 0),
                 record.get('FBI_QRIS_OFFUS', 0)
             ])
+            processed_records.append(record)
 
-        # ── Write to Excel ──────────────────────────────────────────────────
-        # Cols 1-3: MERCHANT_GROUP, MERCHANT_ANCHOR/BRAND, TRX_MONTH
-        ws.Range(ws.Cells(start_row, 1), ws.Cells(end_row, 3)).Value = data_block1
-        # Col 4: YEAR (static value — no formula dependency)
-        ws.Range(ws.Cells(start_row, 4), ws.Cells(end_row, 4)).Value = data_col4
-        # Col 5: KEY (static value — no cross-sheet formula dependency)
-        ws.Range(ws.Cells(start_row, 5), ws.Cells(end_row, 5)).Value = data_col5
-        # Cols 6-20: all numeric metric columns
-        ws.Range(ws.Cells(start_row, 6), ws.Cells(end_row, 20)).Value = data_block2
+        # ── If no new records, skip Excel write ─────────────────────────────
+        if not data_block1:
+             wb.Close(SaveChanges=False)
+             excel.Quit()
+        else:
+            # Update end_row based on actually new records
+            end_row = start_row + len(data_block1) - 1
+            
+            # ── Write to Excel ──────────────────────────────────────────────────
+            # Cols 1-3: MERCHANT_GROUP, MERCHANT_ANCHOR/BRAND, TRX_MONTH
+            ws.Range(ws.Cells(start_row, 1), ws.Cells(end_row, 3)).Value = data_block1
+            # Col 4: YEAR (static value — no formula dependency)
+            ws.Range(ws.Cells(start_row, 4), ws.Cells(end_row, 4)).Value = data_col4
+            # Col 5: KEY (static value — no cross-sheet formula dependency)
+            ws.Range(ws.Cells(start_row, 5), ws.Cells(end_row, 5)).Value = data_col5
+            # Cols 6-20: all numeric metric columns
+            ws.Range(ws.Cells(start_row, 6), ws.Cells(end_row, 20)).Value = data_block2
 
-        wb.Save()
-        wb.Close(SaveChanges=True)
+            wb.Save()
+            wb.Close(SaveChanges=True)
     except Exception as e:
         try: wb.Close(SaveChanges=False)
         except: pass
@@ -155,7 +178,7 @@ def run_card_share_merge(df_csv, db_path, path_card, backup_dir):
     df_card_2026 = df_card[df_card['YEAR'] == 2026].copy()
     trx_month_actual = 'TRX_MONTH' if 'TRX_MONTH' in df_card.columns else month_col
     
-    df_card_agg = df_card_2026.groupby('MERCHANT_GROUP').agg(
+    df_card_agg = df_card_2026.groupby(['MERCHANT_GROUP', 'MERCHANT_ANCHOR']).agg(
         TOTAL_SV      = ('TOTAL_SV',  'sum'),
         TOTAL_TRX     = ('TOTAL_TRX', 'sum'),
         TOTAL_FBI     = ('TOTAL_FBI', 'sum'),
@@ -164,17 +187,20 @@ def run_card_share_merge(df_csv, db_path, path_card, backup_dir):
         N_BULAN       = (trx_month_actual, 'nunique'),
         BULAN_TERAKHIR= (trx_month_actual, 'max')
     ).reset_index()
+
     
     conn = sqlite3.connect(db_path)
-    df_card_agg.to_sql("raw_card_share", conn, if_exists="replace", index=False)
+    df_card_agg.to_sql("PROCESSED_CARD_SHARE", conn, if_exists="replace", index=False)
     
-    df_hist = df_card.groupby(['MERCHANT_GROUP', trx_month_actual, 'YEAR']).agg(
+    df_hist = df_card.groupby(['MERCHANT_GROUP', 'MERCHANT_ANCHOR', trx_month_actual, 'YEAR']).agg(
         TOTAL_SV=('TOTAL_SV','sum'), TOTAL_TRX=('TOTAL_TRX','sum'), TOTAL_FBI=('TOTAL_FBI','sum')
     ).reset_index()
+
     df_hist = df_hist.rename(columns={trx_month_actual: 'TRX_MONTH'})
-    df_hist.to_sql("raw_card_history", conn, if_exists="replace", index=False)
+    df_hist.to_sql("PROCESSED_CARD_HISTORY", conn, if_exists="replace", index=False)
     
-    detail_grp_cols = ['MERCHANT_GROUP', trx_month_actual, 'YEAR']
+    detail_grp_cols = ['MERCHANT_GROUP', 'MERCHANT_ANCHOR', trx_month_actual, 'YEAR']
+
     detail_agg = {}
     for prefix, types in [('TRX', ['TRX_DEBIT_ONUS','TRX_DEBIT_OFFUS','TRX_CREDIT_OFFUS','TRX_QRIS_ONUS','TRX_QRIS_OFFUS']),
                           ('VOL', ['SV_DEBIT_ONUS','SV_DEBIT_OFFUS','SV_CREDIT_OFFUS','SV_QRIS_ONUS','SV_QRIS_OFFUS']),
@@ -189,7 +215,7 @@ def run_card_share_merge(df_csv, db_path, path_card, backup_dir):
             TOTAL_FBI=('TOTAL_FBI','sum'),
             **detail_agg
         ).reset_index().rename(columns={trx_month_actual: 'TRX_MONTH'})
-        df_monthly_detail.to_sql("raw_card_monthly", conn, if_exists="replace", index=False)
+        df_monthly_detail.to_sql("PROCESSED_CARD_MONTHLY", conn, if_exists="replace", index=False)
         
     conn.close()
     

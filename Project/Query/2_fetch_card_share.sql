@@ -27,15 +27,15 @@ SELECT
     c.FBI_QRIS_ONUS,
     c.FBI_QRIS_OFFUS
 FROM
-    raw_edw_card_share c
+    CARD_SHARE c
 WHERE
     c.IS_PROCESSED_BY_ETL = 0
     AND c.EDW_FETCH_DATE >= '2026-03-01 00:00:00'
     AND c.EDW_FETCH_DATE <= '2026-03-31 23:59:59'
     AND EXISTS (
         SELECT 1
-        FROM   master_mid m
+        FROM   PROCESSED_MID m
         WHERE  m.MERCHANT_GROUP = c.MERCHANT_GROUP
           AND  m.MERCHANT_BRAND = c.MERCHANT_BRAND
-          AND  m.SEGMEN = 'ANCHOR'
+          AND  m.SEGMENT = 'ANCHOR'
     );

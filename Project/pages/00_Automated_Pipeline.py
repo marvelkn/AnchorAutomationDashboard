@@ -17,6 +17,7 @@ from utils.db_connector import fetch_data_from_db, get_db_date_bounds
 from modules.mid_cleaner import run_mid_cleaner
 from modules.card_share import run_card_share_merge
 from modules.monitoring import run_monitoring_merge
+from utils.backup_manager import rotate_backups, get_available_backups, restore_backup
 
 st.set_page_config(page_title="Automated Pipeline — BTN Anchor", page_icon="🚀", layout="wide")
 apply_theme()
@@ -38,6 +39,11 @@ PATH_LOCAL_DB = os.path.join(DB_UPLOAD_DIR, "staging.db")
 PATH_MID      = os.path.join(MASTER_DIR, "master_mid.xlsx")
 PATH_CARD     = os.path.join(MASTER_DIR, "master_card_share.xlsx")
 PATH_MON      = os.path.join(MASTER_DIR, "master_monitoring.xlsx")
+PATH_BACKUP_DIR = os.path.join(DB_UPLOAD_DIR, "backup")
+
+# Create backup dir if missing
+if not os.path.exists(PATH_BACKUP_DIR):
+    os.makedirs(PATH_BACKUP_DIR)
 
 # ── Pipeline Step Definitions ─────────────────────────────────────────────────
 PIPELINE_STEPS = [
@@ -60,20 +66,123 @@ col1, col2 = st.columns([1, 1])
 with col1:
     section_label("1. Database Source")
     st.info("Upload your latest `staging.db` containing the raw transaction tables.")
+    
+    # ── INGESTION STRATEGY ──
+    ingest_strategy = st.radio(
+        "Ingestion Strategy",
+        ["Replace Full (Slower)", "Update Incremental (Faster)"],
+        index=0, horizontal=True,
+        help="Full: Overwrites DB. Incremental: Adds only new rows."
+    )
+
     uploaded_db = st.file_uploader("Upload SQLite Database (.db)", type=['db', 'sqlite'])
 
-    if uploaded_db:
-        with open(PATH_LOCAL_DB, "wb") as f:
-            f.write(uploaded_db.getvalue())
-        st.success(f"✅ `staging.db` synchronized! Size: {len(uploaded_db.getvalue()) // (1024*1024)} MB")
-        # Advance stepper to Step 1 (MID Cleaner) now that DB is ready
+    if uploaded_db and st.session_state.get("pipeline_step", -1) == -1:
+        # 1. ROTATE BACKUPS BEFORE OVERWRITING/UPDATING
+        if os.path.exists(PATH_LOCAL_DB):
+            rotate_backups(PATH_LOCAL_DB, PATH_BACKUP_DIR)
+            
+        # 2. SAVE UPLOADED DB
+        if ingest_strategy == "Replace Full (Slower)":
+            with open(PATH_LOCAL_DB, "wb") as f:
+                f.write(uploaded_db.getvalue())
+            
+            # Update metadata timestamp for full replace
+            import sqlite3, datetime
+            conn_m = sqlite3.connect(PATH_LOCAL_DB)
+            cursor_m = conn_m.cursor()
+            cursor_m.execute("CREATE TABLE IF NOT EXISTS APP_METADATA (key TEXT PRIMARY KEY, value TEXT)")
+            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor_m.execute("INSERT OR REPLACE INTO APP_METADATA (key, value) VALUES ('LAST_DATA_UPDATE', ?)", (now_str,))
+            cursor_m.execute("INSERT OR REPLACE INTO APP_METADATA (key, value) VALUES ('NEW_DATA_SIGNAL', '1')")
+            conn_m.commit()
+            conn_m.close()
+            
+            st.success(f"✅ `staging.db` replaced! Size: {len(uploaded_db.getvalue()) // (1024*1024)} MB")
+        else:
+            # Incremental ingestion logic will go here
+            temp_path = os.path.join(DB_UPLOAD_DIR, "temp_upload.db")
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_db.getvalue())
+            
+            # Placeholder for merge function
+            st.info("🔄 Running Incremental Merge (Adding new rows only)...")
+            from utils.db_merger import merge_incremental_data
+            rows_added = merge_incremental_data(temp_path, PATH_LOCAL_DB)
+            os.remove(temp_path)
+            st.success(f"✅ Incremental update complete! Added {rows_added} new records.")
+
+        # 3. ADVANCE STEPPER
         st.session_state["pipeline_step"] = 0
         st.rerun()
     elif os.path.exists(PATH_LOCAL_DB):
         sz = os.path.getsize(PATH_LOCAL_DB) // (1024 * 1024)
         st.success(f"✅ Existing `staging.db` found locally ({sz} MB).")
+    
     else:
         st.warning("⚠️ No database found. Please upload `staging.db`.")
+    
+    # ── ROLLBACK SECTION ──
+    st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
+    st.markdown("### 🔄 Rollback & Restore")
+    backups = get_available_backups(PATH_BACKUP_DIR)
+    
+    if not backups:
+        st.caption("No backups available yet.")
+    else:
+        for b in backups:
+            col_b1, col_b2 = st.columns([3, 1])
+            col_b1.write(f"**Version {b['version']}** ({b['timestamp']})")
+            if col_b2.button(f"Restore", key=f"restore_{b['version']}"):
+                if restore_backup(b['path'], PATH_LOCAL_DB):
+                    st.success(f"✅ Restored Version {b['version']} successfully!")
+                    st.rerun()
+                else:
+                    st.error("Failed to restore backup.")
+
+    # ── RESET SECTION (New) ──
+    st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
+    with st.expander("🗑️ Dangerous Zone: Reset Pipeline"):
+        st.warning("This will completely delete the current `staging.db` and all versioned backups.")
+        confirm_reset = st.checkbox("I confirm that I want to delete all transaction data.")
+        if st.button("🔴 RESET & DELETE ALL DATABASE DATA", type="primary", disabled=not confirm_reset, use_container_width=True):
+            try:
+                # Delete main DB
+                if os.path.exists(PATH_LOCAL_DB):
+                    os.remove(PATH_LOCAL_DB)
+                
+                # Delete backups
+                if os.path.exists(PATH_BACKUP_DIR):
+                    import shutil
+                    shutil.rmtree(PATH_BACKUP_DIR)
+                    os.makedirs(PATH_BACKUP_DIR)
+                
+                st.success("🔥 Data wiped successfully! Redirecting...")
+                st.session_state["pipeline_step"] = -1
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to reset: {e}")
+
+    # ── MAINTENANCE SECTION (New) ──
+    st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
+    with st.expander("🛠️ Maintenance & Data Integrity"):
+        st.info("Use this if you notice data anomalies or duplicate entries in the dashboard.")
+        if st.button("🧼 Scrub/De-duplicate Master Data", use_container_width=True):
+            with st.spinner("Cleaning database and Excel files..."):
+                try:
+                    import sys
+                    import os
+                    # Add current dir to path to import repair_data
+                    sys.path.append(os.getcwd())
+                    from Project.repair_data import scrub_database, scrub_excel_card_share, scrub_excel_monitoring, PATH_DB, PATH_CARD, PATH_MON
+                    
+                    scrub_database(PATH_DB)
+                    scrub_excel_card_share(PATH_CARD)
+                    scrub_excel_monitoring(PATH_MON)
+                    
+                    st.success("✅ Data scrubbing complete! Check the dashboard.")
+                except Exception as e:
+                    st.error(f"Scrub failed: {e}")
 
 with col2:
     section_label("2. Extraction Boundaries")
@@ -154,12 +263,12 @@ if all_ready:
                 os.makedirs(bkp_dir, exist_ok=True)
                 new_n, tot_n = run_mid_cleaner(df_mid, PATH_MID, bkp_dir)
 
-                st.write("Synchronizing updated ALL_MID to Staging Database...")
+                st.write("Synchronizing updated PROCESSED_MID to Staging Database...")
                 import sqlite3
                 master_df = pd.read_excel(PATH_MID)
                 master_df.columns = [str(c).strip().upper() for c in master_df.columns]
                 conn = sqlite3.connect(PATH_LOCAL_DB)
-                master_df.to_sql('master_mid', conn, if_exists='replace', index=False)
+                master_df.to_sql('PROCESSED_MID', conn, if_exists='replace', index=False)
                 conn.close()
 
                 step_results["mid"] = {"new": new_n, "total": tot_n}
@@ -185,7 +294,7 @@ if all_ready:
                     st.error(
                         f"**Card Share query returned 0 ANCHOR rows** for the date range "
                         f"`{start_str}` to `{end_str}`.\n\n"
-                        "This usually means the `EDW_FETCH_DATE` values in `raw_edw_card_share` "
+                        "This usually means the `EDW_FETCH_DATE` values in `CARD_SHARE` "
                         "fall outside the selected range, or no rows have `IS_PROCESSED_BY_ETL = 0`. "
                         "Adjust the **Extract Start/End Date** above to match the actual data window shown."
                     )
@@ -218,7 +327,7 @@ if all_ready:
                     st.error(
                         f"**Weekly Monitoring query returned 0 ANCHOR rows** for the date range "
                         f"`{start_str}` to `{end_str}`.\n\n"
-                        "This usually means the `EDW_FETCH_DATE` values in `raw_edw_weekly` "
+                        "This usually means the `EDW_FETCH_DATE` values in `WEEKLY_MONITOR` "
                         "fall outside the selected range, or no rows have `IS_PROCESSED_BY_ETL = 0`. "
                         "Adjust the **Extract Start/End Date** above to match the actual data window shown."
                     )

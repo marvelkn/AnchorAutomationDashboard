@@ -45,10 +45,10 @@ config_map = {
     "ALL_MID (Anchor Classifier)": {
         "path": PATH_MID,
         "sheet": 0,
-        "editable_columns": ["MERCHANT_ID", "MERCHANT_NAME", "SEGMEN", "MERCHANT_BRAND", "MERCHANT_GROUP"],
+        "editable_columns": ["MERCHANT_ID", "MERCHANT_NAME", "SEGMENT", "MERCHANT_BRAND", "MERCHANT_GROUP"],
         "backup_dir": "backups_editor_mid",
         "sync_to_db": True,
-        "table_name": "master_mid"
+        "table_name": "PROCESSED_MID"
     },
     "Card Share Analytics Matrix": {
         "path": PATH_CARD,
@@ -178,7 +178,7 @@ else:
                 if dataset_choice == "ALL_MID (Anchor Classifier)":
                     st.write("Running Auto-Correction Retail Rules...")
                     
-                    empty_mask = (edited_df['SEGMEN'].astype(str).str.upper() == 'RETAIL') & \
+                    empty_mask = (edited_df['SEGMENT'].astype(str).str.upper() == 'RETAIL') & \
                                  ((edited_df.get('MERCHANT_BRAND', pd.Series()).isna()) | (edited_df.get('MERCHANT_BRAND', pd.Series()).astype(str) == '') | (edited_df.get('MERCHANT_BRAND', pd.Series()).astype(str).str.lower() == 'nan')) & \
                                  ((edited_df.get('MERCHANT_GROUP', pd.Series()).isna()) | (edited_df.get('MERCHANT_GROUP', pd.Series()).astype(str) == '') | (edited_df.get('MERCHANT_GROUP', pd.Series()).astype(str).str.lower() == 'nan'))
                                  

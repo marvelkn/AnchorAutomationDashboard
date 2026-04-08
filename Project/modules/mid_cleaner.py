@@ -21,7 +21,7 @@ def run_mid_cleaner(df_new, path_mid, backup_dir):
     
     # Fill necessary columns
     df_new.columns = [c.strip().upper() for c in df_new.columns]
-    for col in ['SEGMEN', 'MERCHANT_BRAND', 'MERCHANT_GROUP']:
+    for col in ['SEGMENT', 'MERCHANT_BRAND', 'MERCHANT_GROUP']:
         if col not in df_new.columns:
             df_new[col] = None
 
@@ -150,19 +150,19 @@ def run_mid_cleaner(df_new, path_mid, backup_dir):
         return None, None
 
     for i, row in df_new.iterrows():
-        if pd.notna(row['SEGMEN']) and row['SEGMEN'] == 'ANCHOR' and pd.notna(row['MERCHANT_BRAND']) and pd.notna(row['MERCHANT_GROUP']):
+        if pd.notna(row['SEGMENT']) and row['SEGMENT'] == 'ANCHOR' and pd.notna(row['MERCHANT_BRAND']) and pd.notna(row['MERCHANT_GROUP']):
             continue
         
         brand, group = match_anchor(row['MERCHANT_NAME'])
         if brand and group:
-            df_new.at[i, 'SEGMEN'] = 'ANCHOR'
+            df_new.at[i, 'SEGMENT'] = 'ANCHOR'
             df_new.at[i, 'MERCHANT_BRAND'] = brand
             df_new.at[i, 'MERCHANT_GROUP'] = group
 
     # Step 2: Extract Retail Brand to Group mapping for Step 2
     retail_brand_map = {}
-    if 'SEGMEN' in df_master.columns:
-        retail_master = df_master[df_master['SEGMEN'] == 'RETAIL']
+    if 'SEGMENT' in df_master.columns:
+        retail_master = df_master[df_master['SEGMENT'] == 'RETAIL']
         for idx, row in retail_master.iterrows():
             brand = str(row['MERCHANT_BRAND']).strip().upper()
             group = str(row['MERCHANT_GROUP']).strip().upper()
@@ -180,10 +180,10 @@ def run_mid_cleaner(df_new, path_mid, backup_dir):
                 return brand, info['group']
         return None, None
 
-    empty_mask = df_new['SEGMEN'].isna()
+    empty_mask = df_new['SEGMENT'].isna()
     for idx in df_new[empty_mask].index:
         merchant_name = df_new.at[idx, 'MERCHANT_NAME']
-        df_new.at[idx, 'SEGMEN'] = 'RETAIL'
+        df_new.at[idx, 'SEGMENT'] = 'RETAIL'
         brand, group = match_retail_brand(merchant_name)
         if brand and group:
             df_new.at[idx, 'MERCHANT_BRAND'] = brand
@@ -220,13 +220,13 @@ def run_mid_cleaner(df_new, path_mid, backup_dir):
             row2 = df2_overlap_dict[mid]
             
             score1 = sum([
-                1 if pd.notna(row1.get('SEGMEN')) and str(row1.get('SEGMEN')).strip() != '' else 0,
+                1 if pd.notna(row1.get('SEGMENT')) and str(row1.get('SEGMENT')).strip() != '' else 0,
                 1 if pd.notna(row1.get('MERCHANT_BRAND')) and str(row1.get('MERCHANT_BRAND')).strip() != '' else 0,
                 1 if pd.notna(row1.get('MERCHANT_GROUP')) and str(row1.get('MERCHANT_GROUP')).strip() != '' else 0,
             ])
             
             score2 = sum([
-                1 if pd.notna(row2.get('SEGMEN')) and str(row2.get('SEGMEN')).strip() != '' else 0,
+                1 if pd.notna(row2.get('SEGMENT')) and str(row2.get('SEGMENT')).strip() != '' else 0,
                 1 if pd.notna(row2.get('MERCHANT_BRAND')) and str(row2.get('MERCHANT_BRAND')).strip() != '' else 0,
                 1 if pd.notna(row2.get('MERCHANT_GROUP')) and str(row2.get('MERCHANT_GROUP')).strip() != '' else 0,
             ])
@@ -239,8 +239,8 @@ def run_mid_cleaner(df_new, path_mid, backup_dir):
                 row_to_keep = row1.copy()
                 row_to_keep['MERCHANT_ID'] = mid
             else:
-                if pd.notna(row2.get('SEGMEN')) and row2.get('SEGMEN') == 'ANCHOR': pass
-                elif pd.notna(row1.get('SEGMEN')) and row1.get('SEGMEN') == 'ANCHOR':
+                if pd.notna(row2.get('SEGMENT')) and row2.get('SEGMENT') == 'ANCHOR': pass
+                elif pd.notna(row1.get('SEGMENT')) and row1.get('SEGMENT') == 'ANCHOR':
                     row_to_keep = row1.copy()
                     row_to_keep['MERCHANT_ID'] = mid
                     

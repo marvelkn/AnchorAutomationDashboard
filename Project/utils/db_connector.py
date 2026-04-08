@@ -67,7 +67,7 @@ def get_db_date_bounds(db_path):
     try:
         conn = sqlite3.connect(db_path)
         dates = []
-        for tbl in ('raw_edw_card_share', 'raw_edw_weekly'):
+        for tbl in ('CARD_SHARE', 'WEEKLY_MONITOR'):
             rows = conn.execute(
                 f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tbl}'"
             ).fetchall()
