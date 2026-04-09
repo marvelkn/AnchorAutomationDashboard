@@ -1005,9 +1005,9 @@ with tab4:
                         value=rate,
                         number={"suffix": "%", "font": {"size": 36, "color": _pp4["TEXT_PRI"]}},
                         delta={"reference": 20, "relative": False,
-                               increasing={"color": "#F87171"},
-                               decreasing={"color": "#34D399"},
-                               suffix="% vs 20% bench"},
+                               "increasing": {"color": "#F87171"},
+                               "decreasing": {"color": "#34D399"},
+                               "suffix": "% vs 20% bench"},
                         gauge={
                             "axis": {
                                 "range": [0, 100],
