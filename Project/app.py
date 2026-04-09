@@ -62,6 +62,7 @@ try:
             ],
             "DATA MANAGEMENT": [
                 st.Page("pages/01_Data_Editor.py", title="Master Records Editor", icon=":material/edit_document:"),
+                st.Page("pages/05_PM_Manager.py", title="PM Manager", icon=":material/group:"),
             ],
             "SETTINGS": [
                 st.Page("pages/0_Master_Configuration.py", title="Global Settings", icon=":material/settings:"),
@@ -242,6 +243,7 @@ with st.sidebar:
 
         st.markdown('<div class="custom-nav-group">Data Management</div>', unsafe_allow_html=True)
         st.page_link("pages/01_Data_Editor.py",        label="Master Records Editor",icon=":material/edit_document:")
+        st.page_link("pages/05_PM_Manager.py",         label="PM Manager",           icon=":material/group:")
 
         st.markdown('<div class="custom-nav-group">Settings</div>', unsafe_allow_html=True)
         st.page_link("pages/0_Master_Configuration.py",label="Global Settings",      icon=":material/settings:")

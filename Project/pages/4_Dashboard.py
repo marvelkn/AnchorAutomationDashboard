@@ -90,7 +90,7 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
     df['RASIO_ONUS'] = df['RASIO_ONUS'].clip(0, 1).fillna(0)
     
     # Growth & Weeks Active (from Monitoring)
-    df['WEEKS_ACTIVE'] = df.get('WEEKS_ACTIVE', pd.Series([0]*len(df))).fillna(0)
+    df['WEEKS_ACTIVE'] = df.get('WEEKS_ACTIVE', pd.Series([99]*len(df))).fillna(99)
     df['SV_GROWTH_RATE'] = pd.to_numeric(df.get('SV_GROWTH_RATE', pd.Series([0]*len(df))), errors='coerce').fillna(0)
     low, high = df['SV_GROWTH_RATE'].quantile([0.05, 0.95])
     df['SV_GROWTH_CLIPPED'] = df['SV_GROWTH_RATE'].clip(low, high)
@@ -168,47 +168,6 @@ df_mon_weekly  = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING_WEEKLY", 
 df_target      = pd.read_sql_query("SELECT * FROM TARGET", conn) if has_tgt else pd.DataFrame()
 conn.close()
 
-# ── SIDEBAR FILTERS ───────────────────────────────────────────────────────────
-with st.sidebar:
-    st.image("https://www.btn.co.id/Content/Images/logo-btn.png", width=120)
-    st.markdown("### 🔍 Portfolio Filters")
-    
-    # 1. Merchant Group Filter
-    all_groups = ["ALL GROUPS"]
-    if not df_card.empty:
-        all_groups += sorted(df_card['MERCHANT_GROUP'].unique().tolist())
-    sel_group = st.selectbox("🏬 Merchant Group", all_groups, key="sb_group")
-    
-    # 2. Merchant Brand (Anchor) Filter
-    filtered_brands = ["TOTAL GROUP"]
-    if sel_group != "ALL GROUPS" and not df_card.empty:
-        brands = df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR'].unique().tolist()
-        filtered_brands += sorted(brands)
-    elif sel_group == "ALL GROUPS" and not df_card.empty:
-        filtered_brands = ["TOTAL PORTFOLIO"]
-    
-    sel_brand = st.selectbox("⚓ Merchant Brand (Anchor)", filtered_brands, key="sb_brand")
-    
-    # 3. Apply Filters to dataframes
-    if sel_group != "ALL GROUPS":
-        df_card = df_card[df_card['MERCHANT_GROUP'] == sel_group]
-        df_card_hist = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_group]
-        
-        # Monitoring is at Group level, so we filter it only by Group
-        if not df_mon.empty: df_mon = df_mon[df_mon['MERCHANT_GROUP'] == sel_group]
-        if not df_mon_weekly.empty: df_mon_weekly = df_mon_weekly[df_mon_weekly['MERCHANT_GROUP'] == sel_group]
-        if not df_target.empty: df_target = df_target[df_target['MERCHANT_GROUP'] == sel_group]
-        
-        # Brand-level filter applies to Card Share only (unless we have detailed monitoring)
-        if sel_brand not in ["TOTAL GROUP", "TOTAL PORTFOLIO"]:
-            df_card = df_card[df_card['MERCHANT_ANCHOR'] == sel_brand]
-            df_card_hist = df_card_hist[df_card_hist['MERCHANT_ANCHOR'] == sel_brand]
-
-    
-    st.markdown("---")
-    st.caption(f"Showing results for: **{sel_group}** > **{sel_brand}**")
-
-
 
 # ── BATCH METADATA & SIGNALS ──────────────────────────────────────────────────
 _last_update = "Unknown"
@@ -243,6 +202,46 @@ with header_col2:
 # ── Stale Data Banner ─────────────────────────────────────────────────────────
 # Show amber notice if staging.db is older than 24 hours
 stale_data_banner(db_path=PATH_DB, threshold_hours=24)
+
+# ── PORTFOLIO FILTERS ─────────────────────────────────────────────────────────
+st.markdown("### 🔍 Portfolio Filters")
+f_col1, f_col2 = st.columns(2)
+
+# 1. Merchant Group Filter
+all_groups = ["ALL GROUPS"]
+if not df_card.empty:
+    all_groups += sorted(df_card['MERCHANT_GROUP'].unique().tolist())
+with f_col1:
+    sel_group = st.selectbox("🏬 Merchant Group", all_groups, key="sb_group")
+
+# 2. Merchant Brand (Anchor) Filter
+filtered_brands = ["TOTAL GROUP"]
+if sel_group != "ALL GROUPS" and not df_card.empty:
+    brands = df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR'].unique().tolist()
+    filtered_brands += sorted(brands)
+elif sel_group == "ALL GROUPS" and not df_card.empty:
+    filtered_brands = ["TOTAL PORTFOLIO"]
+
+with f_col2:
+    sel_brand = st.selectbox("⚓ Merchant Brand (Anchor)", filtered_brands, key="sb_brand")
+
+# 3. Apply Filters to dataframes
+if sel_group != "ALL GROUPS":
+    df_card = df_card[df_card['MERCHANT_GROUP'] == sel_group]
+    df_card_hist = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_group]
+    
+    # Monitoring is at Group level, so we filter it only by Group
+    if not df_mon.empty: df_mon = df_mon[df_mon['MERCHANT_GROUP'] == sel_group]
+    if not df_mon_weekly.empty: df_mon_weekly = df_mon_weekly[df_mon_weekly['MERCHANT_GROUP'] == sel_group]
+    if not df_target.empty: df_target = df_target[df_target['MERCHANT_GROUP'] == sel_group]
+    
+    # Brand-level filter applies to Card Share only (unless we have detailed monitoring)
+    if sel_brand not in ["TOTAL GROUP", "TOTAL PORTFOLIO"]:
+        df_card = df_card[df_card['MERCHANT_ANCHOR'] == sel_brand]
+        df_card_hist = df_card_hist[df_card_hist['MERCHANT_ANCHOR'] == sel_brand]
+
+st.caption(f"Showing results for: **{sel_group}** > **{sel_brand}**")
+st.markdown("---")
 
 # ── Global KPI Summary Row ────────────────────────────────────────────────────
 # Sourced from live DB data; shows zeros gracefully if tables are empty
@@ -357,9 +356,13 @@ with tab1:
         else:
             MONTH_ABB = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
             def get_mo_lbl(row):
-                code = str(int(row['TRX_MONTH']))
-                yr, mo = code[:4], int(code[4:])
-                return f"{MONTH_ABB[mo-1]}-{yr[2:]}"
+                try:
+                    code = str(int(row['TRX_MONTH']))
+                    if len(code) < 6: return f"ID:{code}"
+                    yr, mo = code[:4], int(code[4:])
+                    return f"{MONTH_ABB[mo-1]}-{yr[2:]}"
+                except:
+                    return "Err"
             
             df_monthly_agg['Bulan'] = df_monthly_agg.apply(get_mo_lbl, axis=1)
             avail_years = sorted(df_monthly_agg['YEAR'].unique().tolist(), reverse=True)
@@ -748,7 +751,7 @@ with tab3:
         with mc1:
             sel_pm_ml = st.multiselect("👤 Filter by PM", all_pm_ml, default=all_pm_ml, key="t3_pm")
         with mc2:
-            sel_clust = st.multiselect("🏷️ Show Clusters", all_clusters, default=all_clusters, key="t3_clust")
+            sel_clust = st.multiselect("🏷️ Show Clusters", all_clusters, default=all_clusters, key=f"t3_clust_{k_val}")
 
         df_f = df_ml[df_ml['CLUSTER'].isin(sel_clust)]
         if sel_pm_ml and 'PM' in df_f.columns:

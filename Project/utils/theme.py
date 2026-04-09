@@ -507,6 +507,22 @@ def apply_theme():
     """Inject the active-mode CSS into the page."""
     p = _palette()
     st.markdown(_make_css(p), unsafe_allow_html=True)
+    _render_global_pipeline_status()
+
+@st.fragment(run_every="5s")
+def _render_global_pipeline_status():
+    import os
+    import json
+    _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    STATUS_FILE = os.path.join(_BASE, "database", "pipeline_status.json")
+    if os.path.exists(STATUS_FILE):
+        try:
+            with open(STATUS_FILE, "r") as f:
+                data = json.load(f)
+            if data.get("status") == "running":
+                st.sidebar.info(f"⏳ **ETL Pipeline Running:**\\n{data.get('message', 'Processing...')}")
+        except:
+            pass
 
 
 def theme_toggle_sidebar():

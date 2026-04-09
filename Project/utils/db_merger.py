@@ -16,9 +16,9 @@ def merge_incremental_data(source_db_path, target_db_path):
     cursor_target.execute(f"ATTACH DATABASE '{source_db_path}' AS source")
 
     tables_and_keys = {
-        "ALL_MID": ["MERCHANT_ID", "TERMINAL_ID", "EDW_FETCH_DATE"],
-        "CARD_SHARE": ["MERCHANT_GROUP", "MERCHANT_BRAND", "TRANSACTION_MONTH", "EDW_FETCH_DATE"],
-        "WEEKLY_MONITOR": ["MERCHANT_GROUP", "YEAR", "WEEK_NUM", "EDW_FETCH_DATE"]
+        "ALL_MID": ["MERCHANT_ID", "TERMINAL_ID"],
+        "CARD_SHARE": ["MERCHANT_GROUP", "MERCHANT_BRAND", "TRANSACTION_MONTH"],
+        "WEEKLY_MONITOR": ["MERCHANT_GROUP", "YEAR", "WEEK_NUM"]
     }
 
     total_added = 0

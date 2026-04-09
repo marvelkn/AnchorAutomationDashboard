@@ -174,9 +174,10 @@ with qa1:
         help="Navigate to the ETL pipeline to run the end-to-end data refresh.",
     )
 with qa2:
-    st.page_link(
-        "pages/4_Dashboard.py",
-        label="**📊 View Analytics Dashboard**",
-        icon="📈",
-        help="Jump straight to the analytics and ML insights dashboard.",
-    )
+    if os.path.exists(os.path.join(BASE_DIR, "database", "staging.db")):
+        st.page_link(
+            "pages/4_Dashboard.py",
+            label="**📊 View Analytics Dashboard**",
+            icon="📈",
+            help="Jump straight to the analytics and ML insights dashboard.",
+        )
