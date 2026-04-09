@@ -684,11 +684,13 @@ with tab2:
             df_mon_yr = df_mon_weekly[df_mon_weekly['YEAR'] == str(sel_yr_mon)] if (not df_mon_weekly.empty and 'YEAR' in df_mon_weekly.columns) else pd.DataFrame()
         
         with f_col2:
-            pm_names_mon = sorted([p for p in df_mon_yr['PM'].dropna().unique() if str(p).strip().upper() not in ['NAN', 'NONE', 'UNKNOWN', 'UNASSIGNED']])
+            pm_names_mon = []
+            if not df_mon_yr.empty and 'PM' in df_mon_yr.columns:
+                pm_names_mon = sorted([p for p in df_mon_yr['PM'].dropna().unique() if str(p).strip().upper() not in ['NAN', 'NONE', 'UNKNOWN', 'UNASSIGNED']])
             sel_pm_mon = st.selectbox("👤 Filter by PM", ["All PMs"] + pm_names_mon, key="t2_pm_mon")
         
         with f_col3:
-            avail_ket_mon = sorted(df_mon_yr['DIMENSI'].dropna().unique())
+            avail_ket_mon = sorted(df_mon_yr['DIMENSI'].dropna().unique()) if (not df_mon_yr.empty and 'DIMENSI' in df_mon_yr.columns) else []
             sel_ket_mon = st.multiselect("📊 Metric (Dimensi)", avail_ket_mon, default=avail_ket_mon, key="t2_ket_mon")
 
         # ── 2. Data Processing ───────────
