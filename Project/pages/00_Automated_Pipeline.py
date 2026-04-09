@@ -233,67 +233,6 @@ if cloud_mode_enabled:
                 except Exception as e:
                     st.error(f"Cloud scrub failed: {e}")
 
-    st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
-    st.markdown("##### Local workspace tools (on server)")
-    st.caption(
-        "These tools touch the **local** files within the app container (`database/staging.db` and Excel masters). "
-        "Use these if you need to prepare data before ingesting it to Neon."
-    )
-
-    with st.expander("Dangerous zone: reset local staging files", expanded=False):
-        st.warning(
-            "Deletes **`database/staging.db`** and everything under **`database/backup/`** on this machine (the app container)."
-        )
-        confirm_reset_cloud = st.checkbox(
-            "I understand this removes local staging SQLite and backup copies on the server.",
-            key="confirm_reset_cloud_workspace",
-        )
-        if st.button(
-            "Reset local database files",
-            type="primary",
-            disabled=not confirm_reset_cloud,
-            use_container_width=True,
-            key="btn_reset_local_workspace_cloud",
-        ):
-            try:
-                if os.path.exists(PATH_LOCAL_DB):
-                    os.remove(PATH_LOCAL_DB)
-                if os.path.exists(PATH_BACKUP_DIR):
-                    shutil.rmtree(PATH_BACKUP_DIR)
-                    os.makedirs(PATH_BACKUP_DIR)
-                st.success("Local staging files removed. Re-upload a `.db` or copy data to Neon as needed.")
-                st.session_state["pipeline_step"] = -1
-            except Exception as e:
-                st.error(f"Reset failed: {e}")
-
-    with st.expander("Scrub / de-duplicate (SQLite + master Excel)", expanded=False):
-        st.info(
-            "Removes duplicates per your `repair_data` logic: **`staging.db`** plus **`master_card_share.xlsx`** and **`master_monitoring.xlsx`** paths in this project."
-        )
-        if not os.path.exists(PATH_LOCAL_DB):
-            st.warning(f"No file at `{PATH_LOCAL_DB}` — scrub needs a local `staging.db` (upload via full ingest to Neon instead, or run this page locally).")
-        if st.button(
-            "Run scrub / de-duplicate",
-            use_container_width=True,
-            key="btn_scrub_cloud_workspace",
-        ):
-            with st.spinner("Cleaning database and Excel files…"):
-                try:
-                    from repair_data import scrub_database, scrub_excel_card_share, scrub_excel_monitoring
-
-                    scrub_database(PATH_LOCAL_DB)
-                    scrub_excel_card_share(PATH_CARD)
-                    scrub_excel_monitoring(PATH_MON)
-                    st.success(
-                        "Scrub complete: duplicates removed from SQLite + master Excel files (where those files exist)."
-                    )
-                except ImportError:
-                    st.error(
-                        "`repair_data` module not found in this deployment. Add `repair_data.py` to the repo or run scrub on your local Windows copy."
-                    )
-                except Exception as e:
-                    st.error(f"Scrub failed: {e}")
-
     st.stop()
 
 
