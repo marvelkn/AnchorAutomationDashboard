@@ -76,20 +76,33 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
     3. K-Means++ Clustering
     4. Tri-Factor Z-Score Anomaly detection
     """
-    if df_c.empty: return pd.DataFrame()
+    # Defensive list of columns we expect to exist in the output
+    ML_COLS = ['MERCHANT_GROUP', 'CLUSTER', 'CHURN_RISK', 'PM', 'WEEKS_ACTIVE', 
+               'SV_GROWTH_RATE', 'ACHIEVEMENT_PCT', 'AVG_SV', 'AVG_FBI', 
+               'ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH', 'SV_GROWTH_CLIPPED',
+               'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS']
+    
+    if df_c.empty: 
+        return pd.DataFrame(columns=ML_COLS)
     
     # Merge datasets
     if not df_m.empty:
         # Monitoring is at Group level, Card is at Merchant/Group level
         # We aggregate Group-level for ML
-        df = df_c.groupby('MERCHANT_GROUP').agg({
-            'TOTAL_SV':'sum', 'TOTAL_TRX':'sum', 'TOTAL_FBI':'sum', 'RASIO_ONUS':'mean'
-        }).reset_index()
+        agg_cols = {c: 'sum' for c in ['TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI'] if c in df_c.columns}
+        if 'RASIO_ONUS' in df_c.columns: agg_cols['RASIO_ONUS'] = 'mean'
+        
+        df = df_c.groupby('MERCHANT_GROUP').agg(agg_cols).reset_index()
         df = pd.merge(df, df_m, on='MERCHANT_GROUP', how='left')
     else:
         df = df_c.copy()
         
-    if df.empty: return df
+    if df.empty: 
+        return pd.DataFrame(columns=ML_COLS)
+    
+    # Ensure mandatory columns exist for calculations
+    for col in ['TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS']:
+        if col not in df.columns: df[col] = 0
     
     # Feature Engineering
     df['AVG_SV']  = df['TOTAL_SV'] / 12  # Approximation
@@ -99,8 +112,13 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
     # Growth & Weeks Active (from Monitoring)
     df['WEEKS_ACTIVE'] = df.get('WEEKS_ACTIVE', pd.Series([99]*len(df))).fillna(99)
     df['SV_GROWTH_RATE'] = pd.to_numeric(df.get('SV_GROWTH_RATE', pd.Series([0]*len(df))), errors='coerce').fillna(0)
-    low, high = df['SV_GROWTH_RATE'].quantile([0.05, 0.95])
-    df['SV_GROWTH_CLIPPED'] = df['SV_GROWTH_RATE'].clip(low, high)
+    
+    # Clipping for growth
+    if len(df) > 1:
+        low, high = df['SV_GROWTH_RATE'].quantile([0.05, 0.95])
+        df['SV_GROWTH_CLIPPED'] = df['SV_GROWTH_RATE'].clip(low, high)
+    else:
+        df['SV_GROWTH_CLIPPED'] = df['SV_GROWTH_RATE']
     
     # Target Achievement
     if df_t is not None and not df_t.empty and 'TARGET_VOL_2026' in df_t.columns:
@@ -119,26 +137,35 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
     X['AVG_FBI'] = np.log1p(X['AVG_FBI'])
     
     try:
-        X_s = StandardScaler().fit_transform(X)
-        km = KMeans(n_clusters=k_clusters, init='k-means++', n_init=20, random_state=42)
-        df['CLUSTER_RAW'] = km.fit_predict(X_s)
-        
-        # Consistent labels (Premium > Reguler > Pasif) based on Sales Volume
-        sv_order = df.groupby('CLUSTER_RAW')['AVG_SV'].mean().sort_values(ascending=False)
-        rank = {c: i for i, c in enumerate(sv_order.index)}
-        
-        lbl_maps = {
-            3: {0: 'PREMIUM', 1: 'REGULER', 2: 'PASIF'},
-            4: {0: 'ELITE', 1: 'PREMIUM', 2: 'REGULER', 3: 'PASIF'},
-            5: {0: 'ELITE', 1: 'PREMIUM', 2: 'REGULER', 3: 'PASIF', 4: 'DORMANT'}
-        }
-        lbl = lbl_maps.get(k_clusters, {i: f'TIER {i+1}' for i in range(k_clusters)})
-        df['CLUSTER'] = df['CLUSTER_RAW'].map(lambda c: lbl[rank[c]])
-        
-        # Z-Scores
-        df['ZSCORE_SV'] = stats.zscore(np.log1p(df['AVG_SV']))
-        df['ZSCORE_FBI'] = stats.zscore(np.log1p(df['AVG_FBI']))
-        df['ZSCORE_GROWTH'] = stats.zscore(df['SV_GROWTH_CLIPPED'])
+        # We need at least k rows for KMeans to be meaningful, but scikit-learn handles it if we have at least 1.
+        if len(df) >= k_clusters:
+            X_s = StandardScaler().fit_transform(X)
+            km = KMeans(n_clusters=k_clusters, init='k-means++', n_init=20, random_state=42)
+            df['CLUSTER_RAW'] = km.fit_predict(X_s)
+            
+            # Consistent labels (Premium > Reguler > Pasif) based on Sales Volume
+            sv_order = df.groupby('CLUSTER_RAW')['AVG_SV'].mean().sort_values(ascending=False)
+            rank = {c: i for i, c in enumerate(sv_order.index)}
+            
+            lbl_maps = {
+                3: {0: 'PREMIUM', 1: 'REGULER', 2: 'PASIF'},
+                4: {0: 'ELITE', 1: 'PREMIUM', 2: 'REGULER', 3: 'PASIF'},
+                5: {0: 'ELITE', 1: 'PREMIUM', 2: 'REGULER', 3: 'PASIF', 4: 'DORMANT'}
+            }
+            lbl = lbl_maps.get(k_clusters, {i: f'TIER {i+1}' for i in range(k_clusters)})
+            df['CLUSTER'] = df['CLUSTER_RAW'].map(lambda c: lbl[rank[c]])
+        else:
+            df['CLUSTER'] = 'REGULER' # Default for small datasets
+            
+        # Z-Scores - Need at least 2 rows for std deviation
+        if len(df) > 1:
+            df['ZSCORE_SV'] = stats.zscore(np.log1p(df['AVG_SV']))
+            df['ZSCORE_FBI'] = stats.zscore(np.log1p(df['AVG_FBI']))
+            df['ZSCORE_GROWTH'] = stats.zscore(df['SV_GROWTH_CLIPPED'])
+        else:
+            df['ZSCORE_SV'] = 0.0
+            df['ZSCORE_FBI'] = 0.0
+            df['ZSCORE_GROWTH'] = 0.0
         
         # Churn Risk
         df['CHURN_RISK'] = (
@@ -149,11 +176,19 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
             (df['ZSCORE_FBI'] < z_thresh) |
             (df['ZSCORE_GROWTH'] < z_thresh)
         ).map({True: 'HIGH RISK ⚠️', False: 'STABLE ✅'})
-    except:
+    except Exception as e:
         df['CLUSTER'] = 'UNKNOWN'
         df['CHURN_RISK'] = 'STABLE ✅'
+        df['ZSCORE_SV'] = 0.0
+        df['ZSCORE_FBI'] = 0.0
+        df['ZSCORE_GROWTH'] = 0.0
+        
+    # Final check for columns
+    for col in ML_COLS:
+        if col not in df.columns: df[col] = np.nan
         
     return df
+
 
 
 # ── DB LOAD (Cloud-Aware) ─────────────────────────────────────────────────────
@@ -791,117 +826,120 @@ with tab3:
         with st.spinner(f"Running K-Means++ (K={k_val}) Machine Learning Pipeline..."):
             df_ml = run_ml(df_card, df_mon, df_target, k_clusters=k_val)
 
-        all_pm_ml = sorted(df_ml['PM'].dropna().unique().tolist()) if 'PM' in df_ml.columns else []
-        all_clusters = sorted(df_ml['CLUSTER'].dropna().unique().tolist())
-
-        # Controls
-        mc1, mc2 = st.columns(2)
-        with mc1:
-            sel_pm_ml = st.multiselect("👤 Filter by PM", all_pm_ml, default=all_pm_ml, key="t3_pm")
-        with mc2:
-            sel_clust = st.multiselect("🏷️ Show Clusters", all_clusters, default=all_clusters, key=f"t3_clust_{k_val}")
-
-        df_f = df_ml[df_ml['CLUSTER'].isin(sel_clust)]
-        if sel_pm_ml and 'PM' in df_f.columns:
-            df_f = df_f[df_f['PM'].isin(sel_pm_ml)]
-
-        filtered = len(sel_pm_ml) < len(all_pm_ml) or len(sel_clust) < len(all_clusters)
-        if filtered:
-            filter_pill(f"Filter Active: {len(df_f)} of {len(df_ml)} merchants shown")
+        if df_ml.empty:
+            st.info("ℹ️ No data available for Machine Learning analysis. Please ensure the database has been populated.")
         else:
-            tab_desc(f"Showing all <b>{len(df_f)}</b> merchants across all clusters.")
+            all_pm_ml = sorted(df_ml['PM'].dropna().unique().tolist()) if 'PM' in df_ml.columns else []
+            all_clusters = sorted(df_ml['CLUSTER'].dropna().unique().tolist())
 
-        # Cluster counts
-        cols = st.columns(len(all_clusters))
-        
-        # Color mapper fallback
-        color_lookup = {
-            'ELITE': '#F1C40F', 'PREMIUM': '#27AE60', 'REGULER': '#2F80ED', 
-            'PASIF': '#EB5757', 'DORMANT': '#888888'
-        }
-        fallback_colors = ['#27AE60', '#2F80ED', '#EB5757', '#F39C12', '#9B59B6', '#34495E']
-        
-        # ── Upgraded segment metric grid ────────────────────────────────────
-        SEGMENT_ICONS = {
-            'ELITE': '👑', 'PREMIUM': '🌟', 'REGULER': '🔵',
-            'PASIF': '🔴', 'DORMANT': '⚫',
-        }
-        total_merchants = len(df_f)
-        _pp3 = _p()
+            # Controls
+            mc1, mc2 = st.columns(2)
+            with mc1:
+                sel_pm_ml = st.multiselect("👤 Filter by PM", all_pm_ml, default=all_pm_ml, key="t3_pm")
+            with mc2:
+                sel_clust = st.multiselect("🏷️ Show Clusters", all_clusters, default=all_clusters, key=f"t3_clust_{k_val}")
 
-        cols = st.columns(max(len(all_clusters), 1))
-        for idx, (col, seg) in enumerate(zip(cols, all_clusters)):
-            n = len(df_f[df_f['CLUSTER'] == seg])
-            pct = (n / total_merchants * 100) if total_merchants > 0 else 0
-            color = color_lookup.get(seg, fallback_colors[idx % len(fallback_colors)])
-            icon = SEGMENT_ICONS.get(seg, '🔹')
-            col.markdown(
-                f"""<div style="background:linear-gradient(135deg,{color}22,{color}44);
-                    border:1.5px solid {color};border-radius:14px;padding:20px 12px;
-                    text-align:center;margin-bottom:8px;position:relative;overflow:hidden;">
-                    <div style="font-size:1.6rem;margin-bottom:4px;">{icon}</div>
-                    <div style="font-size:2rem;font-weight:800;color:{color};line-height:1;">{n}</div>
-                    <div style="font-size:0.78rem;font-weight:700;color:{_pp3['TEXT_PRI']};
-                                margin-top:6px;text-transform:uppercase;letter-spacing:.06em;">{seg}</div>
-                    <div style="font-size:0.72rem;color:{_pp3['TEXT_SEC']};margin-top:2px;">{pct:.1f}% of fleet</div>
-                </div>""",
-                unsafe_allow_html=True
-            )
+            df_f = df_ml[df_ml['CLUSTER'].isin(sel_clust)]
+            if sel_pm_ml and 'PM' in df_f.columns:
+                df_f = df_f[df_f['PM'].isin(sel_pm_ml)]
 
-        st.markdown("")
-        sc1, sc2 = st.columns(2)
+            filtered = len(sel_pm_ml) < len(all_pm_ml) or len(sel_clust) < len(all_clusters)
+            if filtered:
+                filter_pill(f"Filter Active: {len(df_f)} of {len(df_ml)} merchants shown")
+            else:
+                tab_desc(f"Showing all <b>{len(df_f)}</b> merchants across all clusters.")
 
-        with sc1:
-            counts = df_f['CLUSTER'].value_counts().reset_index()
-            counts.columns = ['CLUSTER','COUNT']
-            fig_pie = px.pie(counts, names='CLUSTER', values='COUNT', hole=0.45,
-                             title=f'Merchant Segmentation (K={k_val})',
-                             color='CLUSTER', color_discrete_map=color_lookup)
-            fig_pie.update_layout(height=450, **_chart_base())
-            st.plotly_chart(fig_pie, width='stretch')
+            # Cluster counts
+            cols = st.columns(len(all_clusters))
+            
+            # Color mapper fallback
+            color_lookup = {
+                'ELITE': '#F1C40F', 'PREMIUM': '#27AE60', 'REGULER': '#2F80ED', 
+                'PASIF': '#EB5757', 'DORMANT': '#888888'
+            }
+            fallback_colors = ['#27AE60', '#2F80ED', '#EB5757', '#F39C12', '#9B59B6', '#34495E']
+            
+            # ── Upgraded segment metric grid ────────────────────────────────────
+            SEGMENT_ICONS = {
+                'ELITE': '👑', 'PREMIUM': '🌟', 'REGULER': '🔵',
+                'PASIF': '🔴', 'DORMANT': '⚫',
+            }
+            total_merchants = len(df_f)
+            _pp3 = _p()
 
-        with sc2:
-            fig_sc = px.scatter_3d(df_f, x='AVG_SV', y='AVG_FBI', z='SV_GROWTH_CLIPPED',
-                                color='CLUSTER', hover_name='MERCHANT_GROUP',
-                                hover_data=['PM','ACHIEVEMENT_PCT','WEEKS_ACTIVE'],
-                                title="3D Mathematical Structure (SV x FBI x Growth)",
-                                color_discrete_map=color_lookup)
-            fig_sc.update_layout(height=450, margin=dict(l=0, r=0, b=0, t=30), **_chart_base())
-            st.plotly_chart(fig_sc, width='stretch')
+            cols = st.columns(max(len(all_clusters), 1))
+            for idx, (col, seg) in enumerate(zip(cols, all_clusters)):
+                n = len(df_f[df_f['CLUSTER'] == seg])
+                pct = (n / total_merchants * 100) if total_merchants > 0 else 0
+                color = color_lookup.get(seg, fallback_colors[idx % len(fallback_colors)])
+                icon = SEGMENT_ICONS.get(seg, '🔹')
+                col.markdown(
+                    f"""<div style="background:linear-gradient(135deg,{color}22,{color}44);
+                        border:1.5px solid {color};border-radius:14px;padding:20px 12px;
+                        text-align:center;margin-bottom:8px;position:relative;overflow:hidden;">
+                        <div style="font-size:1.6rem;margin-bottom:4px;">{icon}</div>
+                        <div style="font-size:2rem;font-weight:800;color:{color};line-height:1;">{n}</div>
+                        <div style="font-size:0.78rem;font-weight:700;color:{_pp3['TEXT_PRI']};
+                                    margin-top:6px;text-transform:uppercase;letter-spacing:.06em;">{seg}</div>
+                        <div style="font-size:0.72rem;color:{_pp3['TEXT_SEC']};margin-top:2px;">{pct:.1f}% of fleet</div>
+                    </div>""",
+                    unsafe_allow_html=True
+                )
 
-        section_label("Cluster Radar Profile")
-        radar_m = ['AVG_SV','AVG_FBI','RASIO_ONUS','ACHIEVEMENT_PCT','WEEKS_ACTIVE']
-        cm = df_f.groupby('CLUSTER')[radar_m].mean()
-        norm = (cm - cm.min()) / (cm.max() - cm.min() + 1e-9)
-        fig_r = go.Figure()
-        for clust in all_clusters:
-            if clust in norm.index:
-                vals = norm.loc[clust].tolist() + [norm.loc[clust].tolist()[0]]
-                cats = radar_m + [radar_m[0]]
-                fig_r.add_trace(go.Scatterpolar(r=vals, theta=cats, fill='toself',
-                    name=clust, line_color=color_lookup.get(clust, '#FFF')))
-        _pp = _p()
-        fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0,1],
-                                                       gridcolor=_pp['BORDER'], tickfont=dict(color=_pp['TEXT_SEC'])),
-                                       angularaxis=dict(color=_pp['TEXT_SEC']),
-                                       bgcolor='rgba(0,0,0,0)'),
-                             **_chart_base(),
-                             height=430, title="Each cluster's normalised characteristic profile")
-        st.plotly_chart(fig_r, width='stretch')
+            st.markdown("")
+            sc1, sc2 = st.columns(2)
 
-        if 'PM' in df_f.columns:
-            section_label("PM × Cluster Breakdown")
-            pm_cl = df_f.groupby(['PM','CLUSTER']).size().reset_index(name='COUNT')
-            fig_stk = px.bar(pm_cl, x='PM', y='COUNT', color='CLUSTER',
-                             barmode='stack', title="Cluster Distribution per Account Manager",
-                             color_discrete_map=CLAMP)
-            fig_stk.update_layout(height=380, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-            st.plotly_chart(fig_stk, width='stretch')
+            with sc1:
+                counts = df_f['CLUSTER'].value_counts().reset_index()
+                counts.columns = ['CLUSTER','COUNT']
+                fig_pie = px.pie(counts, names='CLUSTER', values='COUNT', hole=0.45,
+                                 title=f'Merchant Segmentation (K={k_val})',
+                                 color='CLUSTER', color_discrete_map=color_lookup)
+                fig_pie.update_layout(height=450, **_chart_base())
+                st.plotly_chart(fig_pie, width='stretch')
 
-        with st.expander("📋 View ML Results Table"):
-            show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','AVG_SV','AVG_FBI',
-                                     'ACHIEVEMENT_PCT','WEEKS_ACTIVE','ZSCORE_SV'] if c in df_f.columns]
-            st.dataframe(df_f[show_cols].sort_values('AVG_SV', ascending=False).reset_index(drop=True), width='stretch')
+            with sc2:
+                fig_sc = px.scatter_3d(df_f, x='AVG_SV', y='AVG_FBI', z='SV_GROWTH_CLIPPED',
+                                    color='CLUSTER', hover_name='MERCHANT_GROUP',
+                                    hover_data=['PM','ACHIEVEMENT_PCT','WEEKS_ACTIVE'],
+                                    title="3D Mathematical Structure (SV x FBI x Growth)",
+                                    color_discrete_map=color_lookup)
+                fig_sc.update_layout(height=450, margin=dict(l=0, r=0, b=0, t=30), **_chart_base())
+                st.plotly_chart(fig_sc, width='stretch')
+
+            section_label("Cluster Radar Profile")
+            radar_m = ['AVG_SV','AVG_FBI','RASIO_ONUS','ACHIEVEMENT_PCT','WEEKS_ACTIVE']
+            cm = df_f.groupby('CLUSTER')[radar_m].mean()
+            norm = (cm - cm.min()) / (cm.max() - cm.min() + 1e-9)
+            fig_r = go.Figure()
+            for clust in all_clusters:
+                if clust in norm.index:
+                    vals = norm.loc[clust].tolist() + [norm.loc[clust].tolist()[0]]
+                    cats = radar_m + [radar_m[0]]
+                    fig_r.add_trace(go.Scatterpolar(r=vals, theta=cats, fill='toself',
+                        name=clust, line_color=color_lookup.get(clust, '#FFF')))
+            _pp = _p()
+            fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0,1],
+                                                           gridcolor=_pp['BORDER'], tickfont=dict(color=_pp['TEXT_SEC'])),
+                                           angularaxis=dict(color=_pp['TEXT_SEC']),
+                                           bgcolor='rgba(0,0,0,0)'),
+                                 **_chart_base(),
+                                 height=430, title="Each cluster's normalised characteristic profile")
+            st.plotly_chart(fig_r, width='stretch')
+
+            if 'PM' in df_f.columns:
+                section_label("PM × Cluster Breakdown")
+                pm_cl = df_f.groupby(['PM','CLUSTER']).size().reset_index(name='COUNT')
+                fig_stk = px.bar(pm_cl, x='PM', y='COUNT', color='CLUSTER',
+                                 barmode='stack', title="Cluster Distribution per Account Manager",
+                                 color_discrete_map=CLAMP)
+                fig_stk.update_layout(height=380, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
+                st.plotly_chart(fig_stk, width='stretch')
+
+            with st.expander("📋 View ML Results Table"):
+                show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','AVG_SV','AVG_FBI',
+                                         'ACHIEVEMENT_PCT','WEEKS_ACTIVE','ZSCORE_SV'] if c in df_f.columns]
+                st.dataframe(df_f[show_cols].sort_values('AVG_SV', ascending=False).reset_index(drop=True), width='stretch')
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — CHURN & RISK
@@ -919,203 +957,207 @@ with tab4:
                                     help="Adjust how aggressively the AI flags merchants for statistical drops. -1.2 means they are worse than ~88% of the data. -2.0 means worse than ~98%.")
         
         df_churn_all = run_ml(df_card, df_mon, df_target, z_thresh=z_thresh_val)
-        all_pm_c = sorted(df_churn_all['PM'].dropna().unique().tolist()) if 'PM' in df_churn_all.columns else []
+        
+        if df_churn_all.empty:
+            st.info("ℹ️ No data available for Churn and Risk analysis.")
+        else:
+            all_pm_c = sorted(df_churn_all['PM'].dropna().unique().tolist()) if 'PM' in df_churn_all.columns else []
 
-        # Controls — inline
-        ch1, ch2 = st.columns([3,1])
-        with ch1:
-            sel_pm_c = st.multiselect("👤 Filter by PM", all_pm_c, default=all_pm_c, key="t4_pm")
-        with ch2:
-            risk_view = st.radio("Show", ["All", "High Risk Only", "Stable Only"], key="t4_risk")
+            # Controls — inline
+            ch1, ch2 = st.columns([3,1])
+            with ch1:
+                sel_pm_c = st.multiselect("👤 Filter by PM", all_pm_c, default=all_pm_c, key="t4_pm")
+            with ch2:
+                risk_view = st.radio("Show", ["All", "High Risk Only", "Stable Only"], key="t4_risk")
 
-        df_c4 = df_churn_all.copy()
-        if sel_pm_c and 'PM' in df_c4.columns:
-            df_c4 = df_c4[df_c4['PM'].isin(sel_pm_c)]
+            df_c4 = df_churn_all.copy()
+            if sel_pm_c and 'PM' in df_c4.columns:
+                df_c4 = df_c4[df_c4['PM'].isin(sel_pm_c)]
 
-        churn_mask = df_c4['CHURN_RISK'].str.contains("HIGH", na=False)
-        if risk_view == "High Risk Only":
-            df_c4 = df_c4[churn_mask]
-            filter_pill(f"Filter Active: High Risk Only — {len(df_c4)} merchants shown")
-        elif risk_view == "Stable Only":
-            df_c4 = df_c4[~churn_mask]
-            filter_pill(f"Filter Active: Stable Only — {len(df_c4)} merchants shown")
+            churn_mask = df_c4['CHURN_RISK'].str.contains("HIGH", na=False)
+            if risk_view == "High Risk Only":
+                df_c4 = df_c4[churn_mask]
+                filter_pill(f"Filter Active: High Risk Only — {len(df_c4)} merchants shown")
+            elif risk_view == "Stable Only":
+                df_c4 = df_c4[~churn_mask]
+                filter_pill(f"Filter Active: Stable Only — {len(df_c4)} merchants shown")
 
-        df_high = df_c4[df_c4['CHURN_RISK'].str.contains("HIGH", na=False)]
-        df_safe = df_c4[~df_c4['CHURN_RISK'].str.contains("HIGH", na=False)]
-        total   = len(df_c4)
+            df_high = df_c4[df_c4['CHURN_RISK'].str.contains("HIGH", na=False)]
+            df_safe = df_c4[~df_c4['CHURN_RISK'].str.contains("HIGH", na=False)]
+            total   = len(df_c4)
 
-        # KPI
-        ch_a, ch_b, ch_c = st.columns(3)
-        ch_a.markdown(kpi_card(str(len(df_high)), "⚠️ High Churn Risk", "danger"), unsafe_allow_html=True)
-        ch_b.markdown(kpi_card(str(len(df_safe)), "✅ Stable", "success"), unsafe_allow_html=True)
-        rate = len(df_high)/total*100 if total > 0 else 0
-        ch_c.markdown(kpi_card(f"{rate:.1f}%", "Churn Rate (filtered)"), unsafe_allow_html=True)
+            # KPI
+            ch_a, ch_b, ch_c = st.columns(3)
+            ch_a.markdown(kpi_card(str(len(df_high)), "⚠️ High Churn Risk", "danger"), unsafe_allow_html=True)
+            ch_b.markdown(kpi_card(str(len(df_safe)), "✅ Stable", "success"), unsafe_allow_html=True)
+            rate = len(df_high)/total*100 if total > 0 else 0
+            ch_c.markdown(kpi_card(f"{rate:.1f}%", "Churn Rate (filtered)"), unsafe_allow_html=True)
 
-        st.markdown("")
+            st.markdown("")
 
-        if total > 0:
-            # ── Gauge chart — churn rate speedometer ─────────────────────────
-            _pp4 = _p()
-            gauge_col, ch_right_kpi = st.columns([1, 1])
-            with gauge_col:
-                fig_gauge = go.Figure(go.Indicator(
-                    mode="gauge+number+delta",
-                    value=rate,
-                    number={"suffix": "%", "font": {"size": 36, "color": _pp4["TEXT_PRI"]}},
-                    delta={"reference": 20, "relative": False,
-                           "increasing": {"color": "#F87171"},
-                           "decreasing": {"color": "#34D399"},
-                           "suffix": "% vs 20% bench"},
-                    gauge={
-                        "axis": {
-                            "range": [0, 100],
-                            "tickwidth": 1,
-                            "tickcolor": _pp4["TEXT_SEC"],
-                            "tickfont": {"color": _pp4["TEXT_SEC"]},
+            if total > 0:
+                # ── Gauge chart — churn rate speedometer ─────────────────────────
+                _pp4 = _p()
+                gauge_col, ch_right_kpi = st.columns([1, 1])
+                with gauge_col:
+                    fig_gauge = go.Figure(go.Indicator(
+                        mode="gauge+number+delta",
+                        value=rate,
+                        number={"suffix": "%", "font": {"size": 36, "color": _pp4["TEXT_PRI"]}},
+                        delta={"reference": 20, "relative": False,
+                               increasing={"color": "#F87171"},
+                               decreasing={"color": "#34D399"},
+                               suffix="% vs 20% bench"},
+                        gauge={
+                            "axis": {
+                                "range": [0, 100],
+                                "tickwidth": 1,
+                                "tickcolor": _pp4["TEXT_SEC"],
+                                "tickfont": {"color": _pp4["TEXT_SEC"]},
+                            },
+                            "bar": {"color": (
+                                "#34D399" if rate < 20 else
+                                "#FBBF24" if rate < 45 else "#F87171"
+                            ), "thickness": 0.28},
+                            "bgcolor": "rgba(0,0,0,0)",
+                            "borderwidth": 0,
+                            "steps": [
+                                {"range": [0, 20],  "color": "rgba(52,211,153,0.12)"},
+                                {"range": [20, 45], "color": "rgba(251,191,36,0.12)"},
+                                {"range": [45, 100],"color": "rgba(248,113,113,0.12)"},
+                            ],
+                            "threshold": {
+                                "line": {"color": "#F87171", "width": 3},
+                                "thickness": 0.8,
+                                "value": 45,
+                            },
                         },
-                        "bar": {"color": (
-                            "#34D399" if rate < 20 else
-                            "#FBBF24" if rate < 45 else "#F87171"
-                        ), "thickness": 0.28},
-                        "bgcolor": "rgba(0,0,0,0)",
-                        "borderwidth": 0,
-                        "steps": [
-                            {"range": [0, 20],  "color": "rgba(52,211,153,0.12)"},
-                            {"range": [20, 45], "color": "rgba(251,191,36,0.12)"},
-                            {"range": [45, 100],"color": "rgba(248,113,113,0.12)"},
+                        title={"text": "Portfolio Churn Rate", "font": {"size": 14, "color": _pp4["TEXT_SEC"]}},
+                    ))
+                    fig_gauge.update_layout(
+                        height=300,
+                        margin=dict(l=20, r=20, t=40, b=20),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font_color=_pp4["TEXT_PRI"],
+                        annotations=[
+                            dict(x=0.18, y=0.08, text="<b>LOW</b>",   showarrow=False,
+                                 font=dict(color="#34D399", size=10)),
+                            dict(x=0.50, y=0.08, text="<b>MEDIUM</b>", showarrow=False,
+                                 font=dict(color="#FBBF24", size=10)),
+                            dict(x=0.82, y=0.08, text="<b>HIGH</b>",   showarrow=False,
+                                 font=dict(color="#F87171", size=10)),
                         ],
-                        "threshold": {
-                            "line": {"color": "#F87171", "width": 3},
-                            "thickness": 0.8,
-                            "value": 45,
-                        },
-                    },
-                    title={"text": "Portfolio Churn Rate", "font": {"size": 14, "color": _pp4["TEXT_SEC"]}},
-                ))
-                fig_gauge.update_layout(
-                    height=300,
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    font_color=_pp4["TEXT_PRI"],
-                    annotations=[
-                        dict(x=0.18, y=0.08, text="<b>LOW</b>",   showarrow=False,
-                             font=dict(color="#34D399", size=10)),
-                        dict(x=0.50, y=0.08, text="<b>MEDIUM</b>", showarrow=False,
-                             font=dict(color="#FBBF24", size=10)),
-                        dict(x=0.82, y=0.08, text="<b>HIGH</b>",   showarrow=False,
-                             font=dict(color="#F87171", size=10)),
-                    ],
-                )
-                st.plotly_chart(fig_gauge, width="stretch")
+                    )
+                    st.plotly_chart(fig_gauge, width="stretch")
 
-            with ch_right_kpi:
-                risk_label = "🟢 LOW RISK" if rate < 20 else ("🟡 MEDIUM RISK" if rate < 45 else "🔴 HIGH RISK")
-                risk_color = "#34D399" if rate < 20 else ("#FBBF24" if rate < 45 else "#F87171")
-                
-                # Dynamic risk advisory text
-                def churn_advisory(pct):
-                    if pct >= 75:
-                        return "🚨 **CRITICAL:** Immediate intervention required. Recommend emergency fee discounts, PM outreach blitz, and escalation to senior leadership."
-                    elif pct >= 45:
-                        return "⚠️ **HIGH RISK:** Portfolio is deteriorating. Recommend targeted retention offers, dedicated PM follow-ups for flagged merchants, and weekly monitoring cadence."
-                    elif pct >= 20:
-                        return "🟡 **ELEVATED:** Above benchmark. Recommend proactive check-ins with declining merchants and review of competitive positioning."
-                    else:
-                        return "✅ **STABLE:** Portfolio churn is within healthy benchmarks. Continue standard monitoring and quarterly business reviews."
-                
-                advisory = churn_advisory(rate)
-                st.markdown(
-                    f"""<div style="margin-top:24px;padding:20px;border-radius:14px;
-                        border:2px solid {risk_color};background:{risk_color}18;text-align:center;">
-                        <div style="font-size:2.2rem;">{risk_label}</div>
-                        <div style="font-size:0.8rem;color:{_pp4['TEXT_SEC']};margin-top:10px;">
-                        {len(df_high)} of {total} merchants flagged as high-risk.<br>
-                        Benchmark target: &lt;20% portfolio churn.
-                        </div>
-                    </div>""", unsafe_allow_html=True
-                )
-                st.markdown(
-                    f"""<div style="margin-top:12px;padding:14px 16px;border-radius:10px;
-                        background:{_pp4['SURFACE2']};border:1px solid {_pp4['BORDER']};
-                        font-size:0.84rem;color:{_pp4['TEXT_PRI']};line-height:1.55;">
-                        <b>AI Recommendation:</b><br>{advisory}
-                    </div>""", unsafe_allow_html=True
-                )
-                
-                # Debug audit — verify chart input data
-                with st.expander("🔬 Chart Data Audit", expanded=False):
-                    st.caption("Raw aggregates feeding the gauge and donut charts:")
-                    audit_data = {
-                        "Metric": ["High Risk Count", "Stable Count", "Total", "Churn Rate %"],
-                        "Value": [str(len(df_high)), str(len(df_safe)), str(total), f"{rate:.2f}%"],
-                    }
-                    st.dataframe(pd.DataFrame(audit_data), hide_index=True, width='stretch')
-                    if 'CHURN_RISK' in df_c4.columns:
-                        st.write("CHURN_RISK value_counts:")
-                        st.dataframe(df_c4['CHURN_RISK'].value_counts().reset_index(), hide_index=True)
+                with ch_right_kpi:
+                    risk_label = "🟢 LOW RISK" if rate < 20 else ("🟡 MEDIUM RISK" if rate < 45 else "🔴 HIGH RISK")
+                    risk_color = "#34D399" if rate < 20 else ("#FBBF24" if rate < 45 else "#F87171")
+                    
+                    # Dynamic risk advisory text
+                    def churn_advisory(pct):
+                        if pct >= 75:
+                            return "🚨 **CRITICAL:** Immediate intervention required. Recommend emergency fee discounts, PM outreach blitz, and escalation to senior leadership."
+                        elif pct >= 45:
+                            return "⚠️ **HIGH RISK:** Portfolio is deteriorating. Recommend targeted retention offers, dedicated PM follow-ups for flagged merchants, and weekly monitoring cadence."
+                        elif pct >= 20:
+                            return "🟡 **ELEVATED:** Above benchmark. Recommend proactive check-ins with declining merchants and review of competitive positioning."
+                        else:
+                            return "✅ **STABLE:** Portfolio churn is within healthy benchmarks. Continue standard monitoring and quarterly business reviews."
+                    
+                    advisory = churn_advisory(rate)
+                    st.markdown(
+                        f"""<div style="margin-top:24px;padding:20px;border-radius:14px;
+                            border:2px solid {risk_color};background:{risk_color}18;text-align:center;">
+                            <div style="font-size:2.2rem;">{risk_label}</div>
+                            <div style="font-size:0.8rem;color:{_pp4['TEXT_SEC']};margin-top:10px;">
+                            {len(df_high)} of {total} merchants flagged as high-risk.<br>
+                            Benchmark target: &lt;20% portfolio churn.
+                            </div>
+                        </div>""", unsafe_allow_html=True
+                    )
+                    st.markdown(
+                        f"""<div style="margin-top:12px;padding:14px 16px;border-radius:10px;
+                            background:{_pp4['SURFACE2']};border:1px solid {_pp4['BORDER']};
+                            font-size:0.84rem;color:{_pp4['TEXT_PRI']};line-height:1.55;">
+                            <b>AI Recommendation:</b><br>{advisory}
+                        </div>""", unsafe_allow_html=True
+                    )
+                    
+                    # Debug audit — verify chart input data
+                    with st.expander("🔬 Chart Data Audit", expanded=False):
+                        st.caption("Raw aggregates feeding the gauge and donut charts:")
+                        audit_data = {
+                            "Metric": ["High Risk Count", "Stable Count", "Total", "Churn Rate %"],
+                            "Value": [str(len(df_high)), str(len(df_safe)), str(total), f"{rate:.2f}%"],
+                        }
+                        st.dataframe(pd.DataFrame(audit_data), hide_index=True, width='stretch')
+                        if 'CHURN_RISK' in df_c4.columns:
+                            st.write("CHURN_RISK value_counts:")
+                            st.dataframe(df_c4['CHURN_RISK'].value_counts().reset_index(), hide_index=True)
 
-            # ── Donut + PM bar as before ──────────────────────────────────────
-            ch_x, ch_y = st.columns(2)
-            with ch_x:
-                fig_rc = px.pie(df_c4, names='CHURN_RISK',
-                                color='CHURN_RISK',
-                                color_discrete_map={'HIGH RISK ⚠️':'#C0392B','STABLE ✅':'#27AE60'},
-                                hole=0.4, title="Churn Risk Breakdown")
-                fig_rc.update_layout(height=350, **_chart_base())
-                st.plotly_chart(fig_rc, width='stretch')
-            with ch_y:
-                if 'PM' in df_high.columns and len(df_high) > 0:
-                    pm_churn = df_high.groupby('PM').size().reset_index(name='HIGH_RISK_COUNT')
-                    fig_pc = px.bar(pm_churn.sort_values('HIGH_RISK_COUNT', ascending=False),
-                                    x='PM', y='HIGH_RISK_COUNT',
-                                    color='HIGH_RISK_COUNT', color_continuous_scale='Reds',
-                                    title="High-Risk Merchants per PM")
-                    fig_pc.update_layout(height=350, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-                    st.plotly_chart(fig_pc, width='stretch')
+                # ── Donut + PM bar as before ──────────────────────────────────────
+                ch_x, ch_y = st.columns(2)
+                with ch_x:
+                    fig_rc = px.pie(df_c4, names='CHURN_RISK',
+                                    color='CHURN_RISK',
+                                    color_discrete_map={'HIGH RISK ⚠️':'#C0392B','STABLE ✅':'#27AE60'},
+                                    hole=0.4, title="Churn Risk Breakdown")
+                    fig_rc.update_layout(height=350, **_chart_base())
+                    st.plotly_chart(fig_rc, width='stretch')
+                with ch_y:
+                    if 'PM' in df_high.columns and len(df_high) > 0:
+                        pm_churn = df_high.groupby('PM').size().reset_index(name='HIGH_RISK_COUNT')
+                        fig_pc = px.bar(pm_churn.sort_values('HIGH_RISK_COUNT', ascending=False),
+                                        x='PM', y='HIGH_RISK_COUNT',
+                                        color='HIGH_RISK_COUNT', color_continuous_scale='Reds',
+                                        title="High-Risk Merchants per PM")
+                        fig_pc.update_layout(height=350, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
+                        st.plotly_chart(fig_pc, width='stretch')
 
-            if 'ZSCORE_SV' in df_c4.columns:
-                st.markdown("<br>", unsafe_allow_html=True)
-                section_label(f"Tri-Dimensional Z-Score Distributions (Anomaly Threshold: {z_thresh_val})")
-                
-                z1, z2, z3 = st.columns(3)
-                
-                # Helper function for drawing Z-Histograms
-                def _draw_z_hist(df, col_name, title, threshold):
-                    fig_z = px.histogram(df, x=col_name, color='CHURN_RISK',
-                                         nbins=25, barmode='overlay',
-                                         color_discrete_map={'HIGH RISK ⚠️': RED, 'STABLE ✅': BLUE_ACC},
-                                         title=title)
-                    fig_z.add_vline(x=threshold, line_dash='dash', line_color=RED,
-                                    annotation_text=f"Cutoff ({threshold})",
-                                    annotation_font_color=RED)
-                    fig_z.update_layout(height=300, showlegend=False, margin=dict(l=10, r=10, t=40, b=10), **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-                    return fig_z
+                if 'ZSCORE_SV' in df_c4.columns:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    section_label(f"Tri-Dimensional Z-Score Distributions (Anomaly Threshold: {z_thresh_val})")
+                    
+                    z1, z2, z3 = st.columns(3)
+                    
+                    # Helper function for drawing Z-Histograms
+                    def _draw_z_hist(df, col_name, title, threshold):
+                        fig_z = px.histogram(df, x=col_name, color='CHURN_RISK',
+                                             nbins=25, barmode='overlay',
+                                             color_discrete_map={'HIGH RISK ⚠️': RED, 'STABLE ✅': BLUE_ACC},
+                                             title=title)
+                        fig_z.add_vline(x=threshold, line_dash='dash', line_color=RED,
+                                        annotation_text=f"Cutoff ({threshold})",
+                                        annotation_font_color=RED)
+                        fig_z.update_layout(height=300, showlegend=False, margin=dict(l=10, r=10, t=40, b=10), **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
+                        return fig_z
 
-                z1.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_SV', "Volume Outlier Map", z_thresh_val), width='stretch')
-                z2.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_FBI', "FBI Outlier Map", z_thresh_val), width='stretch')
-                z3.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_GROWTH', "Growth Outlier Map", z_thresh_val), width='stretch')
+                    z1.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_SV', "Volume Outlier Map", z_thresh_val), width='stretch')
+                    z2.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_FBI', "FBI Outlier Map", z_thresh_val), width='stretch')
+                    z3.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_GROWTH', "Growth Outlier Map", z_thresh_val), width='stretch')
 
-        if len(df_high) > 0:
-            section_label("⚠️ High-Risk Merchant Details")
-            risk_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK',
-                                      'WEEKS_ACTIVE','SV_GROWTH_RATE',
-                                      'ACHIEVEMENT_PCT','ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH'] if c in df_high.columns]
-            df_rd = df_high[risk_cols].copy()
-            if 'SV_GROWTH_RATE' in df_rd.columns:
-                df_rd['SV_GROWTH_RATE'] = (df_rd['SV_GROWTH_RATE']*100).round(1).astype(str)+'%'
-            if 'ACHIEVEMENT_PCT' in df_rd.columns:
-                df_rd['ACHIEVEMENT_PCT'] = df_rd['ACHIEVEMENT_PCT'].round(1).astype(str)+'%'
-                
-            def style_z_scores(row):
-                styles = [''] * len(row)
-                for idx, col in enumerate(df_rd.columns):
-                    if col.startswith('ZSCORE') and row[col] < z_thresh_val:
-                        styles[idx] = f'color: {RED}; font-weight: bold;'
-                return styles
-                
-            st.dataframe(df_rd.style.apply(style_z_scores, axis=1).format({c: "{:.3f}" for c in ['ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH']}).hide(axis="index"), width='stretch')
-            st.download_button("⬇️ Export High-Risk List", df_rd.to_csv(index=False, encoding='utf-8-sig'),
-                               "churn_risk_merchants.csv", "text/csv")
+            if len(df_high) > 0:
+                section_label("⚠️ High-Risk Merchant Details")
+                risk_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK',
+                                          'WEEKS_ACTIVE','SV_GROWTH_RATE',
+                                          'ACHIEVEMENT_PCT','ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH'] if c in df_high.columns]
+                df_rd = df_high[risk_cols].copy()
+                if 'SV_GROWTH_RATE' in df_rd.columns:
+                    df_rd['SV_GROWTH_RATE'] = (df_rd['SV_GROWTH_RATE']*100).round(1).astype(str)+'%'
+                if 'ACHIEVEMENT_PCT' in df_rd.columns:
+                    df_rd['ACHIEVEMENT_PCT'] = df_rd['ACHIEVEMENT_PCT'].round(1).astype(str)+'%'
+                    
+                def style_z_scores(row):
+                    styles = [''] * len(row)
+                    for idx, col in enumerate(df_rd.columns):
+                        if col.startswith('ZSCORE') and row[col] < z_thresh_val:
+                            styles[idx] = f'color: {RED}; font-weight: bold;'
+                    return styles
+                    
+                st.dataframe(df_rd.style.apply(style_z_scores, axis=1).format({c: "{:.3f}" for c in ['ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH']}).hide(axis="index"), width='stretch')
+                st.download_button("⬇️ Export High-Risk List", df_rd.to_csv(index=False, encoding='utf-8-sig'),
+                                   "churn_risk_merchants.csv", "text/csv")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 5 — MERCHANT EXPLORER
@@ -1130,58 +1172,63 @@ with tab5:
     else:
         df_exp = df_mon.copy()
 
-    # ── All Controls Inline ──
-    section_label("🎛️ Explorer Filters")
-    ef1, ef2, ef3, ef4 = st.columns(4)
-
-    with ef1:
-        if 'CLUSTER' in df_exp.columns:
-            sel_ec = st.multiselect("Cluster", ['PREMIUM','REGULER','PASIF'],
-                                    default=['PREMIUM','REGULER','PASIF'], key="e_clust")
-            df_exp = df_exp[df_exp['CLUSTER'].isin(sel_ec)]
-    with ef2:
-        if 'PM' in df_exp.columns:
-            all_pm_e = sorted(df_exp['PM'].dropna().unique().tolist())
-            sel_ep = st.multiselect("PM", all_pm_e, default=all_pm_e, key="e_pm")
-            df_exp = df_exp[df_exp['PM'].isin(sel_ep)]
-    with ef3:
-        if 'CHURN_RISK' in df_exp.columns:
-            cr_opts = ['All'] + df_exp['CHURN_RISK'].dropna().unique().tolist()
-            sel_cr = st.selectbox("Churn Risk", cr_opts, key="e_cr")
-            if sel_cr != 'All':
-                df_exp = df_exp[df_exp['CHURN_RISK'] == sel_cr]
-    with ef4:
-        srch = st.text_input("🔎 Search merchant name", key="e_srch")
-        if srch:
-            df_exp = df_exp[df_exp['MERCHANT_GROUP'].str.contains(srch.upper(), na=False)]
-
-    active_count = len(df_exp)
-    all_count    = len(run_ml(df_card, df_mon, df_target)) if (has_card and has_mon) else len(df_exp)
-    if active_count < all_count:
-        filter_pill(f"Filter Active: Showing {active_count:,} of {all_count:,} merchants")
+    if df_exp.empty:
+        st.info("ℹ️ No merchants found to explore. Please populate the database first.")
     else:
-        st.info(f"No filters applied — showing all **{active_count:,}** merchants.")
+        # ── All Controls Inline ──
+        section_label("🎛️ Explorer Filters")
 
-    # ── Sort & Display ──
-    show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK',
-                              'TOTAL_SV','TOTAL_TRX','TOTAL_FBI','RASIO_ONUS',
-                              'WEEKS_ACTIVE','YTD_VOL','ACHIEVEMENT_PCT',
-                              'SV_GROWTH_RATE','ZSCORE_SV'] if c in df_exp.columns]
+        ef1, ef2, ef3, ef4 = st.columns(4)
 
-    es1, es2 = st.columns([3,1])
-    sort_e = es1.selectbox("Sort by", show_cols, key="e_sort")
-    asc_e  = es2.radio("Order", ["Desc","Asc"], horizontal=True, key="e_asc")
+        with ef1:
+            if 'CLUSTER' in df_exp.columns:
+                sel_ec = st.multiselect("Cluster", ['PREMIUM','REGULER','PASIF'],
+                                        default=['PREMIUM','REGULER','PASIF'], key="e_clust")
+                df_exp = df_exp[df_exp['CLUSTER'].isin(sel_ec)]
+        with ef2:
+            if 'PM' in df_exp.columns:
+                all_pm_e = sorted(df_exp['PM'].dropna().unique().tolist())
+                sel_ep = st.multiselect("PM", all_pm_e, default=all_pm_e, key="e_pm")
+                df_exp = df_exp[df_exp['PM'].isin(sel_ep)]
+        with ef3:
+            if 'CHURN_RISK' in df_exp.columns:
+                cr_opts = ['All'] + df_exp['CHURN_RISK'].dropna().unique().tolist()
+                sel_cr = st.selectbox("Churn Risk", cr_opts, key="e_cr")
+                if sel_cr != 'All':
+                    df_exp = df_exp[df_exp['CHURN_RISK'] == sel_cr]
+        with ef4:
+            srch = st.text_input("🔎 Search merchant name", key="e_srch")
+            if srch:
+                df_exp = df_exp[df_exp['MERCHANT_GROUP'].str.contains(srch.upper(), na=False)]
 
-    if sort_e:
-        df_exp_s = df_exp[show_cols].sort_values(sort_e, ascending=(asc_e=='Asc')).reset_index(drop=True)
-    else:
-        df_exp_s = df_exp[show_cols].reset_index(drop=True)
-    
-    st.dataframe(df_exp_s, width='stretch', height=480)
+        active_count = len(df_exp)
+        all_count    = len(run_ml(df_card, df_mon, df_target)) if (has_card and has_mon) else len(df_exp)
+        if active_count < all_count:
+            filter_pill(f"Filter Active: Showing {active_count:,} of {all_count:,} merchants")
+        else:
+            st.info(f"No filters applied — showing all **{active_count:,}** merchants.")
 
-    st.download_button("⬇️ Export Filtered View as CSV",
-                       df_exp_s.to_csv(index=False, encoding='utf-8-sig'),
-                       "merchant_explorer_export.csv", "text/csv", type="primary")
+        # ── Sort & Display ──
+        show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK',
+                                  'TOTAL_SV','TOTAL_TRX','TOTAL_FBI','RASIO_ONUS',
+                                  'WEEKS_ACTIVE','YTD_VOL','ACHIEVEMENT_PCT',
+                                  'SV_GROWTH_RATE','ZSCORE_SV'] if c in df_exp.columns]
+
+        es1, es2 = st.columns([3,1])
+        sort_e = es1.selectbox("Sort by", show_cols, key="e_sort")
+        asc_e  = es2.radio("Order", ["Desc","Asc"], horizontal=True, key="e_asc")
+
+        if sort_e:
+            df_exp_s = df_exp[show_cols].sort_values(sort_e, ascending=(asc_e=='Asc')).reset_index(drop=True)
+        else:
+            df_exp_s = df_exp[show_cols].reset_index(drop=True)
+        
+        st.dataframe(df_exp_s, width='stretch', height=480)
+
+        st.download_button("⬇️ Export Filtered View as CSV",
+                           df_exp_s.to_csv(index=False, encoding='utf-8-sig'),
+                           "merchant_explorer_export.csv", "text/csv", type="primary")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 6 — AI INSIGHTS & DIAGNOSTICS
