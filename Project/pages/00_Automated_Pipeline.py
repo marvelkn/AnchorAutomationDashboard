@@ -204,11 +204,40 @@ if cloud_mode_enabled:
                     st.error(f"Upsert failed: {upload_err}")
 
     st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
-    st.markdown("##### Maintenance & local workspace tools")
+    section_label("2. Cloud database maintenance")
+    st.info(
+        "Use these tools to clean your **Neon (PostgreSQL)** database. This affects the remote production tables and fixes data anomalies like duplicates or historical spikes."
+    )
+
+    with st.expander("🧼 Scrub / de-duplicate Neon Cloud Database", expanded=False):
+        st.markdown(
+            "Removes duplicates in Neon tables (PROCESSED_CARD_MONTHLY, etc.) and applies the Yoshinoya normalization fix."
+        )
+        if st.button(
+            "Run cloud scrub / de-duplicate",
+            type="primary",
+            use_container_width=True,
+            disabled=(engine is None),
+            key="btn_scrub_neon_cloud",
+        ):
+            with st.spinner("Cleaning Neon PostgreSQL tables..."):
+                try:
+                    from repair_data import scrub_neon_database
+                    
+                    # Assume schema is public or what was entered above
+                    target_schema = (neon_schema_ingest or "public").strip() or "public"
+                    results = scrub_neon_database(engine, schema=target_schema)
+                    
+                    st.success("✅ Cloud scrub complete!")
+                    st.json(results)
+                except Exception as e:
+                    st.error(f"Cloud scrub failed: {e}")
+
+    st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
+    st.markdown("##### Local workspace tools (on server)")
     st.caption(
-        "These match the **local** app: they touch `database/staging.db`, backups, and master Excel files **on the server**. "
-        "On Streamlit Cloud they only run if those files exist in the deployment; your live data in **Neon** is not affected "
-        "unless you also use ingest/upsert above."
+        "These tools touch the **local** files within the app container (`database/staging.db` and Excel masters). "
+        "Use these if you need to prepare data before ingesting it to Neon."
     )
 
     with st.expander("Dangerous zone: reset local staging files", expanded=False):
