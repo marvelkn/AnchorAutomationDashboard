@@ -19,7 +19,7 @@ from utils.theme import (
 )
 from utils.db_connector import fetch_data_from_db, get_db_date_bounds
 from utils.backup_manager import rotate_backups, get_available_backups, restore_backup
-from utils.pipeline_bg import get_pipeline_status, start_pipeline_background, reset_pipeline_status
+from utils.pipeline_bg import get_pipeline_status, start_pipeline_background, reset_pipeline_status, is_pipeline_supported
 from utils.cloud_db import build_engine, test_connection, read_uploaded_dataframe, upsert_dataframe
 
 st.set_page_config(page_title="Automated Pipeline — BTN Anchor", page_icon="🚀", layout="wide")
@@ -554,6 +554,12 @@ else:
 # ── SECTION 4: Execute Pipeline ───────────────────────────────────────────────
 section_label("4. Execute Automation")
 
+if not is_pipeline_supported():
+    st.warning(
+        "Cloud runtime detected. Legacy end-to-end pipeline is Windows-only "
+        "(uses Excel COM). Use the Cloud Upload & Upsert section above for Neon ingestion."
+    )
+
 @st.fragment(run_every="2s")
 def execute_pipeline_fragment():
     status_data = get_pipeline_status()
@@ -566,9 +572,12 @@ def execute_pipeline_fragment():
     
     if current_status == "idle" or current_status == "":
         if all_ready:
-            disable_run = st.session_state.get("gov_status") == "blocked"
+            disable_run = st.session_state.get("gov_status") == "blocked" or (not is_pipeline_supported())
             if disable_run:
-                st.warning("Pipeline is blocked by Governance Gate. Resolve Quarantine first.")
+                if not is_pipeline_supported():
+                    st.warning("Pipeline run is disabled in cloud runtime.")
+                else:
+                    st.warning("Pipeline is blocked by Governance Gate. Resolve Quarantine first.")
             if st.button(
                 "▶️ RUN END-TO-END ANALYTICS PIPELINE",
                 type="primary",

@@ -2,9 +2,15 @@ import os
 import json
 import threading
 from datetime import datetime
-import pythoncom
 import pandas as pd
 import sqlite3
+
+try:
+    import pythoncom  # type: ignore
+    HAS_PYTHONCOM = True
+except Exception:
+    pythoncom = None
+    HAS_PYTHONCOM = False
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATUS_FILE = os.path.join(_BASE, "database", "pipeline_status.json")
@@ -45,11 +51,22 @@ def reset_pipeline_status():
     except:
         pass
 
+
+def is_pipeline_supported() -> bool:
+    return HAS_PYTHONCOM
+
 def run_pipeline_thread(start_str, end_str, paths_config):
     """
     Executes the ETL pipeline in a background thread.
     paths_config is a dict containing PATH_LOCAL_DB, PATH_MID, PATH_CARD, PATH_MON, MASTER_DIR
     """
+    if not HAS_PYTHONCOM:
+        set_pipeline_status({
+            "status": "error",
+            "error": "Windows-only pipeline modules are unavailable in this cloud runtime."
+        })
+        return
+
     # Important: Initialize COM for the background thread
     pythoncom.CoInitialize()
     
@@ -129,6 +146,17 @@ def run_pipeline_thread(start_str, end_str, paths_config):
         pythoncom.CoUninitialize()
 
 def start_pipeline_background(start_str, end_str, paths_config):
+    if not HAS_PYTHONCOM:
+        set_pipeline_status({
+            "status": "error",
+            "step": -1,
+            "message": "",
+            "error": "Pipeline execution is disabled on cloud Linux runtime (requires Windows COM).",
+            "results": {},
+            "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        return
+
     set_pipeline_status({
         "status": "running",
         "step": 0,
