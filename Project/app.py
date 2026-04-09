@@ -22,10 +22,15 @@ apply_theme()
 LOGO_PATH = os.path.join(BASE_DIR, "static", "btn_logo.png")
 DB_PATH   = os.path.join(BASE_DIR, "database", "staging.db")
 db_exists = os.path.exists(DB_PATH)
+neon_exists = os.getenv("DATABASE_URL") is not None
+data_exists = db_exists or neon_exists
 p         = get_palette()
 
 # ── DB status helpers ──────────────────────────────────────────────────────────
-if db_exists:
+if neon_exists:
+    _db_clr, _db_dot, _db_lbl = p["BLUE_ACC"], "☁️", "Neon Connected"
+    _db_sub = "Cloud Database Active"
+elif db_exists:
     _mtime   = datetime.fromtimestamp(os.path.getmtime(DB_PATH))
     _age_h   = (datetime.now().timestamp() - _mtime.timestamp()) / 3600
     _size_mb = os.path.getsize(DB_PATH) / (1024 * 1024)
@@ -37,16 +42,16 @@ if db_exists:
         _db_clr, _db_dot, _db_lbl = p["RED"],   "🔴", "Stale"
     _db_sub = f"{_size_mb:.0f} MB · {_mtime.strftime('%d %b, %H:%M')}"
 else:
-    _db_clr, _db_dot, _db_lbl, _db_sub = p["RED"], "🔴", "Not Found", "Upload staging.db"
+    _db_clr, _db_dot, _db_lbl, _db_sub = p["RED"], "🔴", "Not Found", "Upload data to Neon or Staging"
 
 # ── Navigation registry ────────────────────────────────────────────────────────
 # MUST run before st.page_link() — page_link looks up URL metadata from the
 # registry that st.navigation() populates. pg.run() is called at the very end.
 try:
-    if not db_exists:
+    if not data_exists:
         pg = st.navigation({
             "REQUIRED ACTION": [
-                st.Page("pages/00_Automated_Pipeline.py", title="Upload Database First", icon=":material/warning:", default=True),
+                st.Page("pages/00_Automated_Pipeline.py", title="Get Started / Connect Cloud", icon=":material/rocket_launch:", default=True),
             ],
             "SETTINGS": [
                 st.Page("pages/0_Master_Configuration.py", title="Global Settings", icon=":material/settings:"),

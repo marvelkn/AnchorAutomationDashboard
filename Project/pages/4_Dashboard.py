@@ -21,6 +21,7 @@ from utils.theme import (
     GREEN, RED, AMBER, BLUE_ACC,
     CLUSTER_COLORS, PAYMENT_COLORS,
 )
+from utils.cloud_db import build_engine
 
 # ── PAGE CONFIG ──────────────────────────────────────────────────────────────
 st.set_page_config(page_title="BTN Anchor Dashboard", page_icon="📈", layout="wide")
@@ -54,10 +55,16 @@ PATH_CARD   = os.path.join(BASE_DIR, "data", "master", "master_card_share.xlsx")
 PATH_MON    = os.path.join(BASE_DIR, "data", "master", "master_monitoring.xlsx")
 PATH_RAW_MON = os.path.join(BASE_DIR, "data", "raw", "real", "Monitoring Weekly Anchor 2026.xlsx")
 
-def table_exists(conn, name):
-    return pd.read_sql_query(
-        f"SELECT count(name) FROM sqlite_master WHERE type='table' AND name='{name}'", conn
-    ).iloc[0, 0] == 1
+def table_exists(conn_or_engine, name, schema="public"):
+    if hasattr(conn_or_engine, "connect"):  # SQLAlchemy Engine
+        from sqlalchemy import text
+        q = text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = :s AND table_name = :t)")
+        with conn_or_engine.connect() as conn:
+            return bool(conn.execute(q, {"s": schema, "t": name.lower()}).scalar())
+    else:  # SQLite Connection
+        return pd.read_sql_query(
+            f"SELECT count(name) FROM sqlite_master WHERE type='table' AND name='{name}'", conn_or_engine
+        ).iloc[0, 0] == 1
 
 # ── MACHINE LEARNING ENGINE ───────────────────────────────────────────────────
 @st.cache_data
@@ -149,39 +156,67 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
     return df
 
 
-# ── DB LOAD ───────────────────────────────────────────────────────────────────
-if not os.path.exists(PATH_DB):
-    st.warning("⚠️ Database not found. Process files in the Processing pages first.")
-    st.stop()
+# ── DB LOAD (Cloud-Aware) ─────────────────────────────────────────────────────
+neon_url = os.getenv("DATABASE_URL")
+if neon_url:
+    engine = build_engine()
+    has_card       = table_exists(engine, "PROCESSED_CARD_SHARE")
+    has_card_hist  = table_exists(engine, "PROCESSED_CARD_HISTORY")
+    has_mon        = table_exists(engine, "PROCESSED_MONITORING")
+    has_mon_weekly = table_exists(engine, "PROCESSED_MONITORING_WEEKLY")
+    has_tgt        = table_exists(engine, "TARGET")
+    
+    df_card        = pd.read_sql_query("SELECT * FROM processed_card_share", engine) if has_card else pd.DataFrame()
+    df_card_hist   = pd.read_sql_query("SELECT * FROM processed_card_history", engine) if has_card_hist else pd.DataFrame()
+    df_mon         = pd.read_sql_query("SELECT * FROM processed_monitoring", engine) if has_mon else pd.DataFrame()
+    df_mon_weekly  = pd.read_sql_query("SELECT * FROM processed_monitoring_weekly", engine) if has_mon_weekly else pd.DataFrame()
+    df_target      = pd.read_sql_query("SELECT * FROM target", engine) if has_tgt else pd.DataFrame()
 
-conn = sqlite3.connect(PATH_DB)
-has_card       = table_exists(conn, "PROCESSED_CARD_SHARE")
-has_card_hist  = table_exists(conn, "PROCESSED_CARD_HISTORY")
-has_mon        = table_exists(conn, "PROCESSED_MONITORING")
-has_mon_weekly = table_exists(conn, "PROCESSED_MONITORING_WEEKLY")
-has_tgt        = table_exists(conn, "TARGET")
-
-df_card        = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_SHARE", conn) if has_card else pd.DataFrame()
-df_card_hist   = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_HISTORY", conn) if has_card_hist else pd.DataFrame()
-df_mon         = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING", conn) if has_mon else pd.DataFrame()
-df_mon_weekly  = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING_WEEKLY", conn) if has_mon_weekly else pd.DataFrame()
-df_target      = pd.read_sql_query("SELECT * FROM TARGET", conn) if has_tgt else pd.DataFrame()
-conn.close()
+    # Column normalization for Postgres (ensure uppercase for dashboard consistency)
+    for df in [df_card, df_card_hist, df_mon, df_mon_weekly, df_target]:
+        if not df.empty:
+            df.columns = [c.upper() for c in df.columns]
+    
+    # Custom exists check for monthly detailed table used later
+    has_monthly_tbl = table_exists(engine, "PROCESSED_CARD_MONTHLY")
+else:
+    if not os.path.exists(PATH_DB):
+        st.warning("⚠️ Database not found. Process files in the Processing pages first.")
+        st.stop()
+    
+    conn = sqlite3.connect(PATH_DB)
+    has_card       = table_exists(conn, "PROCESSED_CARD_SHARE")
+    has_card_hist  = table_exists(conn, "PROCESSED_CARD_HISTORY")
+    has_mon        = table_exists(conn, "PROCESSED_MONITORING")
+    has_mon_weekly = table_exists(conn, "PROCESSED_MONITORING_WEEKLY")
+    has_tgt        = table_exists(conn, "TARGET")
+    
+    df_card        = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_SHARE", conn) if has_card else pd.DataFrame()
+    df_card_hist   = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_HISTORY", conn) if has_card_hist else pd.DataFrame()
+    df_mon         = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING", conn) if has_mon else pd.DataFrame()
+    df_mon_weekly  = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING_WEEKLY", conn) if has_mon_weekly else pd.DataFrame()
+    df_target      = pd.read_sql_query("SELECT * FROM TARGET", conn) if has_tgt else pd.DataFrame()
+    has_monthly_tbl = table_exists(conn, "PROCESSED_CARD_MONTHLY")
+    conn.close()
 
 
 # ── BATCH METADATA & SIGNALS ──────────────────────────────────────────────────
 _last_update = "Unknown"
 _show_new_badge = False
-if os.path.exists(PATH_DB):
-    try:
+try:
+    if neon_url:
+        _df_meta = pd.read_sql_query("SELECT * FROM app_metadata", engine)
+        _df_meta.columns = [c.upper() for c in _df_meta.columns]
+    elif os.path.exists(PATH_DB):
         _conn_meta = sqlite3.connect(PATH_DB)
         _df_meta = pd.read_sql_query("SELECT * FROM APP_METADATA", _conn_meta)
         _conn_meta.close()
-        _meta_dict = dict(zip(_df_meta['key'], _df_meta['value']))
-        _last_update = _meta_dict.get('LAST_DATA_UPDATE', 'Unknown')
-        _show_new_badge = _meta_dict.get('NEW_DATA_SIGNAL') == '1'
-    except:
-        pass
+    
+    _meta_dict = dict(zip(_df_meta['KEY'], _df_meta['VALUE']))
+    _last_update = _meta_dict.get('LAST_DATA_UPDATE', 'Unknown')
+    _show_new_badge = _meta_dict.get('NEW_DATA_SIGNAL') == '1'
+except:
+    pass
 
 # ── HEADER + STATUS STRIP ────────────────────────────────────────────────────
 header_col1, header_col2 = st.columns([0.8, 0.2])
@@ -192,10 +227,14 @@ with header_col2:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🆕 NEW DATA", help=f"Last updated: {_last_update}. Click to clear.", type="primary"):
             try:
-                _conn_meta = sqlite3.connect(PATH_DB)
-                _conn_meta.execute("UPDATE APP_METADATA SET value = '0' WHERE key = 'NEW_DATA_SIGNAL'")
-                _conn_meta.commit()
-                _conn_meta.close()
+                if neon_url:
+                    with engine.begin() as _conn_m:
+                        _conn_m.execute(text("UPDATE app_metadata SET value = '0' WHERE key = 'NEW_DATA_SIGNAL'"))
+                else:
+                    _conn_meta = sqlite3.connect(PATH_DB)
+                    _conn_meta.execute("UPDATE APP_METADATA SET value = '0' WHERE key = 'NEW_DATA_SIGNAL'")
+                    _conn_meta.commit()
+                    _conn_meta.close()
                 st.rerun()
             except: pass
 
@@ -335,10 +374,14 @@ with tab1:
         ])
 
     # Reconstruct Monthly Matrix from PROCESSED_CARD_MONTHLY
-    conn = sqlite3.connect(PATH_DB)
-    if table_exists(conn, "PROCESSED_CARD_MONTHLY"):
-        df_monthly_raw = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_MONTHLY", conn)
-        conn.close()
+    if has_monthly_tbl:
+        if neon_url:
+            df_monthly_raw = pd.read_sql_query("SELECT * FROM processed_card_monthly", engine)
+            df_monthly_raw.columns = [c.upper() for c in df_monthly_raw.columns]
+        else:
+            conn = sqlite3.connect(PATH_DB)
+            df_monthly_raw = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_MONTHLY", conn)
+            conn.close()
         
         # Apply Sidebar Filters to detailed monthly data
         if sel_group != "ALL GROUPS":
