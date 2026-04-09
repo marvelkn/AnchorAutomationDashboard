@@ -366,11 +366,31 @@ def _sc(icon, label, ok, ok_text="Ready", fail_text="Missing", warn=False):
     </div>"""
 
 sc1, sc2, sc3, sc4, sc5 = st.columns(5)
-sc1.markdown(_sc("📊", "Card Share DB",   has_card,                          f"Connected: {os.path.basename(PATH_DB)}",       "Not processed"), unsafe_allow_html=True)
-sc2.markdown(_sc("📅", "Monitoring DB",   has_mon,                           f"Connected: {os.path.basename(PATH_DB)}",       "Not processed"), unsafe_allow_html=True)
-sc3.markdown(_sc("🎯", "Target Data",     has_tgt,                           "Loaded",       "Not uploaded",  warn=not has_tgt), unsafe_allow_html=True)
-sc4.markdown(_sc("📄", "Card Share File", os.path.exists(PATH_CARD),         f"Found: {os.path.basename(PATH_CARD)}",   "Upload in Settings"), unsafe_allow_html=True)
-sc5.markdown(_sc("📄", "Monitoring File", os.path.exists(PATH_MON),          f"Found: {os.path.basename(PATH_MON)}",          "Upload in Settings"), unsafe_allow_html=True)
+# ── Accurate status labels ──────────────────────────────────────────────────
+# DB table cards: show row count so "Connected" can't lie when the table is empty.
+_card_rows  = len(df_card)      if has_card and not df_card.empty       else 0
+_mon_rows   = len(df_mon)       if has_mon  and not df_mon.empty        else 0
+_tgt_rows   = len(df_target)    if has_tgt  and not df_target.empty     else 0
+
+_card_ok_txt  = f"{_card_rows:,} rows loaded"  if _card_rows > 0 else "Table empty — run pipeline"
+_mon_ok_txt   = f"{_mon_rows:,} rows loaded"   if _mon_rows  > 0 else "Table empty — run pipeline"
+_tgt_ok_txt   = f"{_tgt_rows:,} merchants"     if _tgt_rows  > 0 else "Table empty — upload TARGET"
+
+# File cards: show size so users can tell if the file is populated.
+def _file_kb(p):
+    try: return f"{os.path.getsize(p) // 1024:,} KB"
+    except: return "unknown size"
+
+_card_file_ok = os.path.exists(PATH_CARD)
+_mon_file_ok  = os.path.exists(PATH_MON)
+_card_file_txt  = f"Found ({_file_kb(PATH_CARD)})" if _card_file_ok else "Not found"
+_mon_file_txt   = f"Found ({_file_kb(PATH_MON)})"  if _mon_file_ok  else "Not found"
+
+sc1.markdown(_sc("📊", "Card Share DB",   has_card and _card_rows > 0, _card_ok_txt,  "Not processed" if not has_card else "Empty — run pipeline"), unsafe_allow_html=True)
+sc2.markdown(_sc("📅", "Monitoring DB",   has_mon  and _mon_rows  > 0, _mon_ok_txt,   "Not processed" if not has_mon  else "Empty — run pipeline"), unsafe_allow_html=True)
+sc3.markdown(_sc("🎯", "Target Data",     has_tgt  and _tgt_rows  > 0, _tgt_ok_txt,   "Not uploaded",  warn=(has_tgt and _tgt_rows == 0) or not has_tgt), unsafe_allow_html=True)
+sc4.markdown(_sc("📄", "Card Share File", _card_file_ok,               _card_file_txt, "Upload in Settings"), unsafe_allow_html=True)
+sc5.markdown(_sc("📄", "Monitoring File", _mon_file_ok,                _mon_file_txt,  "Upload in Settings"), unsafe_allow_html=True)
 
 with st.expander("📂 Environment & Path Visibility"):
     st.code(f"DB Path:   {os.path.abspath(PATH_DB)}\nCARD Path: {os.path.abspath(PATH_CARD)}\nMON Path:  {os.path.abspath(PATH_MON)}")
