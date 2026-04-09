@@ -153,3 +153,45 @@ def scrub_neon_database(engine, schema="public"):
             results["yoshinoya_fix"] = f"Correction failed: {str(e)}"
 
     return results
+
+def reset_neon_database(engine, schema="public"):
+    """
+    Purges all data from the Neon PostgreSQL cloud database.
+    Truncates all project-relevant tables. Highly Destructive.
+    """
+    tables_to_clear = [
+        "processed_card_monthly", "processed_card_history", "processed_card_share",
+        "processed_monitoring",   "processed_monitoring_weekly", "target",
+        "mart_merchant_cluster", "raw_master", "raw_card_share", 
+        "raw_monitoring", "raw_weekly", "raw_target", "ingestion_runs"
+    ]
+
+    results = {}
+    with engine.begin() as conn:
+        for table in tables_to_clear:
+            full_table = f"{schema}.{table}"
+            # Check if table exists first to avoid errors
+            check_sql = text(f"""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables 
+                    WHERE table_schema = :schema AND table_name = :table
+                )
+            """)
+            exists = conn.execute(check_sql, {"schema": schema, "table": table}).scalar()
+            
+            if exists:
+                try:
+                    # TRUNCATE is faster and resets identities
+                    conn.execute(text(f'TRUNCATE TABLE "{schema}"."{table}" RESTART IDENTITY CASCADE'))
+                    results[table] = "Successfully purged."
+                except Exception as e:
+                    # Fallback to DELETE if truncate fails
+                    try:
+                        conn.execute(text(f'DELETE FROM "{schema}"."{table}"'))
+                        results[table] = "Cleared (via DELETE)."
+                    except Exception as e2:
+                        results[table] = f"Failed to clear: {str(e2)}"
+            else:
+                results[table] = "Table not found (Skipped)."
+
+    return results

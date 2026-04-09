@@ -233,6 +233,33 @@ if cloud_mode_enabled:
                 except Exception as e:
                     st.error(f"Cloud scrub failed: {e}")
 
+    with st.expander("🔴 Dangerous Zone: Reset Neon Cloud Database", expanded=False):
+        st.warning(
+            "This will permanently **PURGE ALL DATA** from business, raw, and audit tables in your Neon production database."
+        )
+        confirm_reset_neon = st.checkbox(
+            "I understand this will permanently delete all data in the cloud (PostgreSQL).",
+            key="confirm_reset_neon_cloud",
+        )
+        if st.button(
+            "RESET NEON CLOUD DATABASE",
+            type="primary",
+            disabled=not confirm_reset_neon,
+            use_container_width=True,
+            key="btn_reset_neon_cloud",
+        ):
+            with st.spinner("Purging Neon PostgreSQL tables..."):
+                try:
+                    from repair_data import reset_neon_database
+                    
+                    target_schema = (neon_schema_ingest or "public").strip() or "public"
+                    results = reset_neon_database(engine, schema=target_schema)
+                    
+                    st.success("🔥 Neon database reset successfully!")
+                    st.json(results)
+                except Exception as e:
+                    st.error(f"Reset failed: {e}")
+
     st.stop()
 
 
