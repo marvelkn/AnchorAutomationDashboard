@@ -174,7 +174,7 @@ if neon_url:
 
     # Column normalization for Postgres (ensure uppercase for dashboard consistency)
     for df in [df_card, df_card_hist, df_mon, df_mon_weekly, df_target]:
-        if not df.empty:
+        if len(df.columns) > 0:
             df.columns = [c.upper() for c in df.columns]
     
     # Custom exists check for monthly detailed table used later
@@ -676,9 +676,12 @@ with tab2:
         f_col1, f_col2, f_col3 = st.columns([1, 1, 1])
         
         with f_col1:
-            avail_years_mon = sorted(df_mon_weekly['YEAR'].unique().tolist(), reverse=True)
-            sel_yr_mon = st.selectbox("📅 Year", [str(y) for y in avail_years_mon], key="t2_year_mon")
-            df_mon_yr = df_mon_weekly[df_mon_weekly['YEAR'] == str(sel_yr_mon)]
+            avail_years_mon = []
+            if not df_mon_weekly.empty and 'YEAR' in df_mon_weekly.columns:
+                avail_years_mon = sorted(df_mon_weekly['YEAR'].unique().tolist(), reverse=True)
+            
+            sel_yr_mon = st.selectbox("📅 Year", [str(y) for y in avail_years_mon] if avail_years_mon else ["No Data"], key="t2_year_mon")
+            df_mon_yr = df_mon_weekly[df_mon_weekly['YEAR'] == str(sel_yr_mon)] if (not df_mon_weekly.empty and 'YEAR' in df_mon_weekly.columns) else pd.DataFrame()
         
         with f_col2:
             pm_names_mon = sorted([p for p in df_mon_yr['PM'].dropna().unique() if str(p).strip().upper() not in ['NAN', 'NONE', 'UNKNOWN', 'UNASSIGNED']])
