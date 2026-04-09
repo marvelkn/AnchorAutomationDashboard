@@ -21,6 +21,7 @@ from utils.db_connector import fetch_data_from_db, get_db_date_bounds
 from utils.backup_manager import rotate_backups, get_available_backups, restore_backup
 from utils.pipeline_bg import get_pipeline_status, start_pipeline_background, reset_pipeline_status, is_pipeline_supported
 from utils.cloud_db import build_engine, test_connection, read_uploaded_dataframe, upsert_dataframe
+from utils.sqlite_to_neon import ingest_sqlite_bytes_to_neon, fetch_recent_ingestion_runs
 
 st.set_page_config(page_title="Automated Pipeline — BTN Anchor", page_icon="🚀", layout="wide")
 apply_theme()
@@ -317,6 +318,90 @@ with col1:
             st.error(f"Neon connection failed: {conn_err}")
             engine = None
 
+        st.markdown("##### ☁️ Full SQLite database → Neon (phase-1)")
+        st.warning(
+            "Phase-1 ingests **all** non-system tables from your `.db` into Neon "
+            "(TRUNCATE + reload per table). It does **not** run the legacy Windows/Excel pipeline."
+        )
+        neon_schema_ingest = st.text_input(
+            "Neon schema for imported tables",
+            value="public",
+            key="neon_schema_ingest",
+            help="All tables are created as lowercase names in this schema.",
+        )
+        cloud_db_upload = st.file_uploader(
+            "Upload full SQLite database (.db / .sqlite)",
+            type=["db", "sqlite"],
+            key="cloud_db_full_upload",
+            help="File is written to a temporary path only for reading; data is loaded into Neon.",
+        )
+        if st.button(
+            "📦 Ingest full DB to Neon",
+            type="primary",
+            use_container_width=True,
+            disabled=(engine is None),
+            key="btn_ingest_full_db",
+        ):
+            if not cloud_db_upload:
+                st.warning("Please upload a `.db` file first.")
+            else:
+                ingest_schema = (neon_schema_ingest or "public").strip() or "public"
+                progress = st.progress(0, text="Starting full ingest...")
+                status_box = st.empty()
+                try:
+
+                    def _on_progress(cur: int, total: int, tbl: str, msg: str):
+                        frac = min(cur / max(total, 1), 1.0)
+                        progress.progress(frac, text=msg[:120] if msg else "…")
+                        status_box.caption(msg)
+
+                    with st.spinner("Ingesting SQLite → Neon..."):
+                        result = ingest_sqlite_bytes_to_neon(
+                            engine,
+                            cloud_db_upload.getvalue(),
+                            schema=ingest_schema,
+                            source_filename=getattr(cloud_db_upload, "name", "uploaded.db") or "uploaded.db",
+                            progress_callback=_on_progress,
+                        )
+                    progress.progress(1.0, text="Done")
+                    if result.get("status") == "complete":
+                        st.success(
+                            f"✅ Ingest complete. Run ID: `{result.get('run_id')}` · "
+                            f"{result.get('tables_ok')} table(s) · "
+                            f"{result.get('total_rows', 0):,} rows · "
+                            f"{result.get('elapsed_seconds')}s"
+                        )
+                    elif result.get("status") == "partial_error":
+                        st.error(
+                            f"⚠️ Partial success. Run ID: `{result.get('run_id')}` · "
+                            f"ok={result.get('tables_ok')} failed={result.get('tables_failed')}"
+                        )
+                    else:
+                        st.error(f"Ingest failed: {result.get('error_message', 'unknown')}")
+
+                    tr = result.get("table_results") or []
+                    if tr:
+                        st.dataframe(pd.DataFrame(tr), use_container_width=True, hide_index=True)
+                    with st.expander("Raw run details (JSON)"):
+                        st.json(result.get("details") or {})
+                except Exception as ingest_err:
+                    progress.progress(1.0, text="Error")
+                    st.error(f"Full DB ingest failed: {ingest_err}")
+
+        if engine is not None:
+            with st.expander("📋 Recent Neon ingestion runs (audit)"):
+                try:
+                    _aud_schema = (neon_schema_ingest or "public").strip() or "public"
+                    st.caption(f"Table `{_aud_schema}.ingestion_runs` — last 10 runs.")
+                    st.dataframe(
+                        fetch_recent_ingestion_runs(engine, schema=_aud_schema, limit=10),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                except Exception as aud_err:
+                    st.caption(f"Could not load audit history: {aud_err}")
+
+        st.markdown("##### ☁️ Single file upsert (CSV / Excel)")
         cloud_upload = st.file_uploader(
             "Upload CSV/Excel for Neon upsert",
             type=["csv", "xlsx", "xls"],
