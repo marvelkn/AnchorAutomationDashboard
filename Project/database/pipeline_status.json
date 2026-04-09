@@ -1,19 +1,8 @@
 {
-    "status": "complete",
-    "step": 4,
-    "message": "\ud83c\udf89 Pipeline Orchestration Complete!",
-    "results": {
-        "mid": {
-            "new": 106078,
-            "total": 196236
-        },
-        "card": {
-            "rows": 755
-        },
-        "monitoring": {
-            "rows": 16
-        }
-    },
+    "status": "idle",
+    "step": -1,
+    "message": "",
+    "results": {},
     "error": "",
-    "start_time": "2026-04-08 16:23:07"
+    "start_time": ""
 }

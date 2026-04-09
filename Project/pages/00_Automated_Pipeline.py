@@ -4,6 +4,10 @@ import sys
 import shutil
 from datetime import datetime
 import pandas as pd
+import sqlite3
+from pathlib import Path
+
+import openpyxl
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _BASE not in sys.path:
@@ -16,6 +20,7 @@ from utils.theme import (
 from utils.db_connector import fetch_data_from_db, get_db_date_bounds
 from utils.backup_manager import rotate_backups, get_available_backups, restore_backup
 from utils.pipeline_bg import get_pipeline_status, start_pipeline_background, reset_pipeline_status
+from utils.cloud_db import build_engine, test_connection, read_uploaded_dataframe, upsert_dataframe
 
 st.set_page_config(page_title="Automated Pipeline — BTN Anchor", page_icon="🚀", layout="wide")
 apply_theme()
@@ -38,10 +43,177 @@ PATH_MID      = os.path.join(MASTER_DIR, "master_mid.xlsx")
 PATH_CARD     = os.path.join(MASTER_DIR, "master_card_share.xlsx")
 PATH_MON      = os.path.join(MASTER_DIR, "master_monitoring.xlsx")
 PATH_BACKUP_DIR = os.path.join(DB_UPLOAD_DIR, "backup")
+PATH_GOV_AUDIT = os.path.join(MASTER_DIR, "governance_audit_log.csv")
 
 # Create backup dir if missing
 if not os.path.exists(PATH_BACKUP_DIR):
     os.makedirs(PATH_BACKUP_DIR)
+
+
+def _init_gov_state():
+    defaults = {
+        "gov_status": "idle",  # idle|blocked|resolved|error
+        "gov_delta": {"new_anchors": [], "new_pms": [], "impact_anchor_rows": 0, "impact_pm_rows": 0},
+        "gov_decisions": {"approved_anchors": [], "ignored_anchors": [], "approved_pms": [], "ignored_pms": []},
+        "gov_signature": None,
+        "gov_last_resolved_signature": None,
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
+def _norm_text(value):
+    if pd.isna(value):
+        return None
+    cleaned = str(value).strip()
+    if not cleaned or cleaned.lower() in {"nan", "none", "null"}:
+        return None
+    return cleaned
+
+
+def _read_target_entities(db_path: str) -> pd.DataFrame:
+    if not os.path.exists(db_path):
+        return pd.DataFrame(columns=["Anchor", "PM"])
+    conn = sqlite3.connect(db_path)
+    try:
+        query = """
+            SELECT
+                TRIM(MERCHANT_GROUP) AS Anchor,
+                TRIM(PM) AS PM
+            FROM TARGET
+            WHERE MERCHANT_GROUP IS NOT NULL OR PM IS NOT NULL
+        """
+        return pd.read_sql_query(query, conn)
+    except Exception:
+        return pd.DataFrame(columns=["Anchor", "PM"])
+    finally:
+        conn.close()
+
+
+def _read_master_parameter(path_mon: str) -> pd.DataFrame:
+    if not os.path.exists(path_mon):
+        return pd.DataFrame(columns=["Anchor", "PM"])
+    try:
+        wb = openpyxl.load_workbook(path_mon, data_only=True)
+        if "PARAMETER" not in wb.sheetnames:
+            return pd.DataFrame(columns=["Anchor", "PM"])
+        ws = wb["PARAMETER"]
+        rows = []
+        for row_idx in range(2, ws.max_row + 1):
+            pm_val = _norm_text(ws.cell(row=row_idx, column=1).value)      # col A
+            anchor_val = _norm_text(ws.cell(row=row_idx, column=4).value)  # col D
+            if pm_val or anchor_val:
+                rows.append({"Anchor": anchor_val, "PM": pm_val})
+        return pd.DataFrame(rows, columns=["Anchor", "PM"])
+    except Exception:
+        return pd.DataFrame(columns=["Anchor", "PM"])
+
+
+def _detect_governance_delta(db_path: str, path_mon: str) -> dict:
+    uploaded_df = _read_target_entities(db_path)
+    master_df = _read_master_parameter(path_mon)
+
+    up_anchor_series = uploaded_df["Anchor"].map(_norm_text).dropna() if "Anchor" in uploaded_df.columns else pd.Series(dtype="object")
+    up_pm_series = uploaded_df["PM"].map(_norm_text).dropna() if "PM" in uploaded_df.columns else pd.Series(dtype="object")
+    m_anchor_series = master_df["Anchor"].map(_norm_text).dropna() if "Anchor" in master_df.columns else pd.Series(dtype="object")
+    m_pm_series = master_df["PM"].map(_norm_text).dropna() if "PM" in master_df.columns else pd.Series(dtype="object")
+
+    uploaded_anchors = {x for x in up_anchor_series.tolist() if x}
+    uploaded_pms = {x for x in up_pm_series.tolist() if x}
+    master_anchors = {x for x in m_anchor_series.tolist() if x}
+    master_pms = {x for x in m_pm_series.tolist() if x}
+
+    new_anchors = sorted(uploaded_anchors - master_anchors)
+    new_pms = sorted(uploaded_pms - master_pms)
+
+    impact_anchor_rows = int(up_anchor_series.isin(new_anchors).sum()) if len(new_anchors) else 0
+    impact_pm_rows = int(up_pm_series.isin(new_pms).sum()) if len(new_pms) else 0
+    return {
+        "new_anchors": new_anchors,
+        "new_pms": new_pms,
+        "impact_anchor_rows": impact_anchor_rows,
+        "impact_pm_rows": impact_pm_rows,
+    }
+
+
+def _compute_db_signature(db_path: str) -> str:
+    if not os.path.exists(db_path):
+        return "missing-db"
+    stat = os.stat(db_path)
+    return f"{int(stat.st_mtime)}-{int(stat.st_size)}"
+
+
+def _append_to_parameter_sheet(path_mon: str, approved_anchors: list, approved_pms: list):
+    if not os.path.exists(path_mon):
+        raise FileNotFoundError(f"Master monitoring file not found: {path_mon}")
+
+    wb = openpyxl.load_workbook(path_mon)
+    if "PARAMETER" not in wb.sheetnames:
+        raise ValueError("Sheet 'PARAMETER' not found in master_monitoring.xlsx")
+    ws = wb["PARAMETER"]
+
+    existing_anchor = set()
+    existing_pm = set()
+    max_data_row = 1
+
+    for row_idx in range(2, ws.max_row + 1):
+        pm_val = _norm_text(ws.cell(row=row_idx, column=1).value)
+        anchor_val = _norm_text(ws.cell(row=row_idx, column=4).value)
+        if pm_val:
+            existing_pm.add(pm_val)
+            max_data_row = row_idx
+        if anchor_val:
+            existing_anchor.add(anchor_val)
+            max_data_row = row_idx
+
+    # Add anchor rows (A=UNASSIGNED, D=anchor), only net-new
+    anchors_to_add = [a for a in approved_anchors if a not in existing_anchor]
+    for anchor in anchors_to_add:
+        max_data_row += 1
+        ws.cell(row=max_data_row, column=1).value = "UNASSIGNED"
+        ws.cell(row=max_data_row, column=4).value = anchor
+        ws.cell(row=max_data_row, column=2).value = f"=IF(A{max_data_row}=A{max_data_row-1},B{max_data_row-1}+1,1)"
+        ws.cell(row=max_data_row, column=3).value = f"=CONCATENATE(A{max_data_row},B{max_data_row})"
+        existing_anchor.add(anchor)
+
+    # Add PM rows without forcing anchor assignment, only net-new
+    pms_to_add = [p for p in approved_pms if p not in existing_pm]
+    for pm in pms_to_add:
+        max_data_row += 1
+        ws.cell(row=max_data_row, column=1).value = pm
+        ws.cell(row=max_data_row, column=4).value = "UNMAPPED_ANCHOR"
+        ws.cell(row=max_data_row, column=2).value = f"=IF(A{max_data_row}=A{max_data_row-1},B{max_data_row-1}+1,1)"
+        ws.cell(row=max_data_row, column=3).value = f"=CONCATENATE(A{max_data_row},B{max_data_row})"
+        existing_pm.add(pm)
+
+    wb.save(path_mon)
+
+
+def _write_governance_audit(audit_path: str, decisions: dict):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    rows = []
+    for entity in decisions.get("approved_anchors", []):
+        rows.append({"timestamp": now_str, "entity_type": "Anchor", "entity_value": entity, "decision": "approve"})
+    for entity in decisions.get("ignored_anchors", []):
+        rows.append({"timestamp": now_str, "entity_type": "Anchor", "entity_value": entity, "decision": "ignore"})
+    for entity in decisions.get("approved_pms", []):
+        rows.append({"timestamp": now_str, "entity_type": "PM", "entity_value": entity, "decision": "approve"})
+    for entity in decisions.get("ignored_pms", []):
+        rows.append({"timestamp": now_str, "entity_type": "PM", "entity_value": entity, "decision": "ignore"})
+
+    if not rows:
+        return
+
+    audit_df = pd.DataFrame(rows)
+    if os.path.exists(audit_path):
+        old = pd.read_csv(audit_path)
+        audit_df = pd.concat([old, audit_df], ignore_index=True)
+    Path(audit_path).parent.mkdir(parents=True, exist_ok=True)
+    audit_df.to_csv(audit_path, index=False)
+
+
+_init_gov_state()
 
 # ── Pipeline Step Definitions ─────────────────────────────────────────────────
 PIPELINE_STEPS = [
@@ -56,12 +228,134 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+
+@st.dialog("🧪 Quarantine Resolution Required", width="large")
+def governance_quarantine_dialog():
+    delta = st.session_state.get("gov_delta", {})
+    new_anchors = delta.get("new_anchors", [])
+    new_pms = delta.get("new_pms", [])
+
+    st.error("Unrecognized Anchors/PMs were detected. Pipeline execution is paused until this is resolved.")
+    st.caption(
+        f"Impact rows -> Unknown Anchors: {delta.get('impact_anchor_rows', 0)} | "
+        f"Unknown PMs: {delta.get('impact_pm_rows', 0)}"
+    )
+
+    with st.form("governance_resolution_form"):
+        st.markdown("### New Anchors")
+        approved_anchors = []
+        ignored_anchors = []
+        for anchor in new_anchors:
+            choice = st.radio(
+                f"`{anchor}`",
+                options=["Approve & Add to Master", "Ignore/Skip (this run)"],
+                horizontal=True,
+                key=f"gov_anchor_choice_{anchor}",
+            )
+            if choice.startswith("Approve"):
+                approved_anchors.append(anchor)
+            else:
+                ignored_anchors.append(anchor)
+
+        st.markdown("### New PMs")
+        approved_pms = []
+        ignored_pms = []
+        for pm in new_pms:
+            choice = st.radio(
+                f"`{pm}`",
+                options=["Approve & Add to Master", "Ignore/Skip (this run)"],
+                horizontal=True,
+                key=f"gov_pm_choice_{pm}",
+            )
+            if choice.startswith("Approve"):
+                approved_pms.append(pm)
+            else:
+                ignored_pms.append(pm)
+
+        submit = st.form_submit_button("Submit Resolution", type="primary", use_container_width=True)
+
+    if submit:
+        decisions = {
+            "approved_anchors": approved_anchors,
+            "ignored_anchors": ignored_anchors,
+            "approved_pms": approved_pms,
+            "ignored_pms": ignored_pms,
+        }
+        try:
+            _append_to_parameter_sheet(PATH_MON, approved_anchors, approved_pms)
+            _write_governance_audit(PATH_GOV_AUDIT, decisions)
+            st.session_state["gov_decisions"] = decisions
+            st.session_state["gov_status"] = "resolved"
+            st.session_state["gov_last_resolved_signature"] = st.session_state.get("gov_signature")
+            st.success("Governance resolution saved. You can now execute the pipeline.")
+            st.rerun()
+        except Exception as ex:
+            st.session_state["gov_status"] = "error"
+            st.error(f"Failed to commit governance decisions: {ex}")
+
 # ── SECTION 1 & 2: Inputs ────────────────────────────────────────────────────
 col1, col2 = st.columns([1, 1])
 
 with col1:
     section_label("1. Database Source")
     st.info("Upload your latest `staging.db` containing the raw transaction tables.")
+
+    cloud_mode_enabled = bool(os.getenv("DATABASE_URL"))
+    if cloud_mode_enabled:
+        st.markdown("#### ☁️ Cloud Upload & Upsert (Neon PostgreSQL)")
+        st.caption("This mode reads files in-memory and writes directly to Neon, without storing on local disk.")
+
+        @st.cache_resource
+        def _get_cloud_engine():
+            return build_engine()
+
+        try:
+            engine = _get_cloud_engine()
+            test_connection(engine)
+            st.success("✅ Neon database connected via `DATABASE_URL`.")
+        except Exception as conn_err:
+            st.error(f"Neon connection failed: {conn_err}")
+            engine = None
+
+        cloud_upload = st.file_uploader(
+            "Upload CSV/Excel for Neon upsert",
+            type=["csv", "xlsx", "xls"],
+            key="cloud_upload",
+            help="File is processed in-memory; no file is saved on Render disk.",
+        )
+
+        cloud_col1, cloud_col2, cloud_col3 = st.columns(3)
+        cloud_table = cloud_col1.text_input("Target table", value="target")
+        cloud_schema = cloud_col2.text_input("Schema", value="public")
+        cloud_keys_raw = cloud_col3.text_input("Conflict key(s)", value="merchant_id")
+
+        if st.button("🚀 Process Cloud Upsert", type="primary", use_container_width=True, disabled=(engine is None)):
+            if not cloud_upload:
+                st.warning("Please upload a CSV/Excel file first.")
+            else:
+                progress = st.progress(0, text="Starting...")
+                try:
+                    with st.spinner("Reading file in-memory..."):
+                        cloud_df = read_uploaded_dataframe(cloud_upload)
+                    progress.progress(35, text=f"Parsed {len(cloud_df):,} rows")
+
+                    conflict_cols = [x.strip() for x in cloud_keys_raw.split(",") if x.strip()]
+                    with st.spinner("Upserting to Neon..."):
+                        affected = upsert_dataframe(
+                            engine=engine,
+                            dataframe=cloud_df,
+                            table_name=cloud_table.strip(),
+                            conflict_columns=conflict_cols,
+                            schema=cloud_schema.strip() or "public",
+                        )
+                    progress.progress(100, text="Done")
+                    st.success(f"✅ Upsert complete. {affected:,} row(s) processed into `{cloud_schema}.{cloud_table}`.")
+                    st.dataframe(cloud_df.head(20), use_container_width=True)
+                except Exception as upload_err:
+                    st.error(f"Cloud upload/upsert failed: {upload_err}")
+
+        st.markdown("<hr style='margin:1rem 0; opacity:0.25;'>", unsafe_allow_html=True)
+        st.caption("Legacy local SQLite upload is still available below for backward compatibility.")
     
     # ── INGESTION STRATEGY ──
     ingest_strategy = st.radio(
@@ -110,6 +404,10 @@ with col1:
 
         # 3. ADVANCE STEPPER
         st.session_state["pipeline_step"] = 0
+        st.session_state["gov_signature"] = _compute_db_signature(PATH_LOCAL_DB)
+        st.session_state["gov_delta"] = _detect_governance_delta(PATH_LOCAL_DB, PATH_MON)
+        has_delta = bool(st.session_state["gov_delta"]["new_anchors"] or st.session_state["gov_delta"]["new_pms"])
+        st.session_state["gov_status"] = "blocked" if has_delta else "resolved"
         st.rerun()
     elif os.path.exists(PATH_LOCAL_DB):
         sz = os.path.getsize(PATH_LOCAL_DB) // (1024 * 1024)
@@ -117,6 +415,13 @@ with col1:
     
     else:
         st.warning("⚠️ No database found. Please upload `staging.db`.")
+
+    if os.path.exists(PATH_LOCAL_DB) and st.button("🔍 Re-run Governance Delta Check", use_container_width=True):
+        st.session_state["gov_signature"] = _compute_db_signature(PATH_LOCAL_DB)
+        st.session_state["gov_delta"] = _detect_governance_delta(PATH_LOCAL_DB, PATH_MON)
+        has_delta = bool(st.session_state["gov_delta"]["new_anchors"] or st.session_state["gov_delta"]["new_pms"])
+        st.session_state["gov_status"] = "blocked" if has_delta else "resolved"
+        st.rerun()
     
     # ── ROLLBACK SECTION ──
     st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
@@ -211,6 +516,8 @@ prereqs = [
 ]
 
 all_ready = all(ok for _, ok in prereqs)
+gov_blocked = st.session_state.get("gov_status") == "blocked"
+gov_delta = st.session_state.get("gov_delta", {})
 
 # Build the checklist HTML
 rows_html = "".join([
@@ -233,6 +540,17 @@ if not all_ready:
 else:
     st.success("✅ All prerequisites verified. Ready to execute.")
 
+if gov_blocked:
+    st.error(
+        f"🛑 Governance Gate Active: {len(gov_delta.get('new_anchors', []))} new Anchor(s) "
+        f"and {len(gov_delta.get('new_pms', []))} new PM(s) need review."
+    )
+    if st.button("Open Quarantine Resolution Wizard", type="primary", use_container_width=True):
+        governance_quarantine_dialog()
+else:
+    if st.session_state.get("gov_status") == "resolved":
+        st.info("🟢 Governance check passed for current database snapshot.")
+
 # ── SECTION 4: Execute Pipeline ───────────────────────────────────────────────
 section_label("4. Execute Automation")
 
@@ -248,7 +566,15 @@ def execute_pipeline_fragment():
     
     if current_status == "idle" or current_status == "":
         if all_ready:
-            if st.button("▶️ RUN END-TO-END ANALYTICS PIPELINE", type="primary", use_container_width=True):
+            disable_run = st.session_state.get("gov_status") == "blocked"
+            if disable_run:
+                st.warning("Pipeline is blocked by Governance Gate. Resolve Quarantine first.")
+            if st.button(
+                "▶️ RUN END-TO-END ANALYTICS PIPELINE",
+                type="primary",
+                use_container_width=True,
+                disabled=disable_run
+            ):
                 start_str = start_date.strftime("%Y-%m-%d")
                 end_str   = end_date.strftime("%Y-%m-%d")
                 paths_config = {
