@@ -23,11 +23,14 @@ sync_all_masters_to_disk(engine, path_mid, path_card, path_mon) -> dict
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Tuple
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+
+# WIB (Western Indonesia Time) = UTC+7
+_LOCAL_TZ = timezone(timedelta(hours=7))
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 VALID_KEYS = {"master_mid", "master_card", "master_mon"}
@@ -160,7 +163,7 @@ def list_master_files(engine: Engine) -> dict:
                 "filename":   fname,
                 "size_bytes": sz or 0,
                 "updated_at": (
-                    updated_at.strftime("%d %b %Y, %H:%M")
+                    updated_at.astimezone(_LOCAL_TZ).strftime("%d %b %Y, %H:%M")
                     if updated_at else "Unknown"
                 ),
             }

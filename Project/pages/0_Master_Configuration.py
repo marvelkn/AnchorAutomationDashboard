@@ -2,8 +2,11 @@ import streamlit as st
 import os
 import sys
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from io import BytesIO
+
+# WIB (Western Indonesia Time) = UTC+7
+_LOCAL_TZ = timezone(timedelta(hours=7))
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
@@ -159,7 +162,7 @@ def last_modified_line(path: str, file_key: str) -> str | None:
         if info:
             return info.get("updated_at")
     if os.path.exists(path):
-        mtime = datetime.fromtimestamp(os.path.getmtime(path))
+        mtime = datetime.fromtimestamp(os.path.getmtime(path), tz=_LOCAL_TZ)
         return mtime.strftime("%d %b %Y, %H:%M")
     return None
 

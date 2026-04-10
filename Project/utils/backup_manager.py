@@ -1,6 +1,9 @@
 import os
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# WIB (Western Indonesia Time) = UTC+7
+_LOCAL_TZ = timezone(timedelta(hours=7))
 
 def rotate_backups(target_path, backup_dir, prefix="staging", extension=".db", max_versions=3):
     """
@@ -36,7 +39,7 @@ def get_available_backups(backup_dir, prefix="staging", extension=".db", max_ver
         path = os.path.join(backup_dir, f"{prefix}_v{i}{extension}")
         if os.path.exists(path):
             mtime = os.path.getmtime(path)
-            dt = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+            dt = datetime.fromtimestamp(mtime, tz=_LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
             backups.append({"version": i, "path": path, "timestamp": dt})
     return backups
 
