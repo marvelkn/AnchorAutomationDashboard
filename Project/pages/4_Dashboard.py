@@ -37,7 +37,7 @@ def _chart_base():
     return dict(
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color=p['TEXT_PRI'], family='Inter, sans-serif'),
+        font=dict(color=p['TEXT_PRI'], family='Space Grotesk, sans-serif'),
     )
 
 def _xaxis():
@@ -278,7 +278,7 @@ with header_col2:
 stale_data_banner(db_path=PATH_DB, threshold_hours=24)
 
 # ── PORTFOLIO FILTERS ─────────────────────────────────────────────────────────
-st.markdown("### 🔍 Portfolio Filters")
+st.markdown('<div class="section-title">Portfolio Filters</div>', unsafe_allow_html=True)
 f_col1, f_col2 = st.columns(2)
 
 # 1. Merchant Group Filter
@@ -464,12 +464,28 @@ with tab1:
     # KPIs from DB (already filtered in sidebar)
     if not df_card.empty:
         avg_onus = df_card['RASIO_ONUS'].mean() if 'RASIO_ONUS' in df_card.columns else 0
-        kpi_row([
-            kpi_card(f"Rp {df_card['TOTAL_SV'].sum()/1e9:,.1f}M",          "💰 YTD Sales Volume"),
-            kpi_card(f"Rp {df_card['TOTAL_FBI'].sum()/1e6:,.0f}Jt",         "📈 YTD Fee-Based Income"),
-            kpi_card(f"{df_card['TOTAL_TRX'].sum()/1e6:,.2f}M",             "🔄 YTD Transactions"),
-            kpi_card(f"{avg_onus*100:.1f}%",                                  "🎯 Avg On-Us Ratio"),
-        ])
+        st.markdown(f"""<div class="stats-grid">
+            <div class="stat-card amber">
+                <div class="stat-label">YTD Sales Volume</div>
+                <div class="stat-value">Rp {df_card['TOTAL_SV'].sum()/1e9:,.1f}M</div>
+                <div class="stat-meta">total sales</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">YTD Fee-Based Income</div>
+                <div class="stat-value">Rp {df_card['TOTAL_FBI'].sum()/1e6:,.0f}Jt</div>
+                <div class="stat-meta">fee income</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-label">YTD Transactions</div>
+                <div class="stat-value">{df_card['TOTAL_TRX'].sum()/1e6:,.2f}M</div>
+                <div class="stat-meta">total transactions</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Avg On-Us Ratio</div>
+                <div class="stat-value">{avg_onus*100:.1f}%</div>
+                <div class="stat-meta">on-us share</div>
+            </div>
+        </div>""", unsafe_allow_html=True)
 
     # Reconstruct Monthly Matrix from PROCESSED_CARD_MONTHLY
     if has_monthly_tbl:
@@ -818,12 +834,28 @@ with tab2:
                 if v >= 1e6:  return f"Rp {v/1e6:,.0f}Jt"
                 return f"{v:,.0f}"
 
-            kpi_row([
-                kpi_card(f"{_n_merch_mon}", "🏪 Merchants Filtered"),
-                kpi_card(fmt_ytd_mon(_total_ytd_mon), "📊 Filtered YTD Volume"),
-                kpi_card(str(sel_yr_mon), "📅 Selected Year", "accent"),
-                kpi_card(f"{len(df_filt_mon)}", "📋 Total Metrics Tracked")
-            ])
+            st.markdown(f"""<div class="stats-grid">
+                <div class="stat-card amber">
+                    <div class="stat-label">Merchants Filtered</div>
+                    <div class="stat-value">{_n_merch_mon}</div>
+                    <div class="stat-meta">active merchants</div>
+                </div>
+                <div class="stat-card green">
+                    <div class="stat-label">Filtered YTD Volume</div>
+                    <div class="stat-value">{fmt_ytd_mon(_total_ytd_mon)}</div>
+                    <div class="stat-meta">volume total</div>
+                </div>
+                <div class="stat-card blue">
+                    <div class="stat-label">Selected Year</div>
+                    <div class="stat-value">{sel_yr_mon}</div>
+                    <div class="stat-meta">fiscal year</div>
+                </div>
+                <div class="stat-card purple">
+                    <div class="stat-label">Total Metrics Tracked</div>
+                    <div class="stat-value">{len(df_filt_mon)}</div>
+                    <div class="stat-meta">metric rows</div>
+                </div>
+            </div>""", unsafe_allow_html=True)
 
             # ── 3. Main Data Matrix ───────────
             section_label(f"🗓️ Weekly Matrix — {sel_yr_mon}")
@@ -875,11 +907,23 @@ with tab2:
         styled_divider()
         avg_wa = df_mon['WEEKS_ACTIVE'].mean() if 'WEEKS_ACTIVE' in df_mon.columns else 0
         ytd_v  = df_mon['YTD_VOL'].sum() if 'YTD_VOL' in df_mon.columns else 0
-        kpi_row([
-            kpi_card(f"{len(df_mon):,}",        "🏪 Merchants in DB"),
-            kpi_card(f"{avg_wa:.1f}",            "📆 Avg Weeks Active"),
-            kpi_card(f"Rp {ytd_v/1e9:,.2f}M", "💰 YTD Volume Total"),
-        ])
+        st.markdown(f"""<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">
+            <div class="stat-card amber">
+                <div class="stat-label">Merchants in DB</div>
+                <div class="stat-value">{len(df_mon):,}</div>
+                <div class="stat-meta">merchant records</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-label">Avg Weeks Active</div>
+                <div class="stat-value">{avg_wa:.1f}</div>
+                <div class="stat-meta">weeks avg</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">YTD Volume Total</div>
+                <div class="stat-value">Rp {ytd_v/1e9:,.2f}M</div>
+                <div class="stat-meta">total volume</div>
+            </div>
+        </div>""", unsafe_allow_html=True)
 
 
 with tab3:
@@ -933,24 +977,23 @@ with tab3:
             total_merchants = len(df_f)
             _pp3 = _p()
 
-            cols = st.columns(max(len(all_clusters), 1))
-            for idx, (col, seg) in enumerate(zip(cols, all_clusters)):
+            seg_cards_html = ""
+            for idx, seg in enumerate(all_clusters):
                 n = len(df_f[df_f['CLUSTER'] == seg])
                 pct = (n / total_merchants * 100) if total_merchants > 0 else 0
                 color = color_lookup.get(seg, fallback_colors[idx % len(fallback_colors)])
                 icon = SEGMENT_ICONS.get(seg, '🔹')
-                col.markdown(
-                    f"""<div style="background:linear-gradient(135deg,{color}22,{color}44);
-                        border:1.5px solid {color};border-radius:14px;padding:20px 12px;
-                        text-align:center;margin-bottom:8px;position:relative;overflow:hidden;">
-                        <div style="font-size:1.6rem;margin-bottom:4px;">{icon}</div>
-                        <div style="font-size:2rem;font-weight:800;color:{color};line-height:1;">{n}</div>
-                        <div style="font-size:0.78rem;font-weight:700;color:{_pp3['TEXT_PRI']};
-                                    margin-top:6px;text-transform:uppercase;letter-spacing:.06em;">{seg}</div>
-                        <div style="font-size:0.72rem;color:{_pp3['TEXT_SEC']};margin-top:2px;">{pct:.1f}% of fleet</div>
-                    </div>""",
-                    unsafe_allow_html=True
-                )
+                seg_cards_html += f"""<div class="stat-card" style="border-top:2px solid {color};">
+                    <div class="stat-label">{icon} {seg}</div>
+                    <div class="stat-value" style="color:{color};font-size:2rem;">{n}</div>
+                    <div class="stat-meta">{pct:.1f}% of fleet</div>
+                </div>"""
+            n_cols = max(len(all_clusters), 1)
+            st.markdown(
+                f'<div class="stats-grid" style="grid-template-columns:repeat({n_cols},1fr);">'
+                + seg_cards_html + "</div>",
+                unsafe_allow_html=True,
+            )
 
             st.markdown("")
             sc1, sc2 = st.columns(2)
@@ -1053,11 +1096,24 @@ with tab4:
             total   = len(df_c4)
 
             # KPI
-            ch_a, ch_b, ch_c = st.columns(3)
-            ch_a.markdown(kpi_card(str(len(df_high)), "⚠️ High Churn Risk", "danger"), unsafe_allow_html=True)
-            ch_b.markdown(kpi_card(str(len(df_safe)), "✅ Stable", "success"), unsafe_allow_html=True)
             rate = len(df_high)/total*100 if total > 0 else 0
-            ch_c.markdown(kpi_card(f"{rate:.1f}%", "Churn Rate (filtered)"), unsafe_allow_html=True)
+            st.markdown(f"""<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">
+                <div class="stat-card red">
+                    <div class="stat-label">High Churn Risk</div>
+                    <div class="stat-value">{len(df_high)}</div>
+                    <div class="stat-meta">merchants flagged</div>
+                </div>
+                <div class="stat-card green">
+                    <div class="stat-label">Stable</div>
+                    <div class="stat-value">{len(df_safe)}</div>
+                    <div class="stat-meta">merchants stable</div>
+                </div>
+                <div class="stat-card amber">
+                    <div class="stat-label">Churn Rate (filtered)</div>
+                    <div class="stat-value">{rate:.1f}%</div>
+                    <div class="stat-meta">of portfolio</div>
+                </div>
+            </div>""", unsafe_allow_html=True)
 
             st.markdown("")
 
