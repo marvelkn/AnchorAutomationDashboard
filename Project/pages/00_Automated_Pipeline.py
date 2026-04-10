@@ -159,13 +159,28 @@ if cloud_mode_enabled:
                         else:
                             st.error(f"Ingest failed: {result.get('error_message', 'unknown')}")
 
-                        m1, m2, m3, m4 = st.columns(4)
-                        m1.metric("Tables Ingested", f"{_ok}/{_total}")
-                        m2.metric("Total Rows",      f"{_rows:,}")
-                        m3.metric("Elapsed Time",    f"{_elapsed:.1f}s")
-                        m4.metric("Failed Tables",   _failed,
-                                  delta=f"-{_failed}" if _failed else None,
-                                  delta_color="inverse")
+                        st.markdown(f"""<div class="stats-grid">
+                            <div class="stat-card green">
+                                <div class="stat-label">Tables Ingested</div>
+                                <div class="stat-value">{_ok}/{_total}</div>
+                                <div class="stat-meta">tables ok</div>
+                            </div>
+                            <div class="stat-card blue">
+                                <div class="stat-label">Total Rows</div>
+                                <div class="stat-value">{_rows:,}</div>
+                                <div class="stat-meta">rows loaded</div>
+                            </div>
+                            <div class="stat-card amber">
+                                <div class="stat-label">Elapsed Time</div>
+                                <div class="stat-value">{_elapsed:.1f}s</div>
+                                <div class="stat-meta">ingest duration</div>
+                            </div>
+                            <div class="stat-card {"red" if _failed else "green"}">
+                                <div class="stat-label">Failed Tables</div>
+                                <div class="stat-value">{_failed}</div>
+                                <div class="stat-meta">{"errors" if _failed else "all clear"}</div>
+                            </div>
+                        </div>""", unsafe_allow_html=True)
 
                         tr = result.get("table_results") or []
                         if tr:
@@ -497,7 +512,7 @@ def governance_quarantine_dialog():
     )
 
     with st.form("governance_resolution_form"):
-        st.markdown("### New Anchors")
+        st.markdown('<div class="section-label">New Anchors</div>', unsafe_allow_html=True)
         approved_anchors = []
         ignored_anchors = []
         for anchor in new_anchors:
@@ -512,7 +527,7 @@ def governance_quarantine_dialog():
             else:
                 ignored_anchors.append(anchor)
 
-        st.markdown("### New PMs")
+        st.markdown('<div class="section-label">New PMs</div>', unsafe_allow_html=True)
         approved_pms = []
         ignored_pms = []
         for pm in new_pms:
@@ -623,7 +638,7 @@ with col1:
     
     # ── ROLLBACK SECTION ──
     st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
-    st.markdown("### 🔄 Rollback & Restore")
+    st.markdown('<div class="section-title">Rollback &amp; Restore</div>', unsafe_allow_html=True)
     backups = get_available_backups(PATH_BACKUP_DIR)
     
     if not backups:
