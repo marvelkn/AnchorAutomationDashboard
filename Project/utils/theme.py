@@ -639,6 +639,26 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
     background: rgba(245,166,35,0.12) !important; font-weight: 700 !important;
     border-left: 3px solid {GOLD} !important; color: {GOLD} !important;
 }}
+
+/* ── Sidebar logo-mark / logo-sub ── */
+.logo-mark {{
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: {GOLD}; letter-spacing: 2px; font-weight: 700;
+}}
+.logo-sub {{
+    font-size: 10px; color: #545c7e; margin-top: 2px;
+    font-family: 'JetBrains Mono', monospace;
+}}
+
+/* ── DB info card ── */
+.db-info {{
+    background: #1a1e2b; border-radius: 6px; padding: 10px 12px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    border-left: 3px solid {GOLD};
+}}
+.db-info .db-label {{ color: #545c7e; margin-bottom: 3px; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }}
+.db-info .db-status {{ font-size: 11px; font-weight: 700; line-height: 1.3; }}
+.db-info .db-meta {{ color: #8890b0; font-size: 9px; margin-top: 2px; }}
 </style>
 """
 

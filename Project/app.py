@@ -98,16 +98,14 @@ with st.sidebar:
     if os.path.exists(LOGO_PATH):
         with open(LOGO_PATH, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode()
-        brand_icon_html = f'<img src="data:image/png;base64,{img_b64}" width="130" style="margin-bottom:6px; display:block;">'
+        brand_icon_html = f'<img src="data:image/png;base64,{img_b64}" width="120" style="margin-bottom:6px; display:block;">'
     else:
-        brand_icon_html = '<div style="font-size:1.15rem;font-weight:900;color:#E8EDF5;letter-spacing:-0.02em;margin-bottom:4px;">🏦 BTN Anchor</div>'
+        brand_icon_html = '<div class="logo-mark">BTN // ANCHOR</div>'
 
     st.markdown(
         f"""<div class="sidebar-brand-header">
             {brand_icon_html}
-            <div style="font-size:0.67rem;color:{p['TEXT_SEC']};text-transform:uppercase;letter-spacing:0.09em;">
-                Merchant Intelligence Platform
-            </div>
+            <div class="logo-sub">Merchant Intelligence Platform</div>
         </div>""",
         unsafe_allow_html=True,
     )
@@ -156,15 +154,10 @@ with st.sidebar:
     # ══ SECTION D: STATUS STRIP (pinned to bottom) ═════════════════════════════
     st.markdown('<div class="sb-status-strip">', unsafe_allow_html=True)
     st.markdown(
-        f"""<div style="background:{p['SURFACE']};border:1px solid {p['BORDER']};
-                border-left:3px solid {_db_clr};border-radius:7px;
-                padding:6px 10px;margin:4px 0 2px 0;
-                display:flex;align-items:center;gap:8px;">
-          <span style="font-size:0.85rem;flex-shrink:0;">{_db_dot}</span>
-          <div>
-            <div style="font-size:0.73rem;font-weight:700;color:{_db_clr};line-height:1.2;">{_db_lbl}</div>
-            <div style="font-size:0.65rem;color:{p['TEXT_SEC']};margin-top:1px;">{_db_sub}</div>
-          </div>
+        f"""<div class="db-info" style="border-left-color:{_db_clr};">
+          <div class="db-label">Data Source</div>
+          <div class="db-status" style="color:{_db_clr};">{_db_dot} {_db_lbl}</div>
+          <div class="db-meta">{_db_sub}</div>
         </div>""",
         unsafe_allow_html=True,
     )
