@@ -80,8 +80,6 @@ if cloud_mode_enabled:
         unsafe_allow_html=True,
     )
 
-    section_label("1. Neon connection & ingestion")
-
     @st.cache_resource
     def _get_cloud_engine():
         return build_engine()
@@ -94,82 +92,94 @@ if cloud_mode_enabled:
         st.error(f"Neon connection failed: {conn_err}")
         engine = None
 
-    st.markdown("**A — Full SQLite database**")
-    neon_schema_ingest = st.text_input(
-        "Schema for imported tables",
-        value="public",
-        key="neon_schema_ingest",
-        help="Table names are lowercased in Neon (e.g. ALL_MID → all_mid).",
-    )
-    cloud_db_upload = st.file_uploader(
-        "SQLite file (.db / .sqlite)",
-        type=["db", "sqlite"],
-        key="cloud_db_full_upload",
-        help="Written to a temp file only while reading; data is loaded into Neon.",
-    )
-    if st.button(
-        "Ingest full database to Neon",
-        type="primary",
-        use_container_width=True,
-        disabled=(engine is None),
-        key="btn_ingest_full_db",
-    ):
-        if not cloud_db_upload:
-            st.warning("Please upload a .db file first.")
-        else:
-            progress = st.progress(0.0, text="Starting full ingest…")
-            try:
+    # ── 2-TAB LAYOUT: Ingest Data | Audit Log ────────────────────────────────
+    cloud_tab_ingest, cloud_tab_audit = st.tabs(["📥  Ingest Data", "📋  Audit Log"])
 
-                def _on_progress(cur: int, total: int, tbl: str, msg: str):
-                    frac = min(cur / max(total, 1), 1.0)
-                    progress.progress(frac, text=(msg[:120] if msg else "…"))
+    with cloud_tab_ingest:
+        section_label("A — Full SQLite database")
+        neon_schema_ingest = st.text_input(
+            "Schema for imported tables",
+            value="public",
+            key="neon_schema_ingest",
+            help="Table names are lowercased in Neon (e.g. ALL_MID → all_mid).",
+        )
+        cloud_db_upload = st.file_uploader(
+            "SQLite file (.db / .sqlite)",
+            type=["db", "sqlite"],
+            key="cloud_db_full_upload",
+            help="Written to a temp file only while reading; data is loaded into Neon.",
+        )
+        if st.button(
+            "Ingest full database to Neon",
+            type="primary",
+            use_container_width=True,
+            disabled=(engine is None),
+            key="btn_ingest_full_db",
+        ):
+            if not cloud_db_upload:
+                st.warning("Please upload a .db file first.")
+            else:
+                # Reserve space BEFORE the action starts — prevents layout jumps
+                progress_placeholder = st.empty()
+                status_placeholder   = st.empty()
+                results_placeholder  = st.empty()
 
-                with st.spinner("Ingesting SQLite → Neon…"):
-                    result = ingest_sqlite_bytes_to_neon(
-                        engine,
-                        cloud_db_upload.getvalue(),
-                        schema=(neon_schema_ingest or "public").strip() or "public",
-                        source_filename=getattr(cloud_db_upload, "name", "uploaded.db") or "uploaded.db",
-                        progress_callback=_on_progress,
-                    )
-                progress.progress(1.0, text="Done")
-                if result.get("status") == "complete":
-                    st.success(
-                        f"Ingest complete · run `{result.get('run_id')}` · "
-                        f"{result.get('tables_ok')} tables · "
-                        f"{result.get('total_rows', 0):,} rows · {result.get('elapsed_seconds')}s"
-                    )
-                elif result.get("status") == "partial_error":
-                    st.error(
-                        f"Partial success · run `{result.get('run_id')}` · "
-                        f"ok={result.get('tables_ok')} failed={result.get('tables_failed')}"
-                    )
-                else:
-                    st.error(f"Ingest failed: {result.get('error_message', 'unknown')}")
+                try:
+                    def _on_progress(cur: int, total: int, tbl: str, msg: str):
+                        frac = min(cur / max(total, 1), 1.0)
+                        with progress_placeholder.container():
+                            st.progress(frac, text=(msg[:120] if msg else "…"))
+                        with status_placeholder.container():
+                            st.info(f"Ingesting table {cur}/{total}: `{tbl}`")
 
-                tr = result.get("table_results") or []
-                if tr:
-                    st.dataframe(pd.DataFrame(tr), use_container_width=True, hide_index=True)
-                with st.expander("Technical details (JSON)"):
-                    st.json(result.get("details") or {})
-            except Exception as ingest_err:
-                progress.progress(1.0, text="Error")
-                st.error(f"Full database ingest failed: {ingest_err}")
+                    with st.spinner("Ingesting SQLite → Neon…"):
+                        result = ingest_sqlite_bytes_to_neon(
+                            engine,
+                            cloud_db_upload.getvalue(),
+                            schema=(neon_schema_ingest or "public").strip() or "public",
+                            source_filename=getattr(cloud_db_upload, "name", "uploaded.db") or "uploaded.db",
+                            progress_callback=_on_progress,
+                        )
 
-    if engine is not None:
-        with st.expander("Recent ingestion runs (audit)", expanded=False):
-            try:
-                _aud_schema = (neon_schema_ingest or "public").strip() or "public"
-                st.caption(f"Table `{_aud_schema}.ingestion_runs` — last 10 runs.")
-                st.dataframe(
-                    fetch_recent_ingestion_runs(engine, schema=_aud_schema, limit=10),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-            except Exception as aud_err:
-                st.caption(f"Could not load audit history: {aud_err}")
+                    # Clear progress, replace with metric summary
+                    progress_placeholder.empty()
+                    status_placeholder.empty()
 
-    with st.expander("B — Optional: single-table upsert (CSV / Excel)", expanded=False):
+                    _ok     = result.get("tables_ok", 0)
+                    _total  = (_ok + result.get("tables_failed", 0))
+                    _rows   = result.get("total_rows", 0)
+                    _elapsed = result.get("elapsed_seconds", 0)
+                    _failed  = result.get("tables_failed", 0)
+
+                    with results_placeholder.container():
+                        if result.get("status") == "complete":
+                            st.success(f"Ingest complete · run `{result.get('run_id')}`")
+                        elif result.get("status") == "partial_error":
+                            st.warning(f"Partial success · run `{result.get('run_id')}`")
+                        else:
+                            st.error(f"Ingest failed: {result.get('error_message', 'unknown')}")
+
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric("Tables Ingested", f"{_ok}/{_total}")
+                        m2.metric("Total Rows",      f"{_rows:,}")
+                        m3.metric("Elapsed Time",    f"{_elapsed:.1f}s")
+                        m4.metric("Failed Tables",   _failed,
+                                  delta=f"-{_failed}" if _failed else None,
+                                  delta_color="inverse")
+
+                        tr = result.get("table_results") or []
+                        if tr:
+                            st.dataframe(pd.DataFrame(tr), use_container_width=True, hide_index=True)
+                        with st.expander("Technical details (JSON)"):
+                            st.json(result.get("details") or {})
+
+                except Exception as ingest_err:
+                    progress_placeholder.empty()
+                    status_placeholder.empty()
+                    with results_placeholder.container():
+                        st.error(f"Full database ingest failed: {ingest_err}")
+
+        with st.expander("B — Optional: single-table upsert (CSV / Excel)", expanded=False):
         st.caption(
             "Target table must already exist in Neon with a PRIMARY KEY or UNIQUE constraint on your conflict column(s)."
         )
@@ -214,62 +224,72 @@ if cloud_mode_enabled:
                 except Exception as upload_err:
                     st.error(f"Upsert failed: {upload_err}")
 
-    st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
-    section_label("2. Cloud database maintenance")
-    st.info(
-        "Use these tools to clean your **Neon (PostgreSQL)** database. This affects the remote production tables and fixes data anomalies like duplicates or historical spikes."
-    )
+        section_label("Database Maintenance")
+        st.info(
+            "Use these tools to clean your **Neon (PostgreSQL)** database. Fixes data anomalies like duplicates or historical spikes."
+        )
+        with st.expander("🧼 Scrub / de-duplicate Neon Cloud Database", expanded=False):
+            st.markdown(
+                "Removes duplicates in Neon tables (PROCESSED_CARD_MONTHLY, etc.) and applies the Yoshinoya normalization fix."
+            )
+            if st.button(
+                "Run cloud scrub / de-duplicate",
+                type="primary",
+                use_container_width=True,
+                disabled=(engine is None),
+                key="btn_scrub_neon_cloud",
+            ):
+                with st.spinner("Cleaning Neon PostgreSQL tables..."):
+                    try:
+                        from repair_data import scrub_neon_database
+                        target_schema = (neon_schema_ingest or "public").strip() or "public"
+                        results = scrub_neon_database(engine, schema=target_schema)
+                        st.success("✅ Cloud scrub complete!")
+                        st.json(results)
+                    except Exception as e:
+                        st.error(f"Cloud scrub failed: {e}")
 
-    with st.expander("🧼 Scrub / de-duplicate Neon Cloud Database", expanded=False):
-        st.markdown(
-            "Removes duplicates in Neon tables (PROCESSED_CARD_MONTHLY, etc.) and applies the Yoshinoya normalization fix."
-        )
-        if st.button(
-            "Run cloud scrub / de-duplicate",
-            type="primary",
-            use_container_width=True,
-            disabled=(engine is None),
-            key="btn_scrub_neon_cloud",
-        ):
-            with st.spinner("Cleaning Neon PostgreSQL tables..."):
-                try:
-                    from repair_data import scrub_neon_database
-                    
-                    # Assume schema is public or what was entered above
-                    target_schema = (neon_schema_ingest or "public").strip() or "public"
-                    results = scrub_neon_database(engine, schema=target_schema)
-                    
-                    st.success("✅ Cloud scrub complete!")
-                    st.json(results)
-                except Exception as e:
-                    st.error(f"Cloud scrub failed: {e}")
+        with st.expander("🔴 Danger Zone: Reset Neon Cloud Database", expanded=False):
+            st.warning(
+                "This will permanently **PURGE ALL DATA** from business, raw, and audit tables in your Neon production database."
+            )
+            confirm_reset_neon = st.checkbox(
+                "I understand this will permanently delete all data in the cloud (PostgreSQL).",
+                key="confirm_reset_neon_cloud",
+            )
+            if st.button(
+                "RESET NEON CLOUD DATABASE",
+                type="primary",
+                disabled=not confirm_reset_neon,
+                use_container_width=True,
+                key="btn_reset_neon_cloud",
+            ):
+                with st.spinner("Purging Neon PostgreSQL tables..."):
+                    try:
+                        from repair_data import reset_neon_database
+                        target_schema = (neon_schema_ingest or "public").strip() or "public"
+                        results = reset_neon_database(engine, schema=target_schema)
+                        st.success("🔥 Neon database reset successfully!")
+                        st.json(results)
+                    except Exception as e:
+                        st.error(f"Reset failed: {e}")
 
-    with st.expander("🔴 Dangerous Zone: Reset Neon Cloud Database", expanded=False):
-        st.warning(
-            "This will permanently **PURGE ALL DATA** from business, raw, and audit tables in your Neon production database."
-        )
-        confirm_reset_neon = st.checkbox(
-            "I understand this will permanently delete all data in the cloud (PostgreSQL).",
-            key="confirm_reset_neon_cloud",
-        )
-        if st.button(
-            "RESET NEON CLOUD DATABASE",
-            type="primary",
-            disabled=not confirm_reset_neon,
-            use_container_width=True,
-            key="btn_reset_neon_cloud",
-        ):
-            with st.spinner("Purging Neon PostgreSQL tables..."):
-                try:
-                    from repair_data import reset_neon_database
-                    
-                    target_schema = (neon_schema_ingest or "public").strip() or "public"
-                    results = reset_neon_database(engine, schema=target_schema)
-                    
-                    st.success("🔥 Neon database reset successfully!")
-                    st.json(results)
-                except Exception as e:
-                    st.error(f"Reset failed: {e}")
+    # ── TAB 2: Audit Log ───────────────────────────────────────────────────────
+    with cloud_tab_audit:
+        section_label("Recent Ingestion Runs")
+        if engine is not None:
+            try:
+                _aud_schema = st.session_state.get("neon_schema_ingest", "public") or "public"
+                st.caption(f"Table `{_aud_schema}.ingestion_runs` — last 10 runs.")
+                st.dataframe(
+                    fetch_recent_ingestion_runs(engine, schema=_aud_schema, limit=10),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            except Exception as aud_err:
+                st.info(f"No ingestion history yet. Run an ingest to populate this log. ({aud_err})")
+        else:
+            st.warning("Connect to Neon first to view audit logs.")
 
     st.stop()
 
@@ -463,9 +483,6 @@ PIPELINE_STEPS = [
 ]
 
 st.markdown("<br>", unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
 
 @st.dialog("🧪 Quarantine Resolution Required", width="large")
 def governance_quarantine_dialog():

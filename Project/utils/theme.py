@@ -503,6 +503,91 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 """
 
 
+def _nav_css(p: dict) -> str:
+    """
+    Returns the CSS block that hides Streamlit's auto-generated sidebar nav and
+    styles the custom st.page_link()-based nav built in app.py.
+    Consolidated here so it is maintained in one place only.
+    """
+    GOLD   = p["GOLD"]
+    BORDER = p["BORDER"]
+    TEXT_SEC = p["TEXT_SEC"]
+    return f"""
+<style>
+/* ── Brand Header — sticky, full sidebar width ── */
+.sidebar-brand-header {{
+    position: sticky !important; top: 0 !important; z-index: 100 !important;
+    background: #172B4D !important; padding: 1.6rem 1.25rem 1rem 1.25rem !important;
+    border-bottom: 1px solid {BORDER} !important; box-sizing: border-box !important;
+    margin: -1rem -1rem 0 -1rem !important; width: calc(100% + 2rem) !important;
+}}
+
+/* ── Controls strip ── */
+.sb-controls {{
+    padding: 0.75rem 0 0.5rem 0 !important;
+    border-bottom: 1px solid {BORDER} !important; margin-bottom: 0.25rem !important;
+}}
+.sb-controls .stSelectbox label {{
+    font-size: 0.65rem !important; text-transform: uppercase !important;
+    letter-spacing: 0.08em !important; color: {TEXT_SEC} !important; font-weight: 700 !important;
+}}
+.sb-controls .stSelectbox > div > div {{
+    font-size: 0.82rem !important; padding: 5px 10px !important; min-height: 34px !important;
+}}
+.sb-controls .stToggle label {{ font-size: 0.8rem !important; color: {TEXT_SEC} !important; }}
+
+/* ── Hide the auto-generated nav widget — routing still works via st.navigation() ── */
+[data-testid="stSidebarNav"] {{ display: none !important; }}
+
+/* ── Remove Streamlit's default top-padding on user content ── */
+section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
+
+/* ── Status strip — pinned to bottom of sidebar ── */
+.sb-status-strip {{
+    position: sticky !important; bottom: 0 !important;
+    padding: 0.6rem 0 0.25rem 0 !important;
+    border-top: 1px solid {BORDER} !important;
+    background: #172B4D !important;
+    margin-top: auto !important;
+}}
+
+/* ── Custom nav section (built with st.page_link) ── */
+.custom-nav {{
+    padding: 0.5rem 0 1rem 0;
+    border-top: 1px solid {BORDER}; margin-top: 0.5rem;
+}}
+.custom-nav-group {{
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em;
+    font-weight: 700; color: {TEXT_SEC}; opacity: 0.75;
+    margin: 0.9rem 0.8rem 0.3rem 0.8rem;
+}}
+
+/* ── Style st.page_link() to match native nav link appearance ── */
+[data-testid="stSidebarUserContent"] [data-testid="stPageLink"] {{
+    border-radius: 8px !important; margin: 0.1rem 0.8rem !important;
+    padding: 0 !important; transition: background 0.15s !important;
+}}
+[data-testid="stSidebarUserContent"] [data-testid="stPageLink"]:hover {{
+    background: rgba(240,190,72,0.10) !important;
+}}
+[data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a {{
+    color: #E8EDF5 !important; text-decoration: none !important;
+    font-size: 0.88rem !important; padding: 0.45rem 0.8rem !important;
+    display: flex !important; align-items: center !important;
+    gap: 0.5rem !important; border-radius: 8px !important; width: 100% !important;
+}}
+[data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a:hover {{
+    background: rgba(240,190,72,0.10) !important;
+}}
+/* Active page highlight — CSS class toggle, not hardcoded color */
+[data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a[aria-current="page"] {{
+    background: rgba(43,68,112,0.60) !important; font-weight: 700 !important;
+    border-left: 3px solid {GOLD} !important; color: {GOLD} !important;
+}}
+</style>
+"""
+
+
 def apply_theme():
     """Inject the active-mode CSS into the page."""
     p = _palette()

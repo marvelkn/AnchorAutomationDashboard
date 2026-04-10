@@ -7,7 +7,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-from utils.theme import apply_theme, theme_toggle_sidebar, get_palette
+from utils.theme import apply_theme, theme_toggle_sidebar, get_palette, _nav_css
 
 st.set_page_config(
     page_title="BTN Anchor Dashboard",
@@ -15,6 +15,17 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── Session State Defaults — single initialization point ─────────────────────
+_DEFAULTS = {
+    "theme_mode":       "dark",
+    "env_mode":         "PRODUCTION",
+    "editor_key":       0,
+    "_masters_synced":  False,
+}
+for _k, _v in _DEFAULTS.items():
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
 
 apply_theme()
 
@@ -76,112 +87,8 @@ try:
 except AttributeError:
     pg = None
 
-# ── Sidebar CSS ────────────────────────────────────────────────────────────────
-# Strategy:
-#   • Hide the auto-generated stSidebarNav entirely (routing still works via
-#     st.navigation() — the visible widget and the router are independent).
-#   • Rebuild nav links manually with st.page_link() at the BOTTOM of the
-#     with st.sidebar: block so Python source order controls visual order:
-#       1. Brand header  (top)
-#       2. Controls      (env / db / theme)
-#       3. Nav links     (bottom)
-st.markdown(f"""
-<style>
-/* ① Brand Header — sticky, expands to full sidebar width */
-.sidebar-brand-header {{
-    position: sticky !important;
-    top: 0 !important;
-    z-index: 100 !important;
-    background: #172B4D !important;
-    padding: 1.6rem 1.25rem 1rem 1.25rem !important;
-    border-bottom: 1px solid {p['BORDER']} !important;
-    box-sizing: border-box !important;
-    margin: -1rem -1rem 0 -1rem !important;
-    width: calc(100% + 2rem) !important;
-}}
-
-/* ② Controls strip */
-.sb-controls {{
-    padding: 0.75rem 0 0.5rem 0 !important;
-    border-bottom: 1px solid {p['BORDER']} !important;
-    margin-bottom: 0.25rem !important;
-}}
-.sb-controls .stSelectbox label {{
-    font-size: 0.65rem !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.08em !important;
-    color: {p['TEXT_SEC']} !important;
-    font-weight: 700 !important;
-}}
-.sb-controls .stSelectbox > div > div {{
-    font-size: 0.82rem !important;
-    padding: 5px 10px !important;
-    min-height: 34px !important;
-}}
-.sb-controls .stToggle label {{
-    font-size: 0.8rem !important;
-    color: {p['TEXT_SEC']} !important;
-}}
-
-/* ③ HIDE the auto-generated nav widget — routing still works via st.navigation() */
-[data-testid="stSidebarNav"] {{
-    display: none !important;
-}}
-
-/* ④ Remove Streamlit's default top-padding on user content */
-section[data-testid="stSidebarUserContent"] {{
-    padding-top: 0 !important;
-}}
-
-/* ⑤ Custom nav section (built with st.page_link) */
-.custom-nav {{
-    padding: 0.5rem 0 1rem 0;
-    border-top: 1px solid {p['BORDER']};
-    margin-top: 0.5rem;
-}}
-.custom-nav-group {{
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-weight: 700;
-    color: {p['TEXT_SEC']};
-    opacity: 0.75;
-    margin: 0.9rem 0.8rem 0.3rem 0.8rem;
-}}
-
-/* Style st.page_link() to match native nav link appearance */
-[data-testid="stSidebarUserContent"] [data-testid="stPageLink"] {{
-    border-radius: 8px !important;
-    margin: 0.1rem 0.8rem !important;
-    padding: 0 !important;
-    transition: background 0.15s !important;
-}}
-[data-testid="stSidebarUserContent"] [data-testid="stPageLink"]:hover {{
-    background: rgba(240,190,72,0.10) !important;
-}}
-[data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a {{
-    color: #E8EDF5 !important;
-    text-decoration: none !important;
-    font-size: 0.88rem !important;
-    padding: 0.45rem 0.8rem !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 0.5rem !important;
-    border-radius: 8px !important;
-    width: 100% !important;
-}}
-[data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a:hover {{
-    background: rgba(240,190,72,0.10) !important;
-}}
-/* Active page highlight */
-[data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a[aria-current="page"] {{
-    background: rgba(43,68,112,0.60) !important;
-    font-weight: 700 !important;
-    border-left: 3px solid {p['GOLD']} !important;
-    color: {p['GOLD']} !important;
-}}
-</style>
-""", unsafe_allow_html=True)
+# ── Sidebar CSS — injected from utils/theme._nav_css() (single source of truth) ─
+st.markdown(_nav_css(p), unsafe_allow_html=True)
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -205,7 +112,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # ══ SECTION B: CONTROLS (env + db status + theme) ══════════════════════════
+    # ══ SECTION B: CONTROLS (env + theme) ═════════════════════════════════════
     st.markdown('<div class="sb-controls">', unsafe_allow_html=True)
 
     env_mode = st.selectbox(
@@ -217,26 +124,11 @@ with st.sidebar:
     )
     st.session_state["env_mode"] = env_mode
 
-    st.markdown(
-        f"""<div style="background:{p['SURFACE']};border:1px solid {p['BORDER']};
-                border-left:3px solid {_db_clr};border-radius:7px;
-                padding:6px 10px;margin:4px 0 6px 0;
-                display:flex;align-items:center;gap:8px;">
-          <span style="font-size:0.85rem;flex-shrink:0;">{_db_dot}</span>
-          <div>
-            <div style="font-size:0.73rem;font-weight:700;color:{_db_clr};line-height:1.2;">{_db_lbl}</div>
-            <div style="font-size:0.65rem;color:{p['TEXT_SEC']};margin-top:1px;">{_db_sub}</div>
-          </div>
-        </div>""",
-        unsafe_allow_html=True,
-    )
-
     theme_toggle_sidebar()
     st.markdown('</div>', unsafe_allow_html=True)  # close .sb-controls
 
     # ══ SECTION C: NAVIGATION (manually rebuilt, at the bottom) ════════════════
     # stSidebarNav is hidden via CSS; st.navigation() below still handles routing.
-    # st.page_link() here renders inside stSidebarUserContent in Python order.
     st.markdown('<div class="custom-nav">', unsafe_allow_html=True)
 
     if db_exists:
@@ -260,6 +152,23 @@ with st.sidebar:
         st.page_link("pages/0_Master_Configuration.py",label="Global Settings",       icon=":material/settings:")
 
     st.markdown('</div>', unsafe_allow_html=True)  # close .custom-nav
+
+    # ══ SECTION D: STATUS STRIP (pinned to bottom) ═════════════════════════════
+    st.markdown('<div class="sb-status-strip">', unsafe_allow_html=True)
+    st.markdown(
+        f"""<div style="background:{p['SURFACE']};border:1px solid {p['BORDER']};
+                border-left:3px solid {_db_clr};border-radius:7px;
+                padding:6px 10px;margin:4px 0 2px 0;
+                display:flex;align-items:center;gap:8px;">
+          <span style="font-size:0.85rem;flex-shrink:0;">{_db_dot}</span>
+          <div>
+            <div style="font-size:0.73rem;font-weight:700;color:{_db_clr};line-height:1.2;">{_db_lbl}</div>
+            <div style="font-size:0.65rem;color:{p['TEXT_SEC']};margin-top:1px;">{_db_sub}</div>
+          </div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+    st.markdown('</div>', unsafe_allow_html=True)  # close .sb-status-strip
 
 
 # ── Run the registered page ────────────────────────────────────────────────────

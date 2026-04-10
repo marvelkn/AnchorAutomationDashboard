@@ -335,13 +335,15 @@ if not df_card.empty and 'SV_GROWTH_RATE' in df_card.columns and 'WEEKS_ACTIVE' 
 _sv_fmt  = f"Rp {_ytd_sv/1e9:,.1f} M"  if _ytd_sv >= 1e9 else f"Rp {_ytd_sv/1e6:,.0f} Jt"
 _trx_fmt = f"{_ytd_trx/1e6:,.2f} M"    if _ytd_trx >= 1e6 else f"{_ytd_trx:,.0f}"
 
-kpi_row([
-    kpi_card(f"{_total_merchants:,}",      "🏪 Merchants Tracked"),
-    kpi_card(_sv_fmt,                       "💰 YTD Sales Volume",  "accent"),
-    kpi_card(_trx_fmt,                      "🔄 YTD Transactions"),
-    kpi_card(f"{_avg_onus*100:.1f}%",       "🎯 Avg On-Us Ratio",   "success" if _avg_onus >= 0.5 else "default"),
-    kpi_card(f"{_high_risk_count}",         "⚠️ High Risk Merchants", "danger" if _high_risk_count > 0 else "success"),
-])
+# ── Global KPI Strip — native st.metric() for consistent styling ──────────────
+_kc1, _kc2, _kc3, _kc4, _kc5 = st.columns([1, 1, 1, 1, 1])
+_kc1.metric("🏪 Merchants Tracked",    f"{_total_merchants:,}")
+_kc2.metric("💰 YTD Sales Volume",     _sv_fmt)
+_kc3.metric("🔄 YTD Transactions",     _trx_fmt)
+_kc4.metric("🎯 Avg On-Us Ratio",      f"{_avg_onus*100:.1f}%")
+_kc5.metric("⚠️ High Risk Merchants",  _high_risk_count,
+            delta=f"-{_high_risk_count}" if _high_risk_count > 0 else None,
+            delta_color="inverse")
 
 # ── Neat status strip ──
 _sp = get_palette()
@@ -365,35 +367,29 @@ def _sc(icon, label, ok, ok_text="Ready", fail_text="Missing", warn=False):
         </div>
     </div>"""
 
-sc1, sc2, sc3, sc4, sc5 = st.columns(5)
-# ── Accurate status labels ──────────────────────────────────────────────────
-# DB table cards: show row count so "Connected" can't lie when the table is empty.
-_card_rows  = len(df_card)      if has_card and not df_card.empty       else 0
-_mon_rows   = len(df_mon)       if has_mon  and not df_mon.empty        else 0
-_tgt_rows   = len(df_target)    if has_tgt  and not df_target.empty     else 0
+# ── Data Status Row — native st.metric() replaces custom HTML _sc() cards ─────
+_card_rows = len(df_card)   if has_card and not df_card.empty   else 0
+_mon_rows  = len(df_mon)    if has_mon  and not df_mon.empty    else 0
+_tgt_rows  = len(df_target) if has_tgt  and not df_target.empty else 0
 
-_card_ok_txt  = f"{_card_rows:,} rows loaded"  if _card_rows > 0 else "Table empty — run pipeline"
-_mon_ok_txt   = f"{_mon_rows:,} rows loaded"   if _mon_rows  > 0 else "Table empty — run pipeline"
-_tgt_ok_txt   = f"{_tgt_rows:,} merchants"     if _tgt_rows  > 0 else "Table empty — upload TARGET"
-
-# File cards: show size so users can tell if the file is populated.
 def _file_kb(p):
     try: return f"{os.path.getsize(p) // 1024:,} KB"
     except: return "unknown size"
 
 _card_file_ok = os.path.exists(PATH_CARD)
 _mon_file_ok  = os.path.exists(PATH_MON)
-_card_file_txt  = f"Found ({_file_kb(PATH_CARD)})" if _card_file_ok else "Not found"
-_mon_file_txt   = f"Found ({_file_kb(PATH_MON)})"  if _mon_file_ok  else "Not found"
 
-sc1.markdown(_sc("📊", "Card Share DB",   has_card and _card_rows > 0, _card_ok_txt,  "Not processed" if not has_card else "Empty — run pipeline"), unsafe_allow_html=True)
-sc2.markdown(_sc("📅", "Monitoring DB",   has_mon  and _mon_rows  > 0, _mon_ok_txt,   "Not processed" if not has_mon  else "Empty — run pipeline"), unsafe_allow_html=True)
-sc3.markdown(_sc("🎯", "Target Data",     has_tgt  and _tgt_rows  > 0, _tgt_ok_txt,   "Not uploaded",  warn=(has_tgt and _tgt_rows == 0) or not has_tgt), unsafe_allow_html=True)
-sc4.markdown(_sc("📄", "Card Share File", _card_file_ok,               _card_file_txt, "Upload in Settings"), unsafe_allow_html=True)
-sc5.markdown(_sc("📄", "Monitoring File", _mon_file_ok,                _mon_file_txt,  "Upload in Settings"), unsafe_allow_html=True)
-
-with st.expander("📂 Environment & Path Visibility"):
-    st.code(f"DB Path:   {os.path.abspath(PATH_DB)}\nCARD Path: {os.path.abspath(PATH_CARD)}\nMON Path:  {os.path.abspath(PATH_MON)}")
+sc1, sc2, sc3, sc4, sc5 = st.columns([1.2, 1.2, 1, 1, 1])
+sc1.metric("📊 Card Share DB",
+           f"✅ {_card_rows:,} rows" if _card_rows > 0 else ("⚠️ Empty" if has_card else "❌ Missing"))
+sc2.metric("📅 Monitoring DB",
+           f"✅ {_mon_rows:,} rows" if _mon_rows  > 0 else ("⚠️ Empty" if has_mon  else "❌ Missing"))
+sc3.metric("🎯 Target Data",
+           f"✅ {_tgt_rows:,} merchants" if _tgt_rows > 0 else "❌ Missing")
+sc4.metric("📄 Card Share File",
+           f"✅ Found ({_file_kb(PATH_CARD)})" if _card_file_ok else "❌ Not Found")
+sc5.metric("📄 Monitoring File",
+           f"✅ Found ({_file_kb(PATH_MON)})"  if _mon_file_ok  else "❌ Not Found")
 
 st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 styled_divider()
@@ -402,15 +398,62 @@ styled_divider()
 CLAMP = CLUSTER_COLORS
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "🏠  Overview",
     "💰  Card Share",
-    "📅  Weekly Monitoring",
-    "🤖  ML Segmentation",
-    "⚠️  Churn & Risk",
-    "🔍  Merchant Explorer",
+    "📅  Weekly Monitor",
+    "🤖  Segmentation",
+    "⚠️  Risk & Churn",
+    "🔍  Merchant Detail",
     "🔮  AI Insights",
     "📊  Batch Impact",
 ])
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 0 — OVERVIEW
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab0:
+    tab_desc("Portfolio health at a glance — KPI context, PM coverage, and risk summary for the current filter selection.")
+
+    if not df_target.empty:
+        ov_left, ov_right = st.columns([2, 1])
+        with ov_left:
+            from utils.theme import section_label as _sl
+            _sl("PM Assignment Overview")
+            _tgt_display = df_target[['MERCHANT_GROUP', 'PM']].copy() if 'PM' in df_target.columns else df_target.copy()
+            st.dataframe(
+                _tgt_display,
+                column_config={
+                    "MERCHANT_GROUP": st.column_config.TextColumn("Merchant Group", width="large"),
+                    "PM":             st.column_config.TextColumn("Project Manager", width="medium"),
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=380,
+            )
+        with ov_right:
+            _sl("Coverage Summary")
+            _total_mg = len(df_target)
+            _active_pms = df_target['PM'].nunique() if 'PM' in df_target.columns else 0
+            _unassigned = int((df_target['PM'].fillna('UNASSIGNED').str.upper() == 'UNASSIGNED').sum()) if 'PM' in df_target.columns else 0
+            _avg_per_pm = round(_total_mg / max(_active_pms, 1), 1)
+            st.metric("Total Merchants",        _total_mg)
+            st.metric("Active PMs",             _active_pms)
+            st.metric("Unassigned Merchants",   _unassigned,
+                      delta=f"+{_unassigned}" if _unassigned > 0 else None,
+                      delta_color="inverse")
+            st.metric("Avg Merchants / PM",     _avg_per_pm)
+    else:
+        st.info("No TARGET data loaded. Run the pipeline to populate PM assignments.")
+
+    if _high_risk_count > 0:
+        st.warning(f"⚠️ **{_high_risk_count} high-risk merchant(s)** detected based on current data. Check the **Risk & Churn** tab for details.")
+    else:
+        st.success("✅ No high-risk merchants detected in the current filter selection.")
+
+    with st.expander("📂 Environment & Path Visibility"):
+        st.code(f"DB Path:   {os.path.abspath(PATH_DB)}\nCARD Path: {os.path.abspath(PATH_CARD)}\nMON Path:  {os.path.abspath(PATH_MON)}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — CARD SHARE
@@ -523,7 +566,7 @@ with tab1:
                 val_cols = [c for c in disp_fmt.columns if c != 'Bulan']
                 for col in val_cols:
                     disp_fmt[col] = disp_fmt[col].apply(lambda v: fmt_num_db(v, sec_name))
-                
+
                 def style_table_db(row):
                     is_ytd = row.name == len(disp_fmt) - 1
                     styles = []
@@ -536,13 +579,16 @@ with tab1:
                             styles.append('')
                     return styles
 
-                st.dataframe(
-                    disp_fmt.style.apply(style_table_db, axis=1),
-                    width='stretch', hide_index=True, height=min(38 * len(disp_fmt) + 40, 520)
-                )
+                # ── side-by-side: charts left (3) | summary table right (2) ──
+                ch_left, ch_right = st.columns([3, 2])
+                with ch_right:
+                    st.dataframe(
+                        disp_fmt.style.apply(style_table_db, axis=1),
+                        use_container_width=True, hide_index=True,
+                        height=min(38 * len(disp_fmt) + 40, 500),
+                    )
 
                 # Charts
-                ch_left, ch_right = st.columns([3, 2])
                 with ch_left:
                     if chart_type in ("Stacked Bar", "Both"):
                         # Composition chart
