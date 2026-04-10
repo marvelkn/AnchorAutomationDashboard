@@ -180,49 +180,49 @@ if cloud_mode_enabled:
                         st.error(f"Full database ingest failed: {ingest_err}")
 
         with st.expander("B — Optional: single-table upsert (CSV / Excel)", expanded=False):
-        st.caption(
-            "Target table must already exist in Neon with a PRIMARY KEY or UNIQUE constraint on your conflict column(s)."
-        )
-        cloud_upload = st.file_uploader(
-            "File",
-            type=["csv", "xlsx", "xls"],
-            key="cloud_upload",
-        )
-        u1, u2, u3 = st.columns(3)
-        cloud_table = u1.text_input("Target table", value="target")
-        cloud_schema = u2.text_input("Schema", value="public")
-        cloud_keys_raw = u3.text_input("Conflict key(s)", value="merchant_group,pm")
-        if st.button(
-            "Run upsert",
-            type="primary",
-            use_container_width=True,
-            disabled=(engine is None),
-            key="btn_cloud_upsert",
-        ):
-            if not cloud_upload:
-                st.warning("Please upload a CSV or Excel file first.")
-            else:
-                prog = st.progress(0.0, text="Starting…")
-                try:
-                    with st.spinner("Reading file…"):
-                        cloud_df = read_uploaded_dataframe(cloud_upload)
-                    prog.progress(0.35, text=f"Parsed {len(cloud_df):,} rows")
-                    conflict_cols = [x.strip() for x in cloud_keys_raw.split(",") if x.strip()]
-                    with st.spinner("Upserting…"):
-                        affected = upsert_dataframe(
-                            engine=engine,
-                            dataframe=cloud_df,
-                            table_name=cloud_table.strip(),
-                            conflict_columns=conflict_cols,
-                            schema=(cloud_schema.strip() or "public"),
+            st.caption(
+                "Target table must already exist in Neon with a PRIMARY KEY or UNIQUE constraint on your conflict column(s)."
+            )
+            cloud_upload = st.file_uploader(
+                "File",
+                type=["csv", "xlsx", "xls"],
+                key="cloud_upload",
+            )
+            u1, u2, u3 = st.columns(3)
+            cloud_table = u1.text_input("Target table", value="target")
+            cloud_schema = u2.text_input("Schema", value="public")
+            cloud_keys_raw = u3.text_input("Conflict key(s)", value="merchant_group,pm")
+            if st.button(
+                "Run upsert",
+                type="primary",
+                use_container_width=True,
+                disabled=(engine is None),
+                key="btn_cloud_upsert",
+            ):
+                if not cloud_upload:
+                    st.warning("Please upload a CSV or Excel file first.")
+                else:
+                    prog = st.progress(0.0, text="Starting…")
+                    try:
+                        with st.spinner("Reading file…"):
+                            cloud_df = read_uploaded_dataframe(cloud_upload)
+                        prog.progress(0.35, text=f"Parsed {len(cloud_df):,} rows")
+                        conflict_cols = [x.strip() for x in cloud_keys_raw.split(",") if x.strip()]
+                        with st.spinner("Upserting…"):
+                            affected = upsert_dataframe(
+                                engine=engine,
+                                dataframe=cloud_df,
+                                table_name=cloud_table.strip(),
+                                conflict_columns=conflict_cols,
+                                schema=(cloud_schema.strip() or "public"),
+                            )
+                        prog.progress(1.0, text="Done")
+                        st.success(
+                            f"Upsert complete · {affected:,} row(s) → `{cloud_schema}.{cloud_table}`."
                         )
-                    prog.progress(1.0, text="Done")
-                    st.success(
-                        f"Upsert complete · {affected:,} row(s) → `{cloud_schema}.{cloud_table}`."
-                    )
-                    st.dataframe(cloud_df.head(20), use_container_width=True)
-                except Exception as upload_err:
-                    st.error(f"Upsert failed: {upload_err}")
+                        st.dataframe(cloud_df.head(20), use_container_width=True)
+                    except Exception as upload_err:
+                        st.error(f"Upsert failed: {upload_err}")
 
         section_label("Database Maintenance")
         st.info(
