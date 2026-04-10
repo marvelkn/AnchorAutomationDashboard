@@ -50,8 +50,9 @@ if cloud_mode:
         _engine = None
 
     st.markdown(
-        """<div style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);
-        border-radius:10px;padding:12px 16px;font-size:0.85rem;color:#34D399;margin-bottom:22px;">
+        """<div style="background:rgba(38,222,129,.08);border:1px solid rgba(38,222,129,.25);
+        border-left:3px solid #26de81;border-radius:6px;padding:12px 16px;
+        font-size:0.85rem;color:#26de81;margin-bottom:22px;font-family:'Space Grotesk',sans-serif;">
         ☁️ <b>Cloud Mode Active</b> — Master files are persisted in <b>Neon (PostgreSQL)</b> and
         survive app restarts. Uploaded files are also cached locally for pipeline compatibility.
         </div>""",
@@ -61,8 +62,9 @@ else:
     _engine = None
     _engine_ok = False
     st.markdown(
-        """<div style="background:rgba(240,190,72,.08);border:1px solid rgba(240,190,72,.25);
-        border-radius:10px;padding:12px 16px;font-size:0.85rem;color:#c8a033;margin-bottom:22px;">
+        """<div style="background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.25);
+        border-left:3px solid #f5a623;border-radius:6px;padding:12px 16px;
+        font-size:0.85rem;color:#f5a623;margin-bottom:22px;font-family:'Space Grotesk',sans-serif;">
         📌 These master files are saved permanently on the server and used automatically by all
         processing modules. After your first upload, the system auto-updates them — you never need to
         re-upload unless the reference data changes.
@@ -199,24 +201,26 @@ tab_files, tab_history = st.tabs(["📁  Master Files", "🕒  Version History"]
 # ─────────────────────────────────────────────────────────────────────────────
 with tab_files:
 
-    # ── Status summary row (st.metric for each file) ──────────────────────────
+    # ── Status summary row — stat-cards ──────────────────────────────────────
     section_label("Configuration Status")
-    s1, s2, s3 = st.columns(3)
-    for col, m in zip([s1, s2, s3], MASTERS):
+    cards_html = ""
+    for m in MASTERS:
         configured = is_configured(m["path"], m["file_key"])
         size_str   = _file_size_kb(m["path"], m["file_key"])
-        mod_str    = _last_modified(m["path"], m["file_key"])
+        mod_str    = _last_modified(m["path"], m["file_key"]) or "—"
         sync_lbl   = _sync_status_label(m["path"], m["file_key"])
-
-        with col:
-            st.metric(
-                label=f"{m['icon']} {m['title']}",
-                value="✅ Ready" if configured else "❌ Missing",
-                delta=size_str if configured else None,
-                delta_color="off",
-            )
-            if mod_str:
-                st.caption(f"🕐 {mod_str}  ·  {sync_lbl}")
+        variant    = "green" if configured else "red"
+        status_txt = "READY" if configured else "MISSING"
+        cards_html += f"""<div class="stat-card {variant}">
+            <div class="stat-label">{m['icon']} {m['title']}</div>
+            <div class="stat-value" style="font-size:1rem;font-weight:700;">{status_txt}</div>
+            <div class="stat-meta">{size_str} · {sync_lbl}</div>
+            <div class="stat-meta">{mod_str}</div>
+        </div>"""
+    st.markdown(
+        f'<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">{cards_html}</div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
