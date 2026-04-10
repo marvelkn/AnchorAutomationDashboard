@@ -77,10 +77,13 @@ PATH_MON  = os.path.join(MASTER_DIR, "master_monitoring.xlsx")
 BACKUP_DIR = os.path.join(MASTER_DIR, "backup_uploads")
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
-# ── On cloud mode: sync all masters from Neon → local disk on every page load ─
-# This ensures the local cache stays fresh for pipeline compatibility.
-if cloud_mode and _engine_ok:
+# ── On cloud mode: sync all masters from Neon → local disk (once per session) ─
+# Gated by session_state so it only runs on the very first load of each browser
+# session — NOT on every button click / file-uploader interaction rerun.
+# A manual force-refresh can clear the flag via st.session_state.pop("_masters_synced").
+if cloud_mode and _engine_ok and not st.session_state.get("_masters_synced"):
     sync_all_masters_to_disk(_engine, PATH_MID, PATH_CARD, PATH_MON)
+    st.session_state["_masters_synced"] = True
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -229,12 +232,26 @@ def render_master_card(
                 width="stretch",
             )
 
+        # ── Success banner (survives the rerun after save) ──────────────────
+        success_key = f"_saved_{file_key}"
+        if st.session_state.pop(success_key, False):
+            st.success(
+                f"✅ **{orig_filename}** uploaded and saved successfully!",
+                icon="✅",
+            )
+
         up_file = st.file_uploader(uploader_label, type=["xlsx"], key=uploader_key)
         if st.button(btn_label, key=btn_key, type="primary", width="stretch"):
-            if up_file and save_master(up_file, path, prefix, file_key, orig_filename):
-                st.success("✅ Saved!")
-                st.rerun()
-            elif not up_file:
+            if up_file:
+                with st.spinner(f"Saving {orig_filename}…"):
+                    ok = save_master(up_file, path, prefix, file_key, orig_filename)
+                if ok:
+                    # Invalidate local sync cache so next full load re-syncs
+                    st.session_state.pop("_masters_synced", None)
+                    # Set flag BEFORE rerun so success banner renders on next cycle
+                    st.session_state[success_key] = True
+                    st.rerun()
+            else:
                 st.warning("Please upload a file first.")
 
         # Rollback section
@@ -247,13 +264,16 @@ def render_master_card(
                     c1, c2 = st.columns([3, 1])
                     c1.write(f"**Version {b['version']}** ({b['timestamp']})")
                     if c2.button("Restore", key=f"restore_{backup_prefix}_{b['version']}"):
-                        if restore_backup(b["path"], path):
+                        with st.spinner("Restoring…"):
+                            restored = restore_backup(b["path"], path)
+                        if restored:
                             # If cloud mode, also push restored file to Neon
                             if cloud_mode and _engine_ok:
                                 with open(path, "rb") as _f:
                                     _rb = _f.read()
                                 save_master_to_db(_engine, file_key, orig_filename, _rb)
-                            st.success(f"✅ Restored Version {b['version']} successfully!")
+                            st.session_state.pop("_masters_synced", None)
+                            st.session_state[f"_saved_{file_key}"] = True
                             st.rerun()
                         else:
                             st.error("Failed to restore backup.")
