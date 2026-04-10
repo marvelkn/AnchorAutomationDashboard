@@ -139,14 +139,23 @@ with tab_edit:
     _has_changes = not edited_df.equals(df_master)
 
     with metrics_col:
-        st.metric("Total Rows",   f"{_edit_len:,}")
-        st.metric("Modified",     _n_modified,
-                  delta=f"+{_n_modified}" if _n_modified else None,
-                  delta_color="off" if _n_modified == 0 else "inverse")
-        st.metric("New Rows",     _n_new,
-                  delta=f"+{_n_new}" if _n_new else None,
-                  delta_color="off")
-        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+        st.markdown(f"""
+            <div class="stat-card amber" style="margin-bottom:8px;">
+                <div class="stat-label">Total Rows</div>
+                <div class="stat-value">{_edit_len:,}</div>
+            </div>
+            <div class="stat-card {"amber" if _n_modified else "blue"}" style="margin-bottom:8px;">
+                <div class="stat-label">Modified</div>
+                <div class="stat-value">{_n_modified}</div>
+                <div class="stat-meta">{"rows changed" if _n_modified else "no changes"}</div>
+            </div>
+            <div class="stat-card green" style="margin-bottom:8px;">
+                <div class="stat-label">New Rows</div>
+                <div class="stat-value">{_n_new}</div>
+                <div class="stat-meta">rows added</div>
+            </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
         commit_clicked = st.button(
             "💾 Commit Changes",
