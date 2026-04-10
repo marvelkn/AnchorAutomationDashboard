@@ -3,10 +3,12 @@ import os
 import sys
 import shutil
 from datetime import datetime
+from io import BytesIO
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
+
 from utils.theme import (
     apply_theme, page_header, section_label, kpi_card,
     GOLD, GOLD_DIM, SURFACE, BORDER, TEXT_PRI, TEXT_SEC, GREEN, RED, AMBER
@@ -18,16 +20,54 @@ apply_theme()
 
 page_header("⚙️", "Global Settings", "Upload and manage your Master Reference Files")
 
-st.markdown(
-    """<div style="background:rgba(240,190,72,.08);border:1px solid rgba(240,190,72,.25);
-    border-radius:10px;padding:12px 16px;font-size:0.85rem;color:#c8a033;margin-bottom:22px;">
-    📌 These master files are saved permanently on the server and used automatically by all
-    Processing modules. After your first upload, the system auto-updates them — you never need to
-    re-upload unless the reference data changes.
-    </div>""",
-    unsafe_allow_html=True,
-)
+# ── Cloud mode detection ───────────────────────────────────────────────────────
+cloud_mode = bool(os.getenv("DATABASE_URL"))
 
+if cloud_mode:
+    from utils.cloud_db import build_engine
+    from utils.master_files_db import (
+        ensure_master_files_table,
+        save_master_to_db,
+        load_master_from_db,
+        list_master_files,
+        sync_all_masters_to_disk,
+    )
+
+    @st.cache_resource
+    def _get_engine():
+        return build_engine()
+
+    try:
+        _engine = _get_engine()
+        ensure_master_files_table(_engine)
+        _engine_ok = True
+    except Exception as _eng_err:
+        st.error(f"⚠️ Could not connect to Neon: {_eng_err}")
+        _engine_ok = False
+        _engine = None
+
+    st.markdown(
+        """<div style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);
+        border-radius:10px;padding:12px 16px;font-size:0.85rem;color:#34D399;margin-bottom:22px;">
+        ☁️ <b>Cloud Mode Active</b> — Master files are persisted in <b>Neon (PostgreSQL)</b> and
+        survive app restarts. Uploaded files are also cached locally for pipeline compatibility.
+        </div>""",
+        unsafe_allow_html=True,
+    )
+else:
+    _engine = None
+    _engine_ok = False
+    st.markdown(
+        """<div style="background:rgba(240,190,72,.08);border:1px solid rgba(240,190,72,.25);
+        border-radius:10px;padding:12px 16px;font-size:0.85rem;color:#c8a033;margin-bottom:22px;">
+        📌 These master files are saved permanently on the server and used automatically by all
+        Processing modules. After your first upload, the system auto-updates them — you never need to
+        re-upload unless the reference data changes.
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+# ── Paths (always needed for local cache / download) ──────────────────────────
 MASTER_DIR = os.path.join(BASE_DIR, "data", "master")
 os.makedirs(MASTER_DIR, exist_ok=True)
 
@@ -37,184 +77,243 @@ PATH_MON  = os.path.join(MASTER_DIR, "master_monitoring.xlsx")
 BACKUP_DIR = os.path.join(MASTER_DIR, "backup_uploads")
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
-
-def save_master(uploaded_file, dest_path, prefix):
-    if uploaded_file is not None:
-        # Rotate existing before overwriting
-        if os.path.exists(dest_path):
-            rotate_backups(dest_path, BACKUP_DIR, prefix=prefix, extension=".xlsx")
-        
-        with open(dest_path, "wb") as f:
-            f.write(uploaded_file.getvalue())
-        return True
-    return False
+# ── On cloud mode: sync all masters from Neon → local disk on every page load ─
+# This ensures the local cache stays fresh for pipeline compatibility.
+if cloud_mode and _engine_ok:
+    sync_all_masters_to_disk(_engine, PATH_MID, PATH_CARD, PATH_MON)
 
 
-def status_badge(path):
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def save_master(uploaded_file, dest_path: str, prefix: str, file_key: str, orig_filename: str):
+    """
+    Save an uploaded master file to disk (always) and to Neon (when cloud mode).
+    Rotates local backup before overwriting.
+    Returns True on success, False if no file provided.
+    """
+    if uploaded_file is None:
+        return False
+
+    content = uploaded_file.getvalue()
+
+    # Rotate existing local file before overwrite
+    if os.path.exists(dest_path):
+        rotate_backups(dest_path, BACKUP_DIR, prefix=prefix, extension=".xlsx")
+
+    # Write local cache
+    with open(dest_path, "wb") as f:
+        f.write(content)
+
+    # Write to Neon (cloud mode)
+    if cloud_mode and _engine_ok:
+        ok = save_master_to_db(_engine, file_key, orig_filename, content)
+        if not ok:
+            st.warning(f"⚠️ Local save succeeded but Neon upload failed for `{orig_filename}`.")
+
+    return True
+
+
+def _neon_info(file_key: str) -> dict | None:
+    """Return Neon metadata for a file_key, or None if not stored / not cloud mode."""
+    if not cloud_mode or not _engine_ok:
+        return None
+    try:
+        info_map = list_master_files(_engine)
+        return info_map.get(file_key)
+    except Exception:
+        return None
+
+
+def status_badge(path: str, file_key: str) -> str:
+    """
+    In cloud mode: show Neon status (falls back to local if Neon has it).
+    In local mode: show local file status.
+    """
+    if cloud_mode and _engine_ok:
+        info = _neon_info(file_key)
+        if info:
+            sz_kb = (info["size_bytes"] or 0) // 1024
+            return (
+                f'<span class="status-badge ok">☁️ Synced to Neon · {sz_kb} KB</span>'
+            )
+        # Not in Neon yet; check local disk
+        if os.path.exists(path):
+            sz = os.path.getsize(path) // 1024
+            return f'<span class="status-badge ok">💾 Local only · {sz} KB</span>'
+        return '<span class="status-badge err">❌ Not Configured</span>'
+
+    # Local mode
     if os.path.exists(path):
         sz = os.path.getsize(path) // 1024
         return f'<span class="status-badge ok">✅ Configured · {sz} KB</span>'
     return '<span class="status-badge err">❌ Not Configured</span>'
 
 
-def last_modified_line(path):
-    """Return a formatted last-modified timestamp string, or empty if not found."""
+def last_modified_line(path: str, file_key: str) -> str | None:
+    """Return last-modified timestamp — prefer Neon updated_at in cloud mode."""
+    if cloud_mode and _engine_ok:
+        info = _neon_info(file_key)
+        if info:
+            return info.get("updated_at")
     if os.path.exists(path):
         mtime = datetime.fromtimestamp(os.path.getmtime(path))
         return mtime.strftime("%d %b %Y, %H:%M")
     return None
 
 
+def get_download_bytes(path: str, file_key: str) -> bytes | None:
+    """
+    Return file bytes for the download button.
+    Prefer Neon content in cloud mode; fall back to local file.
+    """
+    if cloud_mode and _engine_ok:
+        _, content = load_master_from_db(_engine, file_key)
+        if content:
+            return content
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return f.read()
+    return None
+
+
+def is_configured(path: str, file_key: str) -> bool:
+    """True if the file is available (Neon or disk)."""
+    if cloud_mode and _engine_ok:
+        info = _neon_info(file_key)
+        if info:
+            return True
+    return os.path.exists(path)
+
+
+# ─── File card renderer ───────────────────────────────────────────────────────
+
+def render_master_card(
+    col,
+    title: str,
+    icon: str,
+    path: str,
+    file_key: str,
+    prefix: str,
+    orig_filename: str,
+    uploader_label: str,
+    uploader_key: str,
+    btn_key: str,
+    btn_label: str,
+    backup_prefix: str,
+):
+    with col:
+        mod = last_modified_line(path, file_key)
+        mod_tag = (
+            f'<div style="font-size:0.72rem;color:{TEXT_SEC};margin-top:6px;">🕐 Updated: {mod}</div>'
+            if mod else ""
+        )
+        st.markdown(
+            f"""<div class="config-card">
+                <h3>{icon} {title}</h3>
+                {status_badge(path, file_key)}
+                {mod_tag}
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+        # Download button
+        dl_bytes = get_download_bytes(path, file_key)
+        if dl_bytes:
+            st.download_button(
+                "⬇️ Download Current",
+                dl_bytes,
+                file_name=orig_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_{uploader_key}",
+                width="stretch",
+            )
+
+        up_file = st.file_uploader(uploader_label, type=["xlsx"], key=uploader_key)
+        if st.button(btn_label, key=btn_key, type="primary", width="stretch"):
+            if up_file and save_master(up_file, path, prefix, file_key, orig_filename):
+                st.success("✅ Saved!")
+                st.rerun()
+            elif not up_file:
+                st.warning("Please upload a file first.")
+
+        # Rollback section
+        with st.expander("🕒 Version History & Rollback", expanded=False):
+            backups = get_available_backups(BACKUP_DIR, prefix=backup_prefix, extension=".xlsx")
+            if not backups:
+                st.caption("No versions available for rollback.")
+            else:
+                for b in backups:
+                    c1, c2 = st.columns([3, 1])
+                    c1.write(f"**Version {b['version']}** ({b['timestamp']})")
+                    if c2.button("Restore", key=f"restore_{backup_prefix}_{b['version']}"):
+                        if restore_backup(b["path"], path):
+                            # If cloud mode, also push restored file to Neon
+                            if cloud_mode and _engine_ok:
+                                with open(path, "rb") as _f:
+                                    _rb = _f.read()
+                                save_master_to_db(_engine, file_key, orig_filename, _rb)
+                            st.success(f"✅ Restored Version {b['version']} successfully!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to restore backup.")
+
+
+# ─── Render the three cards ───────────────────────────────────────────────────
 col1, col2, col3 = st.columns(3)
 
-# ─── MID ──────────────────────────────────────────────────────────────────────
-with col1:
-    mod_mid = last_modified_line(PATH_MID)
-    mod_tag = f'<div style="font-size:0.72rem;color:{TEXT_SEC};margin-top:6px;">🕐 Updated: {mod_mid}</div>' if mod_mid else ""
-    st.markdown(
-        f"""<div class="config-card">
-            <h3>🧹 ALL MID Master</h3>
-            {status_badge(PATH_MID)}
-            {mod_tag}
-        </div>""",
-        unsafe_allow_html=True,
-    )
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    if os.path.exists(PATH_MID):
-        with open(PATH_MID, "rb") as f:
-            st.download_button(
-                "⬇️ Download Current",
-                f,
-                file_name="master_mid.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="dl_mid",
-                width='stretch',
-            )
-    up_mid = st.file_uploader("Upload ALL_MID_UPDATED.xlsx", type=["xlsx"], key="up_mid")
-    if st.button("💾 Save MID Master", key="btn_mid", type="primary", width='stretch'):
-        if up_mid and save_master(up_mid, PATH_MID, "master_mid"):
-            st.success("✅ Saved!")
-            st.rerun()
-        elif not up_mid:
-            st.warning("Please upload a file first.")
-    
-    # --- Rollback Section ---
-    with st.expander("🕒 Version History & Rollback", expanded=False):
-        backups = get_available_backups(BACKUP_DIR, prefix="master_mid", extension=".xlsx")
-        if not backups:
-            st.caption("No versions available for rollback.")
-        else:
-            for b in backups:
-                c1, c2 = st.columns([3, 1])
-                c1.write(f"**Version {b['version']}** ({b['timestamp']})")
-                if c2.button(f"Restore", key=f"restore_mid_{b['version']}"):
-                    if restore_backup(b['path'], PATH_MID):
-                        st.success(f"✅ Restored Version {b['version']} successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to restore backup.")
+render_master_card(
+    col=col1,
+    title="ALL MID Master",
+    icon="🧹",
+    path=PATH_MID,
+    file_key="master_mid",
+    prefix="master_mid",
+    orig_filename="master_mid.xlsx",
+    uploader_label="Upload ALL_MID_UPDATED.xlsx",
+    uploader_key="up_mid",
+    btn_key="btn_mid",
+    btn_label="💾 Save MID Master",
+    backup_prefix="master_mid",
+)
 
-# ─── Card Share ───────────────────────────────────────────────────────────────
-with col2:
-    mod_card = last_modified_line(PATH_CARD)
-    mod_tag  = f'<div style="font-size:0.72rem;color:{TEXT_SEC};margin-top:6px;">🕐 Updated: {mod_card}</div>' if mod_card else ""
-    st.markdown(
-        f"""<div class="config-card">
-            <h3>💳 Card Share Master</h3>
-            {status_badge(PATH_CARD)}
-            {mod_tag}
-        </div>""",
-        unsafe_allow_html=True,
-    )
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    if os.path.exists(PATH_CARD):
-        with open(PATH_CARD, "rb") as f:
-            st.download_button(
-                "⬇️ Download Current",
-                f,
-                file_name="master_card_share.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="dl_card",
-                width='stretch',
-            )
-    up_card = st.file_uploader("Upload CARD_SHARE_MERCHANT_ANCHOR.xlsx", type=["xlsx"], key="up_card")
-    if st.button("💾 Save Card Share Master", key="btn_card", type="primary", width='stretch'):
-        if up_card and save_master(up_card, PATH_CARD, "master_card"):
-            st.success("✅ Saved!")
-            st.rerun()
-        elif not up_card:
-            st.warning("Please upload a file first.")
+render_master_card(
+    col=col2,
+    title="Card Share Master",
+    icon="💳",
+    path=PATH_CARD,
+    file_key="master_card",
+    prefix="master_card",
+    orig_filename="master_card_share.xlsx",
+    uploader_label="Upload CARD_SHARE_MERCHANT_ANCHOR.xlsx",
+    uploader_key="up_card",
+    btn_key="btn_card",
+    btn_label="💾 Save Card Share Master",
+    backup_prefix="master_card",
+)
 
-    # --- Rollback Section ---
-    with st.expander("🕒 Version History & Rollback", expanded=False):
-        backups = get_available_backups(BACKUP_DIR, prefix="master_card", extension=".xlsx")
-        if not backups:
-            st.caption("No versions available for rollback.")
-        else:
-            for b in backups:
-                c1, c2 = st.columns([3, 1])
-                c1.write(f"**Version {b['version']}** ({b['timestamp']})")
-                if c2.button(f"Restore", key=f"restore_card_{b['version']}"):
-                    if restore_backup(b['path'], PATH_CARD):
-                        st.success(f"✅ Restored Version {b['version']} successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to restore backup.")
-
-# ─── Monitoring ───────────────────────────────────────────────────────────────
-with col3:
-    mod_mon = last_modified_line(PATH_MON)
-    mod_tag = f'<div style="font-size:0.72rem;color:{TEXT_SEC};margin-top:6px;">🕐 Updated: {mod_mon}</div>' if mod_mon else ""
-    st.markdown(
-        f"""<div class="config-card">
-            <h3>📅 Monitoring Master</h3>
-            {status_badge(PATH_MON)}
-            {mod_tag}
-        </div>""",
-        unsafe_allow_html=True,
-    )
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    if os.path.exists(PATH_MON):
-        with open(PATH_MON, "rb") as f:
-            st.download_button(
-                "⬇️ Download Current",
-                f,
-                file_name="master_monitoring.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="dl_mon",
-                width='stretch',
-            )
-    up_mon = st.file_uploader("Upload Monitoring Weekly Anchor.xlsx", type=["xlsx"], key="up_mon")
-    if st.button("💾 Save Monitoring Master", key="btn_mon", type="primary", width='stretch'):
-        if up_mon and save_master(up_mon, PATH_MON, "master_mon"):
-            st.success("✅ Saved!")
-            st.rerun()
-        elif not up_mon:
-            st.warning("Please upload a file first.")
-
-    # --- Rollback Section ---
-    with st.expander("🕒 Version History & Rollback", expanded=False):
-        backups = get_available_backups(BACKUP_DIR, prefix="master_mon", extension=".xlsx")
-        if not backups:
-            st.caption("No versions available for rollback.")
-        else:
-            for b in backups:
-                c1, c2 = st.columns([3, 1])
-                c1.write(f"**Version {b['version']}** ({b['timestamp']})")
-                if c2.button(f"Restore", key=f"restore_mon_{b['version']}"):
-                    if restore_backup(b['path'], PATH_MON):
-                        st.success(f"✅ Restored Version {b['version']} successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to restore backup.")
+render_master_card(
+    col=col3,
+    title="Monitoring Master",
+    icon="📅",
+    path=PATH_MON,
+    file_key="master_mon",
+    prefix="master_mon",
+    orig_filename="master_monitoring.xlsx",
+    uploader_label="Upload Monitoring Weekly Anchor.xlsx",
+    uploader_key="up_mon",
+    btn_key="btn_mon",
+    btn_label="💾 Save Monitoring Master",
+    backup_prefix="master_mon",
+)
 
 # ─── Summary strip ────────────────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
 section_label("Configuration Status Summary")
 s1, s2, s3 = st.columns(3)
-s1.metric("MID Master",        "✅ Ready" if os.path.exists(PATH_MID)  else "❌ Missing")
-s2.metric("Card Share Master", "✅ Ready" if os.path.exists(PATH_CARD) else "❌ Missing")
-s3.metric("Monitoring Master", "✅ Ready" if os.path.exists(PATH_MON)  else "❌ Missing")
+s1.metric("MID Master",        "✅ Ready" if is_configured(PATH_MID,  "master_mid")  else "❌ Missing")
+s2.metric("Card Share Master", "✅ Ready" if is_configured(PATH_CARD, "master_card") else "❌ Missing")
+s3.metric("Monitoring Master", "✅ Ready" if is_configured(PATH_MON,  "master_mon")  else "❌ Missing")
 
 # ─── Quick Actions ────────────────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
@@ -229,7 +328,9 @@ with qa1:
         help="Navigate to the ETL pipeline to run the end-to-end data refresh.",
     )
 with qa2:
-    if os.path.exists(os.path.join(BASE_DIR, "database", "staging.db")):
+    db_exists = os.path.exists(os.path.join(BASE_DIR, "database", "staging.db"))
+    has_neon  = cloud_mode and bool(os.getenv("DATABASE_URL"))
+    if db_exists or has_neon:
         st.page_link(
             "pages/4_Dashboard.py",
             label="**📊 View Analytics Dashboard**",

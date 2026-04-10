@@ -21,6 +21,7 @@ from utils.backup_manager import rotate_backups, get_available_backups, restore_
 from utils.pipeline_bg import get_pipeline_status, start_pipeline_background, reset_pipeline_status, is_pipeline_supported
 from utils.cloud_db import build_engine, test_connection, read_uploaded_dataframe, upsert_dataframe
 from utils.sqlite_to_neon import ingest_sqlite_bytes_to_neon, fetch_recent_ingestion_runs
+from utils.master_files_db import sync_all_masters_to_disk
 
 cloud_mode_enabled = bool(os.getenv("DATABASE_URL"))
 
@@ -41,6 +42,16 @@ PATH_GOV_AUDIT = os.path.join(MASTER_DIR, "governance_audit_log.csv")
 # Create backup dir if missing
 if not os.path.exists(PATH_BACKUP_DIR):
     os.makedirs(PATH_BACKUP_DIR)
+
+# ── Cloud: sync master files from Neon → local disk ───────────────────────────
+# This ensures PATH_MON / PATH_CARD / PATH_MID exist for the governance check
+# and the local pipeline, even on ephemeral cloud filesystems.
+if cloud_mode_enabled:
+    try:
+        _sync_engine = build_engine()
+        sync_all_masters_to_disk(_sync_engine, PATH_MID, PATH_CARD, PATH_MON)
+    except Exception:
+        pass  # Silent — governance check will use whatever is already on disk
 
 
 # ── Cloud (Neon): single clean page — no local SQLite / Excel pipeline UI ─────
