@@ -11,6 +11,7 @@ from utils.theme import (
     apply_theme, page_header, section_label, kpi_card,
     GOLD, GOLD_DIM, SURFACE, BORDER, TEXT_PRI, TEXT_SEC, GREEN, RED, AMBER
 )
+from utils.backup_manager import rotate_backups, get_available_backups, restore_backup
 
 st.set_page_config(page_title="Global Settings — BTN Anchor", page_icon="⚙️", layout="wide")
 apply_theme()
@@ -33,10 +34,16 @@ os.makedirs(MASTER_DIR, exist_ok=True)
 PATH_MID  = os.path.join(MASTER_DIR, "master_mid.xlsx")
 PATH_CARD = os.path.join(MASTER_DIR, "master_card_share.xlsx")
 PATH_MON  = os.path.join(MASTER_DIR, "master_monitoring.xlsx")
+BACKUP_DIR = os.path.join(MASTER_DIR, "backup_uploads")
+os.makedirs(BACKUP_DIR, exist_ok=True)
 
 
-def save_master(uploaded_file, dest_path):
+def save_master(uploaded_file, dest_path, prefix):
     if uploaded_file is not None:
+        # Rotate existing before overwriting
+        if os.path.exists(dest_path):
+            rotate_backups(dest_path, BACKUP_DIR, prefix=prefix, extension=".xlsx")
+        
         with open(dest_path, "wb") as f:
             f.write(uploaded_file.getvalue())
         return True
@@ -85,11 +92,27 @@ with col1:
             )
     up_mid = st.file_uploader("Upload ALL_MID_UPDATED.xlsx", type=["xlsx"], key="up_mid")
     if st.button("💾 Save MID Master", key="btn_mid", type="primary", width='stretch'):
-        if up_mid and save_master(up_mid, PATH_MID):
+        if up_mid and save_master(up_mid, PATH_MID, "master_mid"):
             st.success("✅ Saved!")
             st.rerun()
         elif not up_mid:
             st.warning("Please upload a file first.")
+    
+    # --- Rollback Section ---
+    with st.expander("🕒 Version History & Rollback", expanded=False):
+        backups = get_available_backups(BACKUP_DIR, prefix="master_mid", extension=".xlsx")
+        if not backups:
+            st.caption("No versions available for rollback.")
+        else:
+            for b in backups:
+                c1, c2 = st.columns([3, 1])
+                c1.write(f"**Version {b['version']}** ({b['timestamp']})")
+                if c2.button(f"Restore", key=f"restore_mid_{b['version']}"):
+                    if restore_backup(b['path'], PATH_MID):
+                        st.success(f"✅ Restored Version {b['version']} successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to restore backup.")
 
 # ─── Card Share ───────────────────────────────────────────────────────────────
 with col2:
@@ -116,11 +139,27 @@ with col2:
             )
     up_card = st.file_uploader("Upload CARD_SHARE_MERCHANT_ANCHOR.xlsx", type=["xlsx"], key="up_card")
     if st.button("💾 Save Card Share Master", key="btn_card", type="primary", width='stretch'):
-        if up_card and save_master(up_card, PATH_CARD):
+        if up_card and save_master(up_card, PATH_CARD, "master_card"):
             st.success("✅ Saved!")
             st.rerun()
         elif not up_card:
             st.warning("Please upload a file first.")
+
+    # --- Rollback Section ---
+    with st.expander("🕒 Version History & Rollback", expanded=False):
+        backups = get_available_backups(BACKUP_DIR, prefix="master_card", extension=".xlsx")
+        if not backups:
+            st.caption("No versions available for rollback.")
+        else:
+            for b in backups:
+                c1, c2 = st.columns([3, 1])
+                c1.write(f"**Version {b['version']}** ({b['timestamp']})")
+                if c2.button(f"Restore", key=f"restore_card_{b['version']}"):
+                    if restore_backup(b['path'], PATH_CARD):
+                        st.success(f"✅ Restored Version {b['version']} successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to restore backup.")
 
 # ─── Monitoring ───────────────────────────────────────────────────────────────
 with col3:
@@ -147,11 +186,27 @@ with col3:
             )
     up_mon = st.file_uploader("Upload Monitoring Weekly Anchor.xlsx", type=["xlsx"], key="up_mon")
     if st.button("💾 Save Monitoring Master", key="btn_mon", type="primary", width='stretch'):
-        if up_mon and save_master(up_mon, PATH_MON):
+        if up_mon and save_master(up_mon, PATH_MON, "master_mon"):
             st.success("✅ Saved!")
             st.rerun()
         elif not up_mon:
             st.warning("Please upload a file first.")
+
+    # --- Rollback Section ---
+    with st.expander("🕒 Version History & Rollback", expanded=False):
+        backups = get_available_backups(BACKUP_DIR, prefix="master_mon", extension=".xlsx")
+        if not backups:
+            st.caption("No versions available for rollback.")
+        else:
+            for b in backups:
+                c1, c2 = st.columns([3, 1])
+                c1.write(f"**Version {b['version']}** ({b['timestamp']})")
+                if c2.button(f"Restore", key=f"restore_mon_{b['version']}"):
+                    if restore_backup(b['path'], PATH_MON):
+                        st.success(f"✅ Restored Version {b['version']} successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to restore backup.")
 
 # ─── Summary strip ────────────────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
