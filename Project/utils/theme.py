@@ -4,24 +4,24 @@ import streamlit as st
 # PALETTES
 # ──────────────────────────────────────────────────────────────────────────────
 _DARK = dict(
-    BG          = "#0D1520",
-    SURFACE     = "#1A2538",
-    SURFACE2    = "#1F2E45",
-    BORDER      = "#2B4470",
-    TEXT_PRI    = "#EDF1F7",
-    TEXT_SEC    = "#A3B5CC",
-    NAVY        = "#1B2F5E",
-    NAVY2       = "#2B4470",
-    GOLD        = "#F0BE48",
-    GOLD_DIM    = "#C8A033",
-    GREEN       = "#34D399",
-    RED         = "#F87171",
-    AMBER       = "#FBBF24",
-    BLUE_ACC    = "#60A5FA",
-    SIDEBAR_BG  = "linear-gradient(180deg,#172B4D 0%,#0D1520 100%)",
-    ALERT_BG    = "rgba(26,37,56,0.85)",
-    DROPDOWN_BG = "#1F2E45",
-    SCROLLBAR   = "#2B4470",
+    BG          = "#0c0e14",
+    SURFACE     = "#12151e",
+    SURFACE2    = "#1a1e2b",
+    BORDER      = "#2a2f44",
+    TEXT_PRI    = "#e2e6f3",
+    TEXT_SEC    = "#8890b0",
+    NAVY        = "#12151e",
+    NAVY2       = "#222738",
+    GOLD        = "#f5a623",
+    GOLD_DIM    = "#d4900f",
+    GREEN       = "#26de81",
+    RED         = "#ff5252",
+    AMBER       = "#ffc152",
+    BLUE_ACC    = "#4b7bec",
+    SIDEBAR_BG  = "#12151e",
+    ALERT_BG    = "rgba(26,30,43,0.9)",
+    DROPDOWN_BG = "#1a1e2b",
+    SCROLLBAR   = "#353c58",
 )
 
 _LIGHT = dict(
@@ -64,19 +64,19 @@ def is_dark():
 # STATIC DARK defaults (used as module-level imports by other pages)
 # Pages that want theme-aware colours should call get_palette() instead.
 # ──────────────────────────────────────────────────────────────────────────────
-NAVY     = "#1B2F5E"
-NAVY2    = "#2B4470"
-GOLD     = "#F0BE48"
-GOLD_DIM = "#C8A033"
-BG       = "#0D1520"
-SURFACE  = "#1A2538"
-BORDER   = "#2B4470"
-TEXT_PRI = "#EDF1F7"
-TEXT_SEC = "#A3B5CC"
-GREEN    = "#34D399"
-RED      = "#F87171"
-AMBER    = "#FBBF24"
-BLUE_ACC = "#60A5FA"
+NAVY     = "#12151e"
+NAVY2    = "#222738"
+GOLD     = "#f5a623"
+GOLD_DIM = "#d4900f"
+BG       = "#0c0e14"
+SURFACE  = "#12151e"
+BORDER   = "#2a2f44"
+TEXT_PRI = "#e2e6f3"
+TEXT_SEC = "#8890b0"
+GREEN    = "#26de81"
+RED      = "#ff5252"
+AMBER    = "#ffc152"
+BLUE_ACC = "#4b7bec"
 
 CLUSTER_COLORS = {
     "PREMIUM": "#22C55E",
@@ -118,7 +118,7 @@ def _make_css(p: dict) -> str:
 
     return f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 /* ══════════════════════════════════════════════════════════════════════════
    LAYER 1 — CSS CUSTOM PROPERTIES (single source of truth for all colors)
@@ -151,6 +151,15 @@ def _make_css(p: dict) -> str:
     --btn-alert-bg:  {ALERT_BG};
     --btn-dropdown:  {DROP_BG};
     --btn-scroll:    {SCROLL};
+
+    /* Extended reference palette tokens */
+    --btn-text3:      #545c7e;
+    --btn-bg4:        #222738;
+    --btn-border2:    #353c58;
+    --btn-amber-dim:  rgba(245,166,35,0.12);
+    --btn-teal:       #00cec9;
+    --btn-purple:     #a29bfe;
+    --btn-font-mono:  'JetBrains Mono', monospace;
 }}
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -159,7 +168,7 @@ def _make_css(p: dict) -> str:
 
 *, *::before, *::after {{ box-sizing: border-box; }}
 html, body {{
-    font-family: 'Inter', -apple-system, sans-serif;
+    font-family: 'Space Grotesk', -apple-system, sans-serif;
     background-color: var(--btn-bg) !important;
     color: var(--btn-text-pri) !important;
 }}
@@ -170,7 +179,7 @@ html, body {{
 [data-testid="stText"],
 .stMarkdown, .stText, p, h1, h2, h3, h4, h5, h6, span, li, label {{
     color: var(--btn-text-pri) !important;
-    font-family: 'Inter', -apple-system, sans-serif;
+    font-family: 'Space Grotesk', -apple-system, sans-serif;
 }}
 
 /* ── Sidebar ── */
@@ -214,17 +223,18 @@ html, body {{
 /* ── Tabs ── */
 [data-testid="stTabs"] [data-baseweb="tab-list"] {{
     background: var(--btn-surface) !important;
-    border-radius: 12px; border: 1px solid var(--btn-border); padding: 4px; gap: 2px;
+    border-radius: 6px; border: 1px solid var(--btn-border); padding: 4px; gap: 2px;
 }}
 [data-testid="stTabs"] [data-baseweb="tab"] {{
     background: transparent !important; color: var(--btn-text-sec) !important;
-    border-radius: 9px !important; font-weight: 500 !important;
-    font-size: 0.85rem !important; padding: 8px 16px !important; transition: all 0.2s;
+    border-radius: 4px !important; font-weight: 500 !important;
+    font-size: 0.85rem !important; padding: 8px 16px !important; transition: all 0.15s;
+    font-family: 'Space Grotesk', sans-serif !important;
 }}
 [data-testid="stTabs"] [aria-selected="true"] {{
-    background: linear-gradient(135deg, var(--btn-navy2), var(--btn-navy)) !important;
+    background: var(--btn-amber-dim) !important;
     color: var(--btn-gold) !important; font-weight: 700 !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
+    border-bottom: 2px solid var(--btn-gold) !important;
 }}
 [data-testid="stTabs"] [data-baseweb="tab-highlight"] {{ display: none !important; }}
 
@@ -247,14 +257,17 @@ html, body {{
 [data-testid="stTextInput"] input,
 [data-baseweb="select"] > div:first-child,
 [data-baseweb="input"] input {{
-    background: var(--btn-surface) !important; color: var(--btn-text-pri) !important;
-    border-color: var(--btn-border) !important; border-radius: 8px !important;
+    background: var(--btn-surface2) !important; color: var(--btn-text-pri) !important;
+    border-color: var(--btn-border2) !important; border-radius: 6px !important;
+    font-family: var(--btn-font-mono) !important;
 }}
+[data-testid="stTextInput"] input:focus,
+[data-baseweb="input"] input:focus {{ border-color: var(--btn-gold) !important; }}
 [data-baseweb="popover"] [data-baseweb="menu"] {{
     background: var(--btn-dropdown) !important; border: 1px solid var(--btn-border) !important;
 }}
 [data-baseweb="option"] {{ color: var(--btn-text-pri) !important; background: var(--btn-dropdown) !important; }}
-[data-baseweb="option"]:hover {{ background: var(--btn-navy2) !important; color: #E8EDF5 !important; }}
+[data-baseweb="option"]:hover {{ background: var(--btn-bg4) !important; color: var(--btn-text-pri) !important; }}
 
 /* ── File uploader ── */
 [data-testid="stFileUploader"] {{
@@ -265,9 +278,10 @@ html, body {{
 
 /* ── Data tables ── */
 [data-testid="stDataFrame"] {{
-    border: 1px solid var(--btn-border) !important; border-radius: 10px !important; overflow: hidden;
+    border: 1px solid var(--btn-border) !important; border-radius: 6px !important; overflow: hidden;
 }}
 [data-testid="stDataFrame"] > div {{ background: var(--btn-surface) !important; }}
+[data-testid="stDataFrame"] tr:hover td {{ background: var(--btn-bg4) !important; }}
 
 /* ── Expanders ── */
 [data-testid="stExpander"] {{
@@ -310,50 +324,46 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
    ════════════════════════════════════════════════════ */
 
 .page-header {{
-    display: flex; align-items: center; gap: 12px;
-    padding: 18px 0 16px 0;
-    border-bottom: 2px solid var(--btn-gold-dim); margin-bottom: 24px;
+    display: flex; align-items: center; gap: 14px;
+    background: var(--btn-surface); border: 1px solid var(--btn-border);
+    border-left: 3px solid var(--btn-gold); border-radius: 6px;
+    padding: 16px 20px; margin-bottom: 24px;
 }}
 .page-header h1 {{
-    font-size: 1.65rem; font-weight: 800;
-    background: linear-gradient(90deg, var(--btn-text-pri), var(--btn-gold));
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.4rem; font-weight: 700; color: var(--btn-text-pri); margin: 0;
 }}
 .page-header .subtitle {{
-    font-size: 0.82rem; color: var(--btn-text-sec); margin-top: 3px;
+    font-family: var(--btn-font-mono); font-size: 0.78rem;
+    color: var(--btn-text3); margin-top: 3px;
 }}
 
 .section-label {{
-    font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em;
-    text-transform: uppercase; color: var(--btn-gold-dim);
-    border-left: 3px solid var(--btn-gold); padding-left: 10px; margin: 22px 0 12px 0;
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--btn-text3);
+    font-family: var(--btn-font-mono); margin: 20px 0 10px 0;
 }}
 
 .kpi-card {{
-    background: linear-gradient(135deg, var(--btn-surface) 0%, var(--btn-surface2) 100%);
-    border: 1px solid var(--btn-border); border-radius: 14px; padding: 20px 18px;
-    box-shadow: 0 4px 18px rgba(0,0,0,.25);
-    transition: transform 0.2s, box-shadow 0.2s;
-    position: relative; overflow: hidden; text-align: center;
+    background: var(--btn-surface); border: 1px solid var(--btn-border);
+    border-radius: 6px; padding: 16px;
+    position: relative; overflow: hidden;
 }}
-.kpi-card:hover {{ transform: translateY(-2px); box-shadow: 0 6px 22px rgba(0,0,0,.35); }}
 .kpi-card::before {{
-    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-    background: linear-gradient(90deg, var(--btn-gold-dim), var(--btn-gold));
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--btn-gold);
 }}
 .kpi-card .kpi-val {{
-    font-size: 1.75rem; font-weight: 800; color: var(--btn-gold);
-    line-height: 1.1; margin-bottom: 5px;
+    font-size: 1.6rem; font-weight: 700; font-family: var(--btn-font-mono);
+    color: var(--btn-text-pri); line-height: 1.15; margin-bottom: 6px;
 }}
 .kpi-card .kpi-lbl {{
-    font-size: 0.74rem; color: var(--btn-text-sec); text-transform: uppercase; letter-spacing: 0.06em;
+    font-size: 10px; color: var(--btn-text3);
+    text-transform: uppercase; letter-spacing: 1.5px; font-family: var(--btn-font-mono);
 }}
-.kpi-card.danger::before  {{ background: linear-gradient(90deg, #7f1d1d, var(--btn-red)); }}
-.kpi-card.danger .kpi-val {{ color: var(--btn-red); }}
-.kpi-card.success::before {{ background: linear-gradient(90deg, #14532d, var(--btn-green)); }}
-.kpi-card.success .kpi-val {{ color: var(--btn-green); }}
-.kpi-card.accent::before  {{ background: linear-gradient(90deg, #1e3a8a, var(--btn-blue)); }}
-.kpi-card.accent .kpi-val {{ color: var(--btn-blue); }}
+.kpi-card.danger::before  {{ background: var(--btn-red); }}
+.kpi-card.success::before {{ background: var(--btn-green); }}
+.kpi-card.accent::before  {{ background: var(--btn-blue); }}
 
 .tab-desc {{
     background: var(--btn-surface2); border-left: 4px solid var(--btn-gold-dim);
@@ -488,17 +498,57 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     font-size: 0.7rem; color: #7B96BC; margin-top: 2px; letter-spacing: 0.04em;
 }}
 
-/* ── KPI Shimmer animation on hover ── */
-@keyframes shimmer {{
-    0%   {{ background-position: -200px 0; }}
-    100% {{ background-position: calc(200px + 100%) 0; }}
+/* ── Stats grid & Stat cards ── */
+.stats-grid {{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }}
+.stat-card {{
+    background: var(--btn-surface); border: 1px solid var(--btn-border);
+    border-radius: 6px; padding: 16px; position: relative; overflow: hidden;
 }}
-.kpi-card:hover::after {{
-    content: ''; position: absolute; inset: 0; border-radius: 14px;
-    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%);
-    background-size: 200px 100%; animation: shimmer 1.5s infinite;
-    pointer-events: none;
+.stat-card::before {{ content:''; position:absolute; top:0; left:0; right:0; height:2px; }}
+.stat-card.amber::before  {{ background: var(--btn-gold); }}
+.stat-card.blue::before   {{ background: var(--btn-blue); }}
+.stat-card.green::before  {{ background: var(--btn-green); }}
+.stat-card.purple::before {{ background: var(--btn-purple); }}
+.stat-card.red::before    {{ background: var(--btn-red); }}
+.stat-label {{
+    font-size: 10px; color: var(--btn-text3); text-transform: uppercase;
+    letter-spacing: 1.5px; font-weight: 600; font-family: var(--btn-font-mono); margin-bottom: 8px;
 }}
+.stat-value {{ font-size: 22px; font-family: var(--btn-font-mono); font-weight: 700; color: var(--btn-text-pri); }}
+.stat-meta  {{ font-size: 10px; color: var(--btn-text3); margin-top: 4px; font-family: var(--btn-font-mono); }}
+
+/* ── Card container ── */
+.card {{ background: var(--btn-surface); border: 1px solid var(--btn-border); border-radius: 6px; overflow: hidden; margin-bottom: 16px; }}
+.card-header {{ padding: 14px 18px; border-bottom: 1px solid var(--btn-border); display: flex; align-items: center; gap: 10px; }}
+.card-title  {{ font-size: 13px; font-weight: 700; color: var(--btn-text-pri); font-family: 'Space Grotesk', sans-serif; }}
+.card-subtitle {{ font-size: 11px; color: var(--btn-text3); margin-top: 2px; font-family: var(--btn-font-mono); }}
+.card-body   {{ padding: 16px 18px; }}
+.card-actions {{ margin-left: auto; display: flex; gap: 6px; }}
+
+/* ── Badges ── */
+.badge {{ display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 3px; font-size: 10px; font-family: var(--btn-font-mono); font-weight: 600; }}
+.badge-amber {{ background: var(--btn-amber-dim); color: var(--btn-gold); }}
+.badge-green {{ background: rgba(38,222,129,0.1); color: var(--btn-green); }}
+.badge-blue  {{ background: rgba(75,123,236,0.12); color: var(--btn-blue); }}
+.badge-red   {{ background: rgba(255,82,82,0.1); color: var(--btn-red); }}
+.badge-gray  {{ background: var(--btn-bg4); color: var(--btn-text3); }}
+
+/* ── Section title / sub ── */
+.section-title {{ font-size: 15px; font-weight: 700; color: var(--btn-text-pri); margin-bottom: 4px; font-family: 'Space Grotesk', sans-serif; }}
+.section-sub   {{ font-size: 11px; color: var(--btn-text3); margin-bottom: 16px; font-family: var(--btn-font-mono); }}
+
+/* ── Table value helpers ── */
+td.num-val  {{ color: var(--btn-blue); text-align: right; font-family: var(--btn-font-mono); }}
+td.date-val {{ color: var(--btn-teal); font-family: var(--btn-font-mono); }}
+td.null-val {{ color: var(--btn-text3); font-style: italic; }}
+
+/* ── Dot-spin loading ── */
+.dot-spin {{
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--btn-gold); display: inline-block;
+    animation: dot-pulse 0.8s infinite;
+}}
+@keyframes dot-pulse {{ 0%,100%{{opacity:.2;}} 50%{{opacity:1;}} }}
 </style>
 """
 
@@ -517,7 +567,7 @@ def _nav_css(p: dict) -> str:
 /* ── Brand Header — sticky, full sidebar width ── */
 .sidebar-brand-header {{
     position: sticky !important; top: 0 !important; z-index: 100 !important;
-    background: #172B4D !important; padding: 1.6rem 1.25rem 1rem 1.25rem !important;
+    background: #0c0e14 !important; padding: 1.6rem 1.25rem 1rem 1.25rem !important;
     border-bottom: 1px solid {BORDER} !important; box-sizing: border-box !important;
     margin: -1rem -1rem 0 -1rem !important; width: calc(100% + 2rem) !important;
 }}
@@ -528,12 +578,15 @@ def _nav_css(p: dict) -> str:
     border-bottom: 1px solid {BORDER} !important; margin-bottom: 0.25rem !important;
 }}
 .sb-controls .stSelectbox label {{
-    font-size: 0.65rem !important; text-transform: uppercase !important;
-    letter-spacing: 0.08em !important; color: {TEXT_SEC} !important; font-weight: 700 !important;
+    font-size: 9px !important; text-transform: uppercase !important;
+    letter-spacing: 2px !important; color: #545c7e !important; font-weight: 600 !important;
+    font-family: 'JetBrains Mono', monospace !important;
 }}
 .sb-controls .stSelectbox > div > div {{
     font-size: 0.82rem !important; padding: 5px 10px !important; min-height: 34px !important;
+    border-color: {BORDER} !important;
 }}
+.sb-controls .stSelectbox > div > div:focus-within {{ border-color: {GOLD} !important; }}
 .sb-controls .stToggle label {{ font-size: 0.8rem !important; color: {TEXT_SEC} !important; }}
 
 /* ── Hide the auto-generated nav widget — routing still works via st.navigation() ── */
@@ -547,7 +600,7 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
     position: sticky !important; bottom: 0 !important;
     padding: 0.6rem 0 0.25rem 0 !important;
     border-top: 1px solid {BORDER} !important;
-    background: #172B4D !important;
+    background: #0c0e14 !important;
     margin-top: auto !important;
 }}
 
@@ -557,31 +610,33 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
     border-top: 1px solid {BORDER}; margin-top: 0.5rem;
 }}
 .custom-nav-group {{
-    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em;
-    font-weight: 700; color: {TEXT_SEC}; opacity: 0.75;
+    font-family: 'JetBrains Mono', monospace; font-size: 9px;
+    text-transform: uppercase; letter-spacing: 2px;
+    font-weight: 600; color: #545c7e;
     margin: 0.9rem 0.8rem 0.3rem 0.8rem;
 }}
 
 /* ── Style st.page_link() to match native nav link appearance ── */
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] {{
-    border-radius: 8px !important; margin: 0.1rem 0.8rem !important;
+    border-radius: 6px !important; margin: 0.1rem 0.8rem !important;
     padding: 0 !important; transition: background 0.15s !important;
 }}
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"]:hover {{
-    background: rgba(240,190,72,0.10) !important;
+    background: rgba(245,166,35,0.07) !important;
 }}
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a {{
-    color: #E8EDF5 !important; text-decoration: none !important;
-    font-size: 0.88rem !important; padding: 0.45rem 0.8rem !important;
+    color: #8890b0 !important; text-decoration: none !important;
+    font-size: 0.85rem !important; padding: 0.45rem 0.8rem !important;
     display: flex !important; align-items: center !important;
-    gap: 0.5rem !important; border-radius: 8px !important; width: 100% !important;
+    gap: 0.5rem !important; border-radius: 6px !important; width: 100% !important;
+    font-family: 'Space Grotesk', sans-serif !important;
 }}
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a:hover {{
-    background: rgba(240,190,72,0.10) !important;
+    background: rgba(245,166,35,0.07) !important; color: #e2e6f3 !important;
 }}
-/* Active page highlight — CSS class toggle, not hardcoded color */
+/* Active page highlight — amber accent */
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a[aria-current="page"] {{
-    background: rgba(43,68,112,0.60) !important; font-weight: 700 !important;
+    background: rgba(245,166,35,0.12) !important; font-weight: 700 !important;
     border-left: 3px solid {GOLD} !important; color: {GOLD} !important;
 }}
 </style>
@@ -716,11 +771,28 @@ def status_card(icon: str, label: str, value: str, kind: str = "ok") -> str:
     </div>"""
 
 
+def badge_html(text: str, variant: str = "amber") -> str:
+    """Return badge HTML. variant: amber | green | blue | red | gray"""
+    return f'<span class="badge badge-{variant}">{text}</span>'
+
+
+def card_wrap(title: str, subtitle: str = "") -> str:
+    """Return opening HTML for a card container with header. Close with </div></div>."""
+    sub = f'<div class="card-subtitle">{subtitle}</div>' if subtitle else ""
+    return (
+        f'<div class="card">'
+        f'<div class="card-header"><div>'
+        f'<div class="card-title">{title}</div>{sub}'
+        f'</div></div>'
+        f'<div class="card-body">'
+    )
+
+
 def apply_plotly_theme(fig):
     """Apply active palette colours to a Plotly figure."""
     p = _palette()
     fig.update_layout(
-        font=dict(family="Inter, sans-serif", color=p["TEXT_PRI"]),
+        font=dict(family="Space Grotesk, sans-serif", color=p["TEXT_PRI"]),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
     )
