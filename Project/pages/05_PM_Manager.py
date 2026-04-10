@@ -122,13 +122,28 @@ _active_pms  = current_data['PM'].nunique() if 'PM' in current_data.columns else
 _unassigned  = int((current_data['PM'].fillna('UNASSIGNED').str.upper() == 'UNASSIGNED').sum()) if 'PM' in current_data.columns else 0
 _avg_per_pm  = round(_total_mg / max(_active_pms, 1), 1)
 
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Total Merchants",       _total_mg)
-m2.metric("Active PMs",            _active_pms)
-m3.metric("Unassigned Merchants",  _unassigned,
-          delta=f"+{_unassigned}" if _unassigned > 0 else None,
-          delta_color="inverse")
-m4.metric("Avg Merchants / PM",    _avg_per_pm)
+st.markdown(f"""<div class="stats-grid">
+    <div class="stat-card amber">
+        <div class="stat-label">Total Merchants</div>
+        <div class="stat-value">{_total_mg}</div>
+        <div class="stat-meta">merchant groups</div>
+    </div>
+    <div class="stat-card blue">
+        <div class="stat-label">Active PMs</div>
+        <div class="stat-value">{_active_pms}</div>
+        <div class="stat-meta">project managers</div>
+    </div>
+    <div class="stat-card {"red" if _unassigned else "green"}">
+        <div class="stat-label">Unassigned</div>
+        <div class="stat-value">{_unassigned}</div>
+        <div class="stat-meta">{"need assignment" if _unassigned else "fully assigned"}</div>
+    </div>
+    <div class="stat-card purple">
+        <div class="stat-label">Avg Merchants / PM</div>
+        <div class="stat-value">{_avg_per_pm}</div>
+        <div class="stat-meta">per manager</div>
+    </div>
+</div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
