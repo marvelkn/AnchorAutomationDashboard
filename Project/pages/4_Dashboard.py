@@ -283,12 +283,8 @@ _ytd_sv          = df_card['TOTAL_SV'].sum()                    if not df_card.e
 _ytd_trx         = df_card['TOTAL_TRX'].sum()                   if not df_card.empty and 'TOTAL_TRX'       in df_card.columns else 0
 _avg_onus        = df_card['RASIO_ONUS'].mean()                 if not df_card.empty and 'RASIO_ONUS'      in df_card.columns else 0
 
-_high_risk_count = 0
-if not df_card.empty and 'SV_GROWTH_RATE' in df_card.columns and 'WEEKS_ACTIVE' in df_card.columns:
-    _high_risk_count = int((
-        (df_card['WEEKS_ACTIVE'].fillna(0) <= 2) |
-        (df_card['SV_GROWTH_RATE'].fillna(0) <= -0.99)
-    ).sum())
+_ml_kpi = run_ml(df_card, df_mon, df_target, z_thresh=-1.2) if (has_card and has_mon) else pd.DataFrame()
+_high_risk_count = int(_ml_kpi['CHURN_RISK'].str.contains('HIGH', na=False).sum()) if not _ml_kpi.empty and 'CHURN_RISK' in _ml_kpi.columns else 0
 
 _sv_fmt  = f"Rp {_ytd_sv/1e9:,.1f} M"  if _ytd_sv >= 1e9 else f"Rp {_ytd_sv/1e6:,.0f} Jt"
 _trx_fmt = f"{_ytd_trx/1e6:,.2f} M"    if _ytd_trx >= 1e6 else f"{_ytd_trx:,.0f}"
