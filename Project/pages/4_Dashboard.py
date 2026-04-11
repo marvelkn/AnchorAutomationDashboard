@@ -433,11 +433,10 @@ with tab0:
             )
         with ov_right:
             _sl("Coverage Summary")
-            _total_mg = len(df_target)
             _active_pms = df_target['PM'].nunique() if 'PM' in df_target.columns else 0
             _unassigned = int((df_target['PM'].fillna('UNASSIGNED').str.upper() == 'UNASSIGNED').sum()) if 'PM' in df_target.columns else 0
-            _avg_per_pm = round(_total_mg / max(_active_pms, 1), 1)
-            st.metric("Total Merchants",        _total_mg)
+            _assigned = len(df_target) - _unassigned
+            _avg_per_pm = round(_assigned / max(_active_pms, 1), 1)
             st.metric("Active PMs",             _active_pms)
             st.metric("Unassigned Merchants",   _unassigned,
                       delta=f"+{_unassigned}" if _unassigned > 0 else None,
@@ -447,9 +446,7 @@ with tab0:
         st.info("No TARGET data loaded. Run the pipeline to populate PM assignments.")
 
     if _high_risk_count > 0:
-        st.warning(f"⚠️ **{_high_risk_count} high-risk merchant(s)** detected based on current data. Check the **Risk & Churn** tab for details.")
-    else:
-        st.success("✅ No high-risk merchants detected in the current filter selection.")
+        st.warning(f"⚠️ **{_high_risk_count} high-risk merchant(s)** detected. Check the **Risk & Churn** tab for details.")
 
     with st.expander("📂 Environment & Path Visibility"):
         st.code(f"DB Path:   {os.path.abspath(PATH_DB)}\nCARD Path: {os.path.abspath(PATH_CARD)}\nMON Path:  {os.path.abspath(PATH_MON)}")
@@ -836,9 +833,9 @@ with tab2:
 
             st.markdown(f"""<div class="stats-grid">
                 <div class="stat-card amber">
-                    <div class="stat-label">Merchants Filtered</div>
+                    <div class="stat-label">Active Merchants</div>
                     <div class="stat-value">{_n_merch_mon}</div>
-                    <div class="stat-meta">active merchants</div>
+                    <div class="stat-meta">with {sel_yr_mon} records</div>
                 </div>
                 <div class="stat-card green">
                     <div class="stat-label">Filtered YTD Volume</div>
@@ -902,28 +899,6 @@ with tab2:
                 f"monitoring_{sel_yr_mon}_export.csv", "text/csv")
 
 
-    # KPI footer from DB
-    if not df_mon.empty:
-        styled_divider()
-        avg_wa = df_mon['WEEKS_ACTIVE'].mean() if 'WEEKS_ACTIVE' in df_mon.columns else 0
-        ytd_v  = df_mon['YTD_VOL'].sum() if 'YTD_VOL' in df_mon.columns else 0
-        st.markdown(f"""<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">
-            <div class="stat-card amber">
-                <div class="stat-label">Merchants in DB</div>
-                <div class="stat-value">{len(df_mon):,}</div>
-                <div class="stat-meta">merchant records</div>
-            </div>
-            <div class="stat-card blue">
-                <div class="stat-label">Avg Weeks Active</div>
-                <div class="stat-value">{avg_wa:.1f}</div>
-                <div class="stat-meta">weeks avg</div>
-            </div>
-            <div class="stat-card green">
-                <div class="stat-label">YTD Volume Total</div>
-                <div class="stat-value">Rp {ytd_v/1e9:,.2f}M</div>
-                <div class="stat-meta">total volume</div>
-            </div>
-        </div>""", unsafe_allow_html=True)
 
 
 with tab3:
