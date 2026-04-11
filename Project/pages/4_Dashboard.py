@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from scipy import stats
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 import os
 import sys
 
@@ -70,57 +71,58 @@ def table_exists(conn_or_engine, name, schema="public"):
 @st.cache_data
 def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
     """
-    Btn Anchor ML Pipeline:
+    BTN Anchor ML Pipeline v2:
     1. Merge Card Share + Monitoring
-    2. Feature Engineering (Log Scaling + Clipping)
-    3. K-Means++ Clustering
-    4. Tri-Factor Z-Score Anomaly detection
+    2. Feature Engineering — AVG_SV/FBI normalized by actual WEEKS_ACTIVE (not fixed /12)
+    3. K-Means++ Clustering — composite multi-metric cluster ranking (SV + achievement + growth)
+    4. Modified Z-Score (MAD) — robust anomaly detection, resistant to outliers in small portfolios
+    5. Composite Risk Score 0–100 — weighted: Growth 40%, SV 30%, FBI 20%, Achievement 10%
+    6. Three-tier CHURN_RISK — HIGH (≥60) / MEDIUM (30–59) / STABLE (<30)
+    7. Silhouette Score — cluster separation quality metric
     """
-    # Defensive list of columns we expect to exist in the output
-    ML_COLS = ['MERCHANT_GROUP', 'CLUSTER', 'CHURN_RISK', 'PM', 'WEEKS_ACTIVE', 
-               'SV_GROWTH_RATE', 'ACHIEVEMENT_PCT', 'AVG_SV', 'AVG_FBI', 
+    ML_COLS = ['MERCHANT_GROUP', 'CLUSTER', 'CHURN_RISK', 'RISK_SCORE', 'SILHOUETTE_SCORE',
+               'PM', 'WEEKS_ACTIVE', 'SV_GROWTH_RATE', 'ACHIEVEMENT_PCT', 'AVG_SV', 'AVG_FBI',
                'ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH', 'SV_GROWTH_CLIPPED',
                'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS']
-    
-    if df_c.empty: 
+
+    if df_c.empty:
         return pd.DataFrame(columns=ML_COLS)
-    
-    # Merge datasets
+
+    # ── 1. Merge ──────────────────────────────────────────────────────────────
     if not df_m.empty:
-        # Monitoring is at Group level, Card is at Merchant/Group level
-        # We aggregate Group-level for ML
         agg_cols = {c: 'sum' for c in ['TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI'] if c in df_c.columns}
         if 'RASIO_ONUS' in df_c.columns: agg_cols['RASIO_ONUS'] = 'mean'
-        
         df = df_c.groupby('MERCHANT_GROUP').agg(agg_cols).reset_index()
         df = pd.merge(df, df_m, on='MERCHANT_GROUP', how='left')
     else:
         df = df_c.copy()
-        
-    if df.empty: 
+
+    if df.empty:
         return pd.DataFrame(columns=ML_COLS)
-    
-    # Ensure mandatory columns exist for calculations
+
     for col in ['TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS']:
         if col not in df.columns: df[col] = 0
-    
-    # Feature Engineering
-    df['AVG_SV']  = df['TOTAL_SV'] / 12  # Approximation
-    df['AVG_FBI'] = df['TOTAL_FBI'] / 12
+
+    # ── 2. Feature Engineering ────────────────────────────────────────────────
+    # Normalize monthly avg by actual weeks active, not a hardcoded /12
+    df['WEEKS_ACTIVE'] = pd.to_numeric(
+        df.get('WEEKS_ACTIVE', pd.Series([12] * len(df))), errors='coerce'
+    ).fillna(12).clip(1, 52)
+    months_active = (df['WEEKS_ACTIVE'] / 4.33).clip(1, 12)
+    df['AVG_SV']     = df['TOTAL_SV'] / months_active
+    df['AVG_FBI']    = df['TOTAL_FBI'] / months_active
     df['RASIO_ONUS'] = df['RASIO_ONUS'].clip(0, 1).fillna(0)
-    
-    # Growth & Weeks Active (from Monitoring)
-    df['WEEKS_ACTIVE'] = df.get('WEEKS_ACTIVE', pd.Series([99]*len(df))).fillna(99)
-    df['SV_GROWTH_RATE'] = pd.to_numeric(df.get('SV_GROWTH_RATE', pd.Series([0]*len(df))), errors='coerce').fillna(0)
-    
-    # Clipping for growth
+
+    df['SV_GROWTH_RATE'] = pd.to_numeric(
+        df.get('SV_GROWTH_RATE', pd.Series([0] * len(df))), errors='coerce'
+    ).fillna(0)
+
     if len(df) > 1:
         low, high = df['SV_GROWTH_RATE'].quantile([0.05, 0.95])
         df['SV_GROWTH_CLIPPED'] = df['SV_GROWTH_RATE'].clip(low, high)
     else:
         df['SV_GROWTH_CLIPPED'] = df['SV_GROWTH_RATE']
-    
-    # Target Achievement
+
     if df_t is not None and not df_t.empty and 'TARGET_VOL_2026' in df_t.columns:
         df = pd.merge(df, df_t[['MERCHANT_GROUP', 'TARGET_VOL_2026']], on='MERCHANT_GROUP', how='left')
         df['ACHIEVEMENT_PCT'] = np.where(
@@ -129,24 +131,33 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
         )
     else:
         df['ACHIEVEMENT_PCT'] = 0
-    
-    # Clustering Preparation
+
+    # ── 3. Clustering ─────────────────────────────────────────────────────────
     FEAT = ['AVG_SV', 'AVG_FBI', 'RASIO_ONUS', 'SV_GROWTH_CLIPPED', 'ACHIEVEMENT_PCT', 'WEEKS_ACTIVE']
     X = df[FEAT].fillna(0).copy()
     X['AVG_SV']  = np.log1p(X['AVG_SV'])
     X['AVG_FBI'] = np.log1p(X['AVG_FBI'])
-    
+
+    df['SILHOUETTE_SCORE'] = 0.0
+    df['RISK_SCORE']       = 0.0
+
     try:
-        # We need at least k rows for KMeans to be meaningful, but scikit-learn handles it if we have at least 1.
         if len(df) >= k_clusters:
             X_s = StandardScaler().fit_transform(X)
-            km = KMeans(n_clusters=k_clusters, init='k-means++', n_init=20, random_state=42)
+            km  = KMeans(n_clusters=k_clusters, init='k-means++', n_init=20, random_state=42)
             df['CLUSTER_RAW'] = km.fit_predict(X_s)
-            
-            # Consistent labels (Premium > Reguler > Pasif) based on Sales Volume
-            sv_order = df.groupby('CLUSTER_RAW')['AVG_SV'].mean().sort_values(ascending=False)
-            rank = {c: i for i, c in enumerate(sv_order.index)}
-            
+
+            # Multi-metric composite ranking: normalize each metric across clusters
+            # then weight: SV 60%, Achievement 25%, Growth 15%
+            cs = df.groupby('CLUSTER_RAW').agg(
+                {'AVG_SV': 'mean', 'ACHIEVEMENT_PCT': 'mean', 'SV_GROWTH_CLIPPED': 'mean'}
+            )
+            for col in cs.columns:
+                rng = cs[col].max() - cs[col].min()
+                cs[col] = (cs[col] - cs[col].min()) / (rng + 1e-9)
+            cs['COMPOSITE'] = 0.60 * cs['AVG_SV'] + 0.25 * cs['ACHIEVEMENT_PCT'] + 0.15 * cs['SV_GROWTH_CLIPPED']
+            rank = {c: i for i, c in enumerate(cs['COMPOSITE'].sort_values(ascending=False).index)}
+
             lbl_maps = {
                 3: {0: 'PREMIUM', 1: 'REGULER', 2: 'PASIF'},
                 4: {0: 'ELITE', 1: 'PREMIUM', 2: 'REGULER', 3: 'PASIF'},
@@ -154,39 +165,59 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
             }
             lbl = lbl_maps.get(k_clusters, {i: f'TIER {i+1}' for i in range(k_clusters)})
             df['CLUSTER'] = df['CLUSTER_RAW'].map(lambda c: lbl[rank[c]])
+
+            # Silhouette score: measures how well-separated the clusters are
+            # Range: -1 to 1 | >0.5 = strong | 0.25–0.5 = moderate | <0.25 = weak
+            if len(df) >= 2:
+                df['SILHOUETTE_SCORE'] = round(float(silhouette_score(X_s, df['CLUSTER_RAW'])), 4)
         else:
-            df['CLUSTER'] = 'REGULER' # Default for small datasets
-            
-        # Z-Scores - Need at least 2 rows for std deviation
+            df['CLUSTER'] = 'REGULER'
+
+        # ── 4. Modified Z-Score (MAD) ─────────────────────────────────────────
+        # MAD = Median Absolute Deviation — resistant to extreme outliers.
+        # Formula: z = 0.6745 * (x - median) / MAD
+        # More reliable than standard Z-score for small portfolios (~38 merchants)
+        def _mad_zscore(series):
+            s = pd.to_numeric(series, errors='coerce').fillna(0)
+            if len(s) < 2: return pd.Series(0.0, index=s.index)
+            median = s.median()
+            mad    = (s - median).abs().median()
+            if mad < 1e-9: return pd.Series(0.0, index=s.index)
+            return 0.6745 * (s - median) / mad
+
         if len(df) > 1:
-            df['ZSCORE_SV'] = stats.zscore(np.log1p(df['AVG_SV']))
-            df['ZSCORE_FBI'] = stats.zscore(np.log1p(df['AVG_FBI']))
-            df['ZSCORE_GROWTH'] = stats.zscore(df['SV_GROWTH_CLIPPED'])
+            df['ZSCORE_SV']     = _mad_zscore(np.log1p(df['AVG_SV']))
+            df['ZSCORE_FBI']    = _mad_zscore(np.log1p(df['AVG_FBI']))
+            df['ZSCORE_GROWTH'] = _mad_zscore(df['SV_GROWTH_CLIPPED'])
         else:
-            df['ZSCORE_SV'] = 0.0
-            df['ZSCORE_FBI'] = 0.0
-            df['ZSCORE_GROWTH'] = 0.0
-        
-        # Churn Risk
-        df['CHURN_RISK'] = (
-            (df['WEEKS_ACTIVE'] <= 2) |
-            ((df['SV_GROWTH_RATE'] <= -0.95) & (df['ACHIEVEMENT_PCT'] < 5)) |
-            ((df['CLUSTER'].isin(['PASIF', 'DORMANT'])) & (df['ACHIEVEMENT_PCT'] < 1)) |
-            (df['ZSCORE_SV'] < z_thresh) |
-            (df['ZSCORE_FBI'] < z_thresh) |
-            (df['ZSCORE_GROWTH'] < z_thresh)
-        ).map({True: 'HIGH RISK ⚠️', False: 'STABLE ✅'})
+            df['ZSCORE_SV'] = df['ZSCORE_FBI'] = df['ZSCORE_GROWTH'] = 0.0
+
+        # ── 5. Composite Risk Score (0–100) ───────────────────────────────────
+        # Weights reflect predictive importance for merchant churn:
+        # Growth trend (40%) > Volume anomaly (30%) > FBI anomaly (20%) > Target gap (10%)
+        df['RISK_SCORE'] = (
+            np.clip(-df['ZSCORE_GROWTH'], 0, 3) / 3 * 40 +
+            np.clip(-df['ZSCORE_SV'],     0, 3) / 3 * 30 +
+            np.clip(-df['ZSCORE_FBI'],    0, 3) / 3 * 20 +
+            np.clip(1 - df['ACHIEVEMENT_PCT'] / 100, 0, 1) * 10
+        ).clip(0, 100).round(1)
+
+        # ── 6. Three-tier Churn Risk ──────────────────────────────────────────
+        def _risk_tier(score):
+            if score >= 60: return 'HIGH RISK ⚠️'
+            if score >= 30: return 'MEDIUM RISK 🟡'
+            return 'STABLE ✅'
+        df['CHURN_RISK'] = df['RISK_SCORE'].apply(_risk_tier)
+
     except Exception as e:
-        df['CLUSTER'] = 'UNKNOWN'
+        df['CLUSTER']    = 'UNKNOWN'
         df['CHURN_RISK'] = 'STABLE ✅'
-        df['ZSCORE_SV'] = 0.0
-        df['ZSCORE_FBI'] = 0.0
-        df['ZSCORE_GROWTH'] = 0.0
-        
-    # Final check for columns
+        df['RISK_SCORE'] = 0.0
+        df['ZSCORE_SV']  = df['ZSCORE_FBI'] = df['ZSCORE_GROWTH'] = 0.0
+
     for col in ML_COLS:
         if col not in df.columns: df[col] = np.nan
-        
+
     return df
 
 
@@ -1179,6 +1210,25 @@ with tab3:
                 unsafe_allow_html=True,
             )
 
+            # ── Silhouette Score ─────────────────────────────────────────────
+            if 'SILHOUETTE_SCORE' in df_ml.columns:
+                sil = float(df_ml['SILHOUETTE_SCORE'].iloc[0])
+                if sil > 0.5:
+                    sil_label, sil_color = "Strong separation — K is a good fit", "#34D399"
+                elif sil > 0.25:
+                    sil_label, sil_color = "Moderate separation — clusters are reasonable", "#FBBF24"
+                else:
+                    sil_label, sil_color = "Weak separation — try a different K", "#F87171"
+                st.markdown(
+                    f"""<div style="padding:10px 16px;border-radius:10px;border:1px solid {sil_color};
+                        background:{sil_color}18;margin-bottom:12px;">
+                        <b>Silhouette Score (K={k_val}):</b>
+                        <span style="color:{sil_color};font-weight:bold;font-size:1.1rem;margin-left:8px;">{sil:.3f}</span>
+                        <span style="color:#888;font-size:0.85rem;margin-left:10px;">— {sil_label}</span>
+                    </div>""",
+                    unsafe_allow_html=True
+                )
+
             st.markdown("")
             sc1, sc2 = st.columns(2)
 
@@ -1230,9 +1280,10 @@ with tab3:
                 st.plotly_chart(fig_stk, width='stretch')
 
             with st.expander("📋 View ML Results Table"):
-                show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','AVG_SV','AVG_FBI',
-                                         'ACHIEVEMENT_PCT','WEEKS_ACTIVE','ZSCORE_SV'] if c in df_f.columns]
-                st.dataframe(df_f[show_cols].sort_values('AVG_SV', ascending=False).reset_index(drop=True), width='stretch')
+                show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','RISK_SCORE',
+                                         'AVG_SV','AVG_FBI','ACHIEVEMENT_PCT',
+                                         'WEEKS_ACTIVE','ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH'] if c in df_f.columns]
+                st.dataframe(df_f[show_cols].sort_values('RISK_SCORE', ascending=False).reset_index(drop=True), width='stretch')
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — CHURN & RISK
@@ -1275,25 +1326,31 @@ with tab4:
                 df_c4 = df_c4[~churn_mask]
                 filter_pill(f"Filter Active: Stable Only — {len(df_c4)} merchants shown")
 
-            df_high = df_c4[df_c4['CHURN_RISK'].str.contains("HIGH", na=False)]
-            df_safe = df_c4[~df_c4['CHURN_RISK'].str.contains("HIGH", na=False)]
-            total   = len(df_c4)
+            df_high   = df_c4[df_c4['CHURN_RISK'] == 'HIGH RISK ⚠️']
+            df_medium = df_c4[df_c4['CHURN_RISK'] == 'MEDIUM RISK 🟡']
+            df_safe   = df_c4[df_c4['CHURN_RISK'] == 'STABLE ✅']
+            total     = len(df_c4)
 
-            # KPI
-            rate = len(df_high)/total*100 if total > 0 else 0
-            st.markdown(f"""<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">
+            # KPI — rate based on HIGH + MEDIUM combined (overall at-risk)
+            rate = (len(df_high) + len(df_medium)) / total * 100 if total > 0 else 0
+            st.markdown(f"""<div class="stats-grid" style="grid-template-columns:repeat(4,1fr);">
                 <div class="stat-card red">
-                    <div class="stat-label">High Churn Risk</div>
+                    <div class="stat-label">High Risk</div>
                     <div class="stat-value">{len(df_high)}</div>
-                    <div class="stat-meta">merchants flagged</div>
+                    <div class="stat-meta">score ≥ 60</div>
+                </div>
+                <div class="stat-card amber">
+                    <div class="stat-label">Medium Risk</div>
+                    <div class="stat-value">{len(df_medium)}</div>
+                    <div class="stat-meta">score 30–59</div>
                 </div>
                 <div class="stat-card green">
                     <div class="stat-label">Stable</div>
                     <div class="stat-value">{len(df_safe)}</div>
-                    <div class="stat-meta">merchants stable</div>
+                    <div class="stat-meta">score &lt; 30</div>
                 </div>
-                <div class="stat-card amber">
-                    <div class="stat-label">Churn Rate (filtered)</div>
+                <div class="stat-card blue">
+                    <div class="stat-label">At-Risk Rate</div>
                     <div class="stat-value">{rate:.1f}%</div>
                     <div class="stat-meta">of portfolio</div>
                 </div>
@@ -1443,26 +1500,30 @@ with tab4:
                     z2.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_FBI', "FBI Outlier Map", z_thresh_val), width='stretch')
                     z3.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_GROWTH', "Growth Outlier Map", z_thresh_val), width='stretch')
 
-            if len(df_high) > 0:
-                section_label("⚠️ High-Risk Merchant Details")
-                risk_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK',
+            # Show HIGH + MEDIUM merchants sorted by Risk Score descending
+            df_at_risk = pd.concat([df_high, df_medium], ignore_index=True)
+            if len(df_at_risk) > 0:
+                section_label("⚠️ At-Risk Merchant Details")
+                risk_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK','RISK_SCORE',
                                           'WEEKS_ACTIVE','SV_GROWTH_RATE',
-                                          'ACHIEVEMENT_PCT','ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH'] if c in df_high.columns]
-                df_rd = df_high[risk_cols].copy()
+                                          'ACHIEVEMENT_PCT','ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH'] if c in df_at_risk.columns]
+                df_rd = df_at_risk[risk_cols].sort_values('RISK_SCORE', ascending=False).copy() if 'RISK_SCORE' in df_at_risk.columns else df_at_risk[risk_cols].copy()
                 if 'SV_GROWTH_RATE' in df_rd.columns:
                     df_rd['SV_GROWTH_RATE'] = (df_rd['SV_GROWTH_RATE']*100).round(1).astype(str)+'%'
                 if 'ACHIEVEMENT_PCT' in df_rd.columns:
                     df_rd['ACHIEVEMENT_PCT'] = df_rd['ACHIEVEMENT_PCT'].round(1).astype(str)+'%'
-                    
-                def style_z_scores(row):
+
+                def style_risk_table(row):
                     styles = [''] * len(row)
                     for idx, col in enumerate(df_rd.columns):
-                        if col.startswith('ZSCORE') and row[col] < z_thresh_val:
+                        if col.startswith('ZSCORE') and pd.to_numeric(row[col], errors='coerce') < z_thresh_val:
                             styles[idx] = f'color: {RED}; font-weight: bold;'
                     return styles
-                    
-                st.dataframe(df_rd.style.apply(style_z_scores, axis=1).format({c: "{:.3f}" for c in ['ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH']}).hide(axis="index"), width='stretch')
-                st.download_button("⬇️ Export High-Risk List", df_rd.to_csv(index=False, encoding='utf-8-sig'),
+
+                fmt = {c: "{:.3f}" for c in ['ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH'] if c in df_rd.columns}
+                if 'RISK_SCORE' in df_rd.columns: fmt['RISK_SCORE'] = "{:.1f}"
+                st.dataframe(df_rd.style.apply(style_risk_table, axis=1).format(fmt).hide(axis="index"), width='stretch')
+                st.download_button("⬇️ Export At-Risk List", df_rd.to_csv(index=False, encoding='utf-8-sig'),
                                    "churn_risk_merchants.csv", "text/csv")
 
 
