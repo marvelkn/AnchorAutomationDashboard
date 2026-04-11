@@ -398,14 +398,12 @@ styled_divider()
 CLAMP = CLUSTER_COLORS
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab0, tab1, tab2, tab3, tab4 = st.tabs([
     "🏠  Overview",
     "💰  Card Share",
     "📅  Weekly Monitor",
     "🤖  Segmentation",
     "⚠️  Risk & Churn",
-    "🔍  Merchant Detail",
-    "🔮  AI Insights",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -507,6 +505,219 @@ with tab0:
             conn_b.close()
         except Exception as e:
             st.error(f"Error Analyzing Batch: {e}")
+
+    # ── Merchant Explorer (formerly Merchant Detail tab) ─────────────────────
+    styled_divider()
+    with st.expander("🔍 Merchant Explorer & Export", expanded=False):
+        st.caption("Fully interactive explorer. Apply any combination of filters, search, sort, and export to CSV.")
+        if has_card and has_mon:
+            df_exp = run_ml(df_card, df_mon, df_target)
+        elif has_card:
+            df_exp = df_card.copy()
+        else:
+            df_exp = df_mon.copy() if not df_mon.empty else pd.DataFrame()
+
+        if df_exp.empty:
+            st.info("ℹ️ No merchants found to explore. Please populate the database first.")
+        else:
+            section_label("🎛️ Explorer Filters")
+            ef1, ef2, ef3, ef4 = st.columns(4)
+            with ef1:
+                if 'CLUSTER' in df_exp.columns:
+                    sel_ec = st.multiselect("Cluster", ['PREMIUM','REGULER','PASIF'],
+                                            default=['PREMIUM','REGULER','PASIF'], key="e_clust")
+                    df_exp = df_exp[df_exp['CLUSTER'].isin(sel_ec)]
+            with ef2:
+                if 'PM' in df_exp.columns:
+                    all_pm_e = sorted(df_exp['PM'].dropna().unique().tolist())
+                    sel_ep = st.multiselect("PM", all_pm_e, default=all_pm_e, key="e_pm")
+                    df_exp = df_exp[df_exp['PM'].isin(sel_ep)]
+            with ef3:
+                if 'CHURN_RISK' in df_exp.columns:
+                    cr_opts = ['All'] + df_exp['CHURN_RISK'].dropna().unique().tolist()
+                    sel_cr = st.selectbox("Churn Risk", cr_opts, key="e_cr")
+                    if sel_cr != 'All':
+                        df_exp = df_exp[df_exp['CHURN_RISK'] == sel_cr]
+            with ef4:
+                srch = st.text_input("🔎 Search merchant name", key="e_srch")
+                if srch:
+                    df_exp = df_exp[df_exp['MERCHANT_GROUP'].str.contains(srch.upper(), na=False)]
+
+            active_count = len(df_exp)
+            all_count    = len(run_ml(df_card, df_mon, df_target)) if (has_card and has_mon) else len(df_exp)
+            if active_count < all_count:
+                filter_pill(f"Filter Active: Showing {active_count:,} of {all_count:,} merchants")
+            else:
+                st.info(f"No filters applied — showing all **{active_count:,}** merchants.")
+
+            show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK',
+                                      'TOTAL_SV','TOTAL_TRX','TOTAL_FBI','RASIO_ONUS',
+                                      'WEEKS_ACTIVE','YTD_VOL','ACHIEVEMENT_PCT',
+                                      'SV_GROWTH_RATE','ZSCORE_SV'] if c in df_exp.columns]
+            es1, es2 = st.columns([3, 1])
+            sort_e = es1.selectbox("Sort by", show_cols, key="e_sort")
+            asc_e  = es2.radio("Order", ["Desc", "Asc"], horizontal=True, key="e_asc")
+            df_exp_s = df_exp[show_cols].sort_values(sort_e, ascending=(asc_e == 'Asc')).reset_index(drop=True) \
+                       if sort_e else df_exp[show_cols].reset_index(drop=True)
+            st.dataframe(df_exp_s, use_container_width=True, height=480)
+            st.download_button("⬇️ Export Filtered View as CSV",
+                               df_exp_s.to_csv(index=False, encoding='utf-8-sig'),
+                               "merchant_explorer_export.csv", "text/csv", type="primary")
+
+    # ── AI Insights (formerly AI Insights tab) ────────────────────────────────
+    with st.expander("🤖 AI Insights & Recommendations", expanded=False):
+        if not has_mon_weekly:
+            st.warning("⚠️ AI Insights require processed Monitoring Weekly data in the database.")
+        else:
+            df_ai_wk = df_mon_weekly[df_mon_weekly['YEAR'] == '2026'].copy()
+            W_COLS = sorted([c for c in df_ai_wk.columns if c.startswith('W') and c[1:].isdigit()])
+            if df_ai_wk.empty:
+                st.info("ℹ️ No 2026 monitoring data found for the current filter.")
+            else:
+                # --- Silent Churn Anomaly Scanner ---
+                section_label("🚨 Fleet-Wide Sudden Drop Monitor (Silent Churn)")
+                st.markdown("Scans recent weekly data for merchants whose latest activity crashed below their own 4-week moving average.")
+                latest_wk_num = 0
+                for w in reversed(W_COLS):
+                    if df_ai_wk[w].fillna(0).sum() > 0:
+                        latest_wk_num = int(w[1:])
+                        break
+                if latest_wk_num < 5:
+                    st.info("Insufficient 2026 weeks logged to calculate a 4-week trailing average.")
+                else:
+                    wk_curr = f"W{latest_wk_num:02d}"
+                    wk_hist = [f"W{latest_wk_num-i:02d}" for i in range(1, 5)]
+                    slider_drop = st.slider("Drop Threshold Alert Trigger", 10, 80, 30, 5, format="%d%%", key="ai_drop_thresh")
+                    threshold_pct = -1 * (slider_drop / 100.0)
+                    df_scan = df_ai_wk[['MERCHANT_GROUP', 'DIMENSI', 'YTD'] + wk_hist + [wk_curr]].copy()
+                    df_scan['Trailing_4W_Avg'] = df_scan[wk_hist].mean(axis=1)
+                    df_scan['WoW_Variance'] = np.where(
+                        df_scan['Trailing_4W_Avg'] > 0,
+                        (df_scan[wk_curr] - df_scan['Trailing_4W_Avg']) / df_scan['Trailing_4W_Avg'], 0
+                    )
+                    anomalies = df_scan[(df_scan['WoW_Variance'] <= threshold_pct) & (df_scan['Trailing_4W_Avg'] > 0)].copy()
+                    anomalies = anomalies.sort_values('WoW_Variance', ascending=True)
+                    st.markdown(f"**Anomalies found for week ({wk_curr}):** `{len(anomalies)}` records dropped by `{slider_drop}%`+.")
+                    if not anomalies.empty:
+                        anom_disp = anomalies[['MERCHANT_GROUP', 'DIMENSI', 'Trailing_4W_Avg', wk_curr, 'WoW_Variance']].copy()
+                        anom_disp['WoW_Variance'] = (anom_disp['WoW_Variance']*100).round(1).astype(str) + "%"
+                        st.dataframe(anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['WoW_Variance']), use_container_width=True, hide_index=True)
+                    else:
+                        st.success(f"No massive {slider_drop}% drops detected. Portfolio is stable.")
+
+                # --- Deep Dive & Projection ---
+                st.markdown("<br>", unsafe_allow_html=True)
+                section_label("🔍 Deep Dive & Projection (Specific Merchant)")
+                all_merch_ai = sorted(df_ai_wk['MERCHANT_GROUP'].unique().tolist())
+                sel_merch = st.selectbox("Select Merchant Entity to Profile:", all_merch_ai, key="ai_sel_merch")
+                if sel_merch:
+                    col_txt, col_graph = st.columns([1, 1], gap="large")
+                    df_m_wk  = df_ai_wk[df_ai_wk['MERCHANT_GROUP'] == sel_merch]
+                    df_m_vol = df_m_wk[df_m_wk['DIMENSI'] == 'VOL']
+                    ytd_actual = float(df_m_vol['YTD'].iloc[0]) if not df_m_vol.empty else 0
+                    target_row = df_target[df_target['MERCHANT_GROUP'] == sel_merch]
+                    fy_target  = float(target_row['TARGET_VOL_2026'].iloc[0]) if not target_row.empty else 0
+                    active_weeks_count = int((df_m_vol[W_COLS].iloc[0] > 0).sum()) if not df_m_vol.empty else 0
+                    proj_eoy   = (ytd_actual / active_weeks_count * 52) if active_weeks_count > 0 else 0
+                    merch_hist = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_merch].copy()
+                    seasonality_str = "No historical seasonality data found."
+                    season_df  = pd.DataFrame()
+                    if not merch_hist.empty:
+                        merch_hist['MonthIdx'] = (merch_hist['TRX_MONTH'] % 100).astype(int)
+                        mo_avg = merch_hist.groupby('MonthIdx')['TOTAL_SV'].mean().reset_index()
+                        all_mo_avg = mo_avg['TOTAL_SV'].mean()
+                        if all_mo_avg > 0:
+                            mo_avg['Multiplier'] = mo_avg['TOTAL_SV'] / all_mo_avg
+                            season_df = mo_avg.copy()
+                            peak_mo   = season_df.loc[season_df['Multiplier'].idxmax()]
+                            peak_name = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][int(peak_mo['MonthIdx'])-1]
+                            seasonality_str = f"Historically shows a **{peak_mo['Multiplier']:.1f}x surge in {peak_name}** vs baseline."
+                    with col_txt:
+                        section_label(f"🤖 AI Insight Summary: {sel_merch}")
+                        rate_pct   = (proj_eoy / fy_target * 100) if fy_target > 0 else 0
+                        if fy_target == 0:
+                            status_str = f"No FY Target is registered for {sel_merch}."
+                        elif proj_eoy >= fy_target:
+                            over_by    = proj_eoy - fy_target
+                            status_str = f"Based on a strictly linear trajectory, they are trending to **comfortably exceed** their Target by **{over_by/1e9:,.1f} Billion Rp**, wrapping the year with an estimated `+{rate_pct-100:.0f}%` surplus!"
+                        elif proj_eoy >= fy_target * 0.8:
+                            fall_short = fy_target - proj_eoy
+                            status_str = f"They are trending slightly underneath their Target, projected to **miss it by roughly {fall_short/1e9:,.1f} Billion Rp** (`{rate_pct:.0f}%` achievement). If they experience a seasonal bump, they can still catch up."
+                        else:
+                            fall_short = fy_target - proj_eoy
+                            status_str = f"They are drastically underperforming mathematically. At their current velocity of {proj_eoy/52/1e6:,.1f} Jt per week, they will completely **fail their FY Target by {fall_short/1e9:,.1f} Billion Rp** (projected `{rate_pct:.0f}%` final achievement). **Intervention is required.**"
+                        _pp6 = _p()
+                        exec_color = "#34D399" if rate_pct >= 100 else ("#FBBF24" if rate_pct >= 80 else "#F87171")
+                        exec_icon  = "🟢" if rate_pct >= 100 else ("🟡" if rate_pct >= 80 else "🔴")
+                        exec_label = "ON TRACK" if rate_pct >= 100 else ("AT RISK" if rate_pct >= 80 else "CRITICAL — INTERVENTION REQUIRED")
+                        st.markdown(
+                            f"""<div style="border-left:5px solid {exec_color};background:{exec_color}18;
+                                border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:14px;">
+                                <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;
+                                            letter-spacing:.08em;color:{exec_color};">{exec_icon} STATUS: {exec_label}</div>
+                                <div style="font-size:0.88rem;margin-top:8px;color:{_pp6['TEXT_PRI']};line-height:1.65;">
+                                    <b>{sel_merch}</b> has accumulated <code>Rp {ytd_actual/1e9:,.2f}B</code> YTD across
+                                    <b>{active_weeks_count}</b> active weeks.<br>{status_str}
+                                </div>
+                            </div>""", unsafe_allow_html=True
+                        )
+                        if seasonality_str != "No historical seasonality data found.":
+                            st.markdown(
+                                f"""<div style="background:{_pp6['SURFACE2']};border:1px solid {_pp6['BORDER']};
+                                    border-radius:10px;padding:12px 16px;font-size:0.84rem;
+                                    color:{_pp6['TEXT_PRI']};margin-bottom:14px;">
+                                    <b>🌊 Seasonality Intelligence:</b> {seasonality_str}
+                                </div>""", unsafe_allow_html=True
+                            )
+                        st.metric(label="Projected Year-End Run Rate", value=f"Rp {proj_eoy/1e9:,.2f} B",
+                                  delta=f"{rate_pct:.1f}% of Target",
+                                  delta_color="normal" if rate_pct >= 100 else "inverse")
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        with st.expander("🧠 Why this assessment? — Explainable AI (XAI)", expanded=True):
+                            fi_scores = {}
+                            if active_weeks_count > 0 and latest_wk_num > 0:
+                                inactivity_ratio = 1.0 - (active_weeks_count / latest_wk_num)
+                                fi_scores["Inactivity Rate"]     = round(min(inactivity_ratio * 100, 100), 1)
+                                fi_scores["Target Gap"]          = round(max(0, 100 - rate_pct) / 2, 1)
+                                fi_scores["Low Weekly Velocity"] = round(max(0, 100 - min((ytd_actual / active_weeks_count) / 1e7, 100)), 1)
+                            if not merch_hist.empty and 'TOTAL_SV' in merch_hist.columns and len(merch_hist) >= 6:
+                                recent = merch_hist.sort_values('TRX_MONTH').tail(3)['TOTAL_SV'].mean()
+                                older  = merch_hist.sort_values('TRX_MONTH').head(3)['TOTAL_SV'].mean()
+                                if older > 0:
+                                    fi_scores["Declining Volume Trend"] = round(min(max(0, (1 - recent / older) * 100), 100), 1)
+                            for k, v in {"Inactivity Rate": 15.0, "Target Gap": 30.0, "Low Weekly Velocity": 20.0, "Declining Volume Trend": 25.0}.items():
+                                fi_scores.setdefault(k, v)
+                            fi_df = pd.DataFrame(list(fi_scores.items()), columns=["Factor", "Impact Score"]).sort_values("Impact Score", ascending=True)
+                            bar_colors = ["#F87171" if s >= 50 else ("#FBBF24" if s >= 25 else "#34D399") for s in fi_df["Impact Score"]]
+                            fig_fi = go.Figure(go.Bar(
+                                x=fi_df["Impact Score"], y=fi_df["Factor"], orientation="h",
+                                marker_color=bar_colors, marker_line_width=0,
+                                text=[f"{v:.1f}" for v in fi_df["Impact Score"]], textposition="outside",
+                                hovertemplate="<b>%{y}</b><br>Impact: <b>%{x:.1f}</b><extra></extra>",
+                            ))
+                            fig_fi.update_layout(
+                                title="Risk Factor Contribution", height=240, margin=dict(l=0, r=50, t=36, b=0),
+                                xaxis=dict(title="Risk Impact Score (0–100)", range=[0, max(fi_df["Impact Score"].max() * 1.25, 10)], showgrid=False, tickfont=dict(color=_pp6["TEXT_SEC"])),
+                                yaxis=dict(showgrid=False, tickfont=dict(color=_pp6["TEXT_PRI"])),
+                                **_chart_base(),
+                            )
+                            st.plotly_chart(fig_fi, use_container_width=True)
+                            st.caption("Higher bars = stronger contribution to the AI's risk assessment for this merchant.")
+                    with col_graph:
+                        if not season_df.empty:
+                            mo_names    = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                            full_season = pd.DataFrame({'MonthIdx': range(1, 13)})
+                            full_season = pd.merge(full_season, season_df, on='MonthIdx', how='left').fillna({'Multiplier': 1.0, 'SV': 0})
+                            full_season['MonthName'] = mo_names
+                            fig_sea = px.line(full_season, x='MonthName', y='Multiplier', markers=True,
+                                              title=f"Historical Seasonality Curve ({sel_merch})",
+                                              labels={'Multiplier': 'Volume Multiplier (1.0 = Average)'})
+                            fig_sea.add_hline(y=1.0, line_dash="dash", line_color=get_palette()['TEXT_SEC'], annotation_text="Baseline Avg (1.0x)")
+                            fig_sea.update_traces(line=dict(width=3, color=get_palette()['GOLD']), marker=dict(size=8))
+                            fig_sea.update_layout(height=350, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
+                            st.plotly_chart(fig_sea, use_container_width=True)
+                        else:
+                            st.info(f"Insufficient historical Realisasi monthly data to chart statistical seasonality for {sel_merch}.")
 
     with st.expander("📂 Environment & Path Visibility"):
         st.code(f"DB Path:   {os.path.abspath(PATH_DB)}\nCARD Path: {os.path.abspath(PATH_CARD)}\nMON Path:  {os.path.abspath(PATH_MON)}")
@@ -878,7 +1089,11 @@ with tab2:
             avail_grp_mon = [c for c in grp_cols_mon if c in df_filt_mon.columns]
             
             _n_merch_mon = df_filt_mon['MERCHANT_GROUP'].nunique()
-            _total_ytd_mon = df_filt_mon[df_filt_mon['DIMENSI']=='VOL']['YTD'].sum()
+            # YTD from df_mon_weekly is often object dtype — coerce before summing
+            _total_ytd_mon = pd.to_numeric(
+                df_filt_mon[df_filt_mon['DIMENSI'] == 'VOL']['YTD'], errors='coerce'
+            ).sum()
+            _total_ytd_mon = float(_total_ytd_mon) if not pd.isna(_total_ytd_mon) else 0.0
             
             def fmt_ytd_mon(v):
                 if v >= 1e12: return f"Rp {v/1e12:,.2f}T"
@@ -1340,312 +1555,4 @@ with tab4:
                 st.download_button("⬇️ Export High-Risk List", df_rd.to_csv(index=False, encoding='utf-8-sig'),
                                    "churn_risk_merchants.csv", "text/csv")
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — MERCHANT EXPLORER
-# ═══════════════════════════════════════════════════════════════════════════════
-with tab5:
-    tab_desc("Fully interactive explorer. Apply any combination of filters, search, sort, and export to CSV. Your personal decision-making workspace.")
-
-    if has_card and has_mon:
-        df_exp = run_ml(df_card, df_mon, df_target)
-    elif has_card:
-        df_exp = df_card.copy()
-    else:
-        df_exp = df_mon.copy()
-
-    if df_exp.empty:
-        st.info("ℹ️ No merchants found to explore. Please populate the database first.")
-    else:
-        # ── All Controls Inline ──
-        section_label("🎛️ Explorer Filters")
-
-        ef1, ef2, ef3, ef4 = st.columns(4)
-
-        with ef1:
-            if 'CLUSTER' in df_exp.columns:
-                sel_ec = st.multiselect("Cluster", ['PREMIUM','REGULER','PASIF'],
-                                        default=['PREMIUM','REGULER','PASIF'], key="e_clust")
-                df_exp = df_exp[df_exp['CLUSTER'].isin(sel_ec)]
-        with ef2:
-            if 'PM' in df_exp.columns:
-                all_pm_e = sorted(df_exp['PM'].dropna().unique().tolist())
-                sel_ep = st.multiselect("PM", all_pm_e, default=all_pm_e, key="e_pm")
-                df_exp = df_exp[df_exp['PM'].isin(sel_ep)]
-        with ef3:
-            if 'CHURN_RISK' in df_exp.columns:
-                cr_opts = ['All'] + df_exp['CHURN_RISK'].dropna().unique().tolist()
-                sel_cr = st.selectbox("Churn Risk", cr_opts, key="e_cr")
-                if sel_cr != 'All':
-                    df_exp = df_exp[df_exp['CHURN_RISK'] == sel_cr]
-        with ef4:
-            srch = st.text_input("🔎 Search merchant name", key="e_srch")
-            if srch:
-                df_exp = df_exp[df_exp['MERCHANT_GROUP'].str.contains(srch.upper(), na=False)]
-
-        active_count = len(df_exp)
-        all_count    = len(run_ml(df_card, df_mon, df_target)) if (has_card and has_mon) else len(df_exp)
-        if active_count < all_count:
-            filter_pill(f"Filter Active: Showing {active_count:,} of {all_count:,} merchants")
-        else:
-            st.info(f"No filters applied — showing all **{active_count:,}** merchants.")
-
-        # ── Sort & Display ──
-        show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK',
-                                  'TOTAL_SV','TOTAL_TRX','TOTAL_FBI','RASIO_ONUS',
-                                  'WEEKS_ACTIVE','YTD_VOL','ACHIEVEMENT_PCT',
-                                  'SV_GROWTH_RATE','ZSCORE_SV'] if c in df_exp.columns]
-
-        es1, es2 = st.columns([3,1])
-        sort_e = es1.selectbox("Sort by", show_cols, key="e_sort")
-        asc_e  = es2.radio("Order", ["Desc","Asc"], horizontal=True, key="e_asc")
-
-        if sort_e:
-            df_exp_s = df_exp[show_cols].sort_values(sort_e, ascending=(asc_e=='Asc')).reset_index(drop=True)
-        else:
-            df_exp_s = df_exp[show_cols].reset_index(drop=True)
-        
-        st.dataframe(df_exp_s, width='stretch', height=480)
-
-        st.download_button("⬇️ Export Filtered View as CSV",
-                           df_exp_s.to_csv(index=False, encoding='utf-8-sig'),
-                           "merchant_explorer_export.csv", "text/csv", type="primary")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# TAB 6 — AI INSIGHTS & DIAGNOSTICS
-# ═══════════════════════════════════════════════════════════════════════════════
-with tab6:
-    tab_desc("Predictive AI capabilities that calculate Run-Rate projections vs Targets, track Historical Seasonality, and hunt for sudden 'Silent Churn' drop anomalies.")
-    
-    if not has_mon_weekly:
-        st.warning("⚠️ AI Insights require processed Monitoring Weekly data in the database.")
-    else:
-        # Use database-loaded data (respects sidebar filters)
-        # Tab 6 logic primarily looks at 2026 for latest trends
-        df_ai_wk = df_mon_weekly[df_mon_weekly['YEAR'] == '2026'].copy()
-        W_COLS = sorted([c for c in df_ai_wk.columns if c.startswith('W') and c[1:].isdigit()])
-        
-        if df_ai_wk.empty:
-            st.info("ℹ️ No 2026 monitoring data found for the current filter.")
-        else:
-            # --- FEATURE 1: SILENT CHURN ANOMALY SCANNER ---
-            st.markdown("<br>", unsafe_allow_html=True)
-            section_label("🚨 Fleet-Wide Sudden Drop Monitor (Silent Churn)")
-            st.markdown("Scans recent weekly data for merchants whose latest activity crashed below their own 4-week moving average.")
-            
-            # Find the most recent active week dynamically
-            latest_wk_num = 0
-            for w in reversed(W_COLS):
-                if df_ai_wk[w].fillna(0).sum() > 0:
-                    latest_wk_num = int(w[1:])
-                    break
-            
-            if latest_wk_num < 5:
-                st.info("Insufficient 2026 weeks logged to calculate a 4-week trailing average.")
-            else:
-                wk_curr = f"W{latest_wk_num:02d}"
-                wk_hist = [f"W{latest_wk_num-i:02d}" for i in range(1, 5)]
-                
-                slider_drop = st.slider("Drop Threshold Alert Trigger", 10, 80, 30, 5, format="%d%%", key="ai_drop_thresh")
-                threshold_pct = -1 * (slider_drop / 100.0)
-                
-                df_scan = df_ai_wk[['MERCHANT_GROUP', 'DIMENSI', 'YTD'] + wk_hist + [wk_curr]].copy()
-                df_scan['Trailing_4W_Avg'] = df_scan[wk_hist].mean(axis=1)
-                df_scan['WoW_Variance'] = np.where(
-                    df_scan['Trailing_4W_Avg'] > 0,
-                    (df_scan[wk_curr] - df_scan['Trailing_4W_Avg']) / df_scan['Trailing_4W_Avg'],
-                    0
-                )
-                
-                anomalies = df_scan[(df_scan['WoW_Variance'] <= threshold_pct) & (df_scan['Trailing_4W_Avg'] > 0)].copy()
-                anomalies = anomalies.sort_values('WoW_Variance', ascending=True)
-                
-                st.markdown(f"**Anomalies found for week ({wk_curr}):** `{len(anomalies)}` records dropped by `{slider_drop}%`+.")
-                
-                if not anomalies.empty:
-                    anom_disp = anomalies[['MERCHANT_GROUP', 'DIMENSI', 'Trailing_4W_Avg', wk_curr, 'WoW_Variance']].copy()
-                    anom_disp['WoW_Variance'] = (anom_disp['WoW_Variance']*100).round(1).astype(str) + "%"
-                    st.dataframe(anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['WoW_Variance']), width='stretch', hide_index=True)
-                else:
-                    st.success(f"No massive {slider_drop}% drops detected. Portfolio is stable.")
-
-            # --- FEATURE 2: MERCHANT DEEP DIVE ---
-            st.markdown("<br>", unsafe_allow_html=True)
-            section_label("🔍 Deep Dive & Projection (Specific Merchant)")
-            
-            all_merch_ai = sorted(df_ai_wk['MERCHANT_GROUP'].unique().tolist())
-            sel_merch = st.selectbox("Select Merchant Entity to Profile:", all_merch_ai, key="ai_sel_merch")
-            
-            if sel_merch:
-                col_txt, col_graph = st.columns([1, 1], gap="large")
-                
-                # Math for projection
-                df_m_wk = df_ai_wk[df_ai_wk['MERCHANT_GROUP'] == sel_merch]
-                # Filter to VOL for projection
-                df_m_vol = df_m_wk[df_m_wk['DIMENSI'] == 'VOL']
-                
-                ytd_actual = float(df_m_vol['YTD'].iloc[0]) if not df_m_vol.empty else 0
-                
-                # Fetch Target from df_target (already filtered)
-                target_row = df_target[df_target['MERCHANT_GROUP'] == sel_merch]
-                fy_target = float(target_row['TARGET_VOL_2026'].iloc[0]) if not target_row.empty else 0
-                
-                # Active weeks count
-                active_weeks_count = 0
-                if not df_m_vol.empty:
-                    active_weeks_count = (df_m_vol[W_COLS].iloc[0] > 0).sum()
-                
-                proj_eoy = (ytd_actual / active_weeks_count * 52) if active_weeks_count > 0 else 0
-                
-                # Historical Seasonality from df_card_hist
-                merch_hist = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_merch].copy()
-                seasonality_str = "No historical seasonality data found."
-                season_df = pd.DataFrame()
-                
-                if not merch_hist.empty:
-                    # TRX_MONTH is YYYYMM
-                    merch_hist['MonthIdx'] = (merch_hist['TRX_MONTH'] % 100).astype(int)
-                    mo_avg = merch_hist.groupby('MonthIdx')['TOTAL_SV'].mean().reset_index()
-                    all_mo_avg = mo_avg['TOTAL_SV'].mean()
-                    if all_mo_avg > 0:
-                        mo_avg['Multiplier'] = mo_avg['TOTAL_SV'] / all_mo_avg
-                        season_df = mo_avg.copy()
-                        peak_mo = season_df.loc[season_df['Multiplier'].idxmax()]
-                        peak_name = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][int(peak_mo['MonthIdx'])-1]
-                        seasonality_str = f"Historically shows a **{peak_mo['Multiplier']:.1f}x surge in {peak_name}** vs baseline."
-
-                
-                ## 3. Emitting the AI Text Analysis
-                with col_txt:
-                    section_label(f"🤖 AI Insight Summary: {sel_merch}")
-                    
-                    # Math for text
-                    rate_pct = (proj_eoy / fy_target * 100) if fy_target > 0 else 0
-                    if fy_target == 0:
-                        status_str = f"No FY Target is registered for {sel_merch}."
-                    elif proj_eoy >= fy_target:
-                        over_by = proj_eoy - fy_target
-                        status_str = f"Based on a strictly linear trajectory, they are trending to **comfortably exceed** their Target by **{over_by/1e9:,.1f} Billion Rp**, wrapping the year with an estimated `+{rate_pct-100:.0f}%` surplus!"
-                    elif proj_eoy >= fy_target * 0.8:
-                        fall_short = fy_target - proj_eoy
-                        status_str = f"They are trending slightly underneath their Target, projected to **miss it by roughly {fall_short/1e9:,.1f} Billion Rp** (`{rate_pct:.0f}%` achievement). If they experience a seasonal bump, they can still catch up."
-                    else:
-                        fall_short = fy_target - proj_eoy
-                        status_str = f"They are drastically underperforming mathematically. At their current velocity of {proj_eoy/52/1e6:,.1f} Jt per week, they will completely **fail their FY Target by {fall_short/1e9:,.1f} Billion Rp** (projected `{rate_pct:.0f}%` final achievement). **Intervention is required.**"
-                        
-                    _pp6 = _p()
-                    exec_color = "#34D399" if rate_pct >= 100 else ("#FBBF24" if rate_pct >= 80 else "#F87171")
-                    exec_icon  = "🟢" if rate_pct >= 100 else ("🟡" if rate_pct >= 80 else "🔴")
-                    exec_label = "ON TRACK" if rate_pct >= 100 else ("AT RISK" if rate_pct >= 80 else "CRITICAL — INTERVENTION REQUIRED")
-
-                    # Executive summary card
-                    st.markdown(
-                        f"""<div style="border-left:5px solid {exec_color};background:{exec_color}18;
-                            border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:14px;">
-                            <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;
-                                        letter-spacing:.08em;color:{exec_color};">{exec_icon} STATUS: {exec_label}</div>
-                            <div style="font-size:0.88rem;margin-top:8px;
-                                        color:{_pp6['TEXT_PRI']};line-height:1.65;">
-                                <b>{sel_merch}</b> has accumulated
-                                <code>Rp {ytd_actual/1e9:,.2f}B</code> YTD across
-                                <b>{active_weeks_count}</b> active weeks.<br>{status_str}
-                            </div>
-                        </div>""",
-                        unsafe_allow_html=True
-                    )
-                    if seasonality_str != "No historical seasonality data found.":
-                        st.markdown(
-                            f"""<div style="background:{_pp6['SURFACE2']};border:1px solid {_pp6['BORDER']};
-                                border-radius:10px;padding:12px 16px;font-size:0.84rem;
-                                color:{_pp6['TEXT_PRI']};margin-bottom:14px;">
-                                <b>🌊 Seasonality Intelligence:</b> {seasonality_str}
-                            </div>""",
-                            unsafe_allow_html=True
-                        )
-
-                    # Year-end projection metric
-                    st.metric(
-                        label="Projected Year-End Run Rate",
-                        value=f"Rp {proj_eoy/1e9:,.2f} B",
-                        delta=f"{rate_pct:.1f}% of Target",
-                        delta_color="normal" if rate_pct >= 100 else "inverse"
-                    )
-
-                    # XAI — Feature importance bar chart
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    with st.expander("🧠 Why this assessment? — Explainable AI (XAI)", expanded=True):
-                        fi_scores = {}
-                        if active_weeks_count > 0 and latest_wk_num > 0:
-                            inactivity_ratio = 1.0 - (active_weeks_count / latest_wk_num)
-                            fi_scores["Inactivity Rate"]     = round(min(inactivity_ratio * 100, 100), 1)
-                            fi_scores["Target Gap"]          = round(max(0, 100 - rate_pct) / 2, 1)
-                            weekly_v = ytd_actual / active_weeks_count
-                            fi_scores["Low Weekly Velocity"] = round(max(0, 100 - min(weekly_v / 1e7, 100)), 1)
-                        if not merch_hist.empty and 'TOTAL_SV' in merch_hist.columns and len(merch_hist) >= 6:
-                            recent = merch_hist.sort_values('TRX_MONTH').tail(3)['TOTAL_SV'].mean()
-                            older  = merch_hist.sort_values('TRX_MONTH').head(3)['TOTAL_SV'].mean()
-                            if older > 0:
-                                fi_scores["Declining Volume Trend"] = round(min(max(0, (1 - recent / older) * 100), 100), 1)
-                        defaults = {
-                            "Inactivity Rate": 15.0, "Target Gap": 30.0,
-                            "Low Weekly Velocity": 20.0, "Declining Volume Trend": 25.0,
-                        }
-                        for k, v in defaults.items():
-                            fi_scores.setdefault(k, v)
-
-                        fi_df = (
-                            pd.DataFrame(list(fi_scores.items()), columns=["Factor", "Impact Score"])
-                            .sort_values("Impact Score", ascending=True)
-                        )
-                        bar_colors = [
-                            "#F87171" if s >= 50 else ("#FBBF24" if s >= 25 else "#34D399")
-                            for s in fi_df["Impact Score"]
-                        ]
-                        fig_fi = go.Figure(go.Bar(
-                            x=fi_df["Impact Score"],
-                            y=fi_df["Factor"],
-                            orientation="h",
-                            marker_color=bar_colors,
-                            marker_line_width=0,
-                            text=[f"{v:.1f}" for v in fi_df["Impact Score"]],
-                            textposition="outside",
-                            hovertemplate="<b>%{y}</b><br>Impact: <b>%{x:.1f}</b><extra></extra>",
-                        ))
-                        fig_fi.update_layout(
-                            title="Risk Factor Contribution",
-                            height=240,
-                            margin=dict(l=0, r=50, t=36, b=0),
-                            xaxis=dict(
-                                title="Risk Impact Score (0–100)",
-                                range=[0, max(fi_df["Impact Score"].max() * 1.25, 10)],
-                                showgrid=False,
-                                tickfont=dict(color=_pp6["TEXT_SEC"]),
-                            ),
-                            yaxis=dict(showgrid=False, tickfont=dict(color=_pp6["TEXT_PRI"])),
-                            **_chart_base(),
-                        )
-                        st.plotly_chart(fig_fi, width="stretch")
-                        st.caption("Higher bars = stronger contribution to the AI's risk assessment for this merchant.")
-
-                
-                with col_graph:
-                    if not season_df.empty:
-                        # Draw Seasonality Spider or Line
-                        mo_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-                        # Ensure 12 months present
-                        full_season = pd.DataFrame({'MonthIdx': range(1, 13)})
-                        full_season = pd.merge(full_season, season_df, on='MonthIdx', how='left').fillna({'Multiplier': 1.0, 'SV': 0})
-                        full_season['MonthName'] = mo_names
-                        
-                        fig_sea = px.line(full_season, x='MonthName', y='Multiplier', markers=True, 
-                                          title=f"Historical Seasonality Curve ({sel_merch})",
-                                          labels={'Multiplier': 'Volume Multiplier (1.0 = Average)'})
-                        
-                        fig_sea.add_hline(y=1.0, line_dash="dash", line_color=get_palette()['TEXT_SEC'], annotation_text="Baseline Avg (1.0x)")
-                        fig_sea.update_traces(line=dict(width=3, color=get_palette()['GOLD']), marker=dict(size=8))
-                        fig_sea.update_layout(height=350, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-                        
-                        st.plotly_chart(fig_sea, width='stretch')
-                    else:
-                        st.info(f"Insufficient historical Realisasi monthly data to chart statistical seasonality for {sel_merch}.")
 
