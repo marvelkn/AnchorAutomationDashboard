@@ -253,10 +253,10 @@ try:
 except:
     pass
 
-# ── HEADER + STATUS STRIP ────────────────────────────────────────────────────
+# ── HEADER ───────────────────────────────────────────────────────────────────
 header_col1, header_col2 = st.columns([0.8, 0.2])
 with header_col1:
-    page_header("🏦", "BTN Anchor Merchant Decision Intelligence Platform")
+    st.markdown("## 🏦 BTN Anchor Merchant Decision Intelligence Platform")
 with header_col2:
     if _show_new_badge:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -277,54 +277,12 @@ with header_col2:
 # Show amber notice if staging.db is older than 24 hours
 stale_data_banner(db_path=PATH_DB, threshold_hours=24)
 
-# ── PORTFOLIO FILTERS ─────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">Portfolio Filters</div>', unsafe_allow_html=True)
-f_col1, f_col2 = st.columns(2)
-
-# 1. Merchant Group Filter
-all_groups = ["ALL GROUPS"]
-if not df_card.empty:
-    all_groups += sorted(df_card['MERCHANT_GROUP'].unique().tolist())
-with f_col1:
-    sel_group = st.selectbox("🏬 Merchant Group", all_groups, key="sb_group")
-
-# 2. Merchant Brand (Anchor) Filter
-filtered_brands = ["TOTAL GROUP"]
-if sel_group != "ALL GROUPS" and not df_card.empty:
-    brands = df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR'].unique().tolist()
-    filtered_brands += sorted(brands)
-elif sel_group == "ALL GROUPS" and not df_card.empty:
-    filtered_brands = ["TOTAL PORTFOLIO"]
-
-with f_col2:
-    sel_brand = st.selectbox("⚓ Merchant Brand (Anchor)", filtered_brands, key="sb_brand")
-
-# 3. Apply Filters to dataframes
-if sel_group != "ALL GROUPS":
-    df_card = df_card[df_card['MERCHANT_GROUP'] == sel_group]
-    df_card_hist = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_group]
-    
-    # Monitoring is at Group level, so we filter it only by Group
-    if not df_mon.empty: df_mon = df_mon[df_mon['MERCHANT_GROUP'] == sel_group]
-    if not df_mon_weekly.empty: df_mon_weekly = df_mon_weekly[df_mon_weekly['MERCHANT_GROUP'] == sel_group]
-    if not df_target.empty: df_target = df_target[df_target['MERCHANT_GROUP'] == sel_group]
-    
-    # Brand-level filter applies to Card Share only (unless we have detailed monitoring)
-    if sel_brand not in ["TOTAL GROUP", "TOTAL PORTFOLIO"]:
-        df_card = df_card[df_card['MERCHANT_ANCHOR'] == sel_brand]
-        df_card_hist = df_card_hist[df_card_hist['MERCHANT_ANCHOR'] == sel_brand]
-
-st.caption(f"Showing results for: **{sel_group}** > **{sel_brand}**")
-st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
-
-# ── Global KPI Summary Row ────────────────────────────────────────────────────
-# Sourced from live DB data; shows zeros gracefully if tables are empty
+# ── Global KPI Strip (full-portfolio totals, always unfiltered) ───────────────
 _total_merchants = df_card['MERCHANT_GROUP'].nunique()          if not df_card.empty and 'MERCHANT_GROUP' in df_card.columns else 0
 _ytd_sv          = df_card['TOTAL_SV'].sum()                    if not df_card.empty and 'TOTAL_SV'        in df_card.columns else 0
 _ytd_trx         = df_card['TOTAL_TRX'].sum()                   if not df_card.empty and 'TOTAL_TRX'       in df_card.columns else 0
 _avg_onus        = df_card['RASIO_ONUS'].mean()                 if not df_card.empty and 'RASIO_ONUS'      in df_card.columns else 0
 
-# High-risk merchant count: attempt lightweight ML estimate from card data only
 _high_risk_count = 0
 if not df_card.empty and 'SV_GROWTH_RATE' in df_card.columns and 'WEEKS_ACTIVE' in df_card.columns:
     _high_risk_count = int((
@@ -335,7 +293,6 @@ if not df_card.empty and 'SV_GROWTH_RATE' in df_card.columns and 'WEEKS_ACTIVE' 
 _sv_fmt  = f"Rp {_ytd_sv/1e9:,.1f} M"  if _ytd_sv >= 1e9 else f"Rp {_ytd_sv/1e6:,.0f} Jt"
 _trx_fmt = f"{_ytd_trx/1e6:,.2f} M"    if _ytd_trx >= 1e6 else f"{_ytd_trx:,.0f}"
 
-# ── Global KPI Strip — native st.metric() for consistent styling ──────────────
 _kc1, _kc2, _kc3, _kc4, _kc5 = st.columns([1, 1, 1, 1, 1])
 _kc1.metric("🏪 Merchants Tracked",    f"{_total_merchants:,}")
 _kc2.metric("💰 YTD Sales Volume",     _sv_fmt)
@@ -345,55 +302,52 @@ _kc5.metric("⚠️ High Risk Merchants",  _high_risk_count,
             delta=f"-{_high_risk_count}" if _high_risk_count > 0 else None,
             delta_color="inverse")
 
-# ── Neat status strip ──
-_sp = get_palette()
-
-def _sc(icon, label, ok, ok_text="Ready", fail_text="Missing", warn=False):
-    kind  = "ok" if ok else ("warn" if warn else "err")
-    value = ok_text if ok else (fail_text)
-    color = {"ok": _sp['GREEN'], "warn": _sp['AMBER'], "err": _sp['RED']}[kind]
-    bg    = _sp['SURFACE']
-    bdr   = _sp['BORDER']
-    txt   = _sp['TEXT_PRI']
-    txt2  = _sp['TEXT_SEC']
-    return f"""
-    <div style="background:{bg};border:1px solid {bdr};border-left:4px solid {color};
-                border-radius:10px;padding:10px 14px;display:flex;align-items:center;
-                gap:10px;height:100%;">
-        <span style="font-size:1.4rem;">{icon}</span>
-        <div>
-            <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:.06em;color:{txt2};">{label}</div>
-            <div style="font-size:0.88rem;font-weight:700;color:{color};margin-top:2px;">{value}</div>
-        </div>
-    </div>"""
-
-# ── Data Status Row — native st.metric() replaces custom HTML _sc() cards ─────
+# ── System Health (DB row counts only — no local file checks on cloud) ─────────
 _card_rows = len(df_card)   if has_card and not df_card.empty   else 0
 _mon_rows  = len(df_mon)    if has_mon  and not df_mon.empty    else 0
 _tgt_rows  = len(df_target) if has_tgt  and not df_target.empty else 0
 
-def _file_kb(p):
-    try: return f"{os.path.getsize(p) // 1024:,} KB"
-    except: return "unknown size"
-
-_card_file_ok = os.path.exists(PATH_CARD)
-_mon_file_ok  = os.path.exists(PATH_MON)
-
 with st.expander("⚙️ System Health & Data Status"):
-    sc1, sc2, sc3, sc4, sc5 = st.columns([1.2, 1.2, 1, 1, 1])
+    sc1, sc2, sc3 = st.columns(3)
     sc1.metric("📊 Card Share DB",
                f"✅ {_card_rows:,} rows" if _card_rows > 0 else ("⚠️ Empty" if has_card else "❌ Missing"))
     sc2.metric("📅 Monitoring DB",
-               f"✅ {_mon_rows:,} rows" if _mon_rows  > 0 else ("⚠️ Empty" if has_mon  else "❌ Missing"))
+               f"✅ {_mon_rows:,} rows"  if _mon_rows  > 0 else ("⚠️ Empty" if has_mon  else "❌ Missing"))
     sc3.metric("🎯 Target Data",
                f"✅ {_tgt_rows:,} merchants" if _tgt_rows > 0 else "❌ Missing")
-    sc4.metric("📄 Card Share File",
-               f"✅ Found ({_file_kb(PATH_CARD)})" if _card_file_ok else "❌ Not Found")
-    sc5.metric("📄 Monitoring File",
-               f"✅ Found ({_file_kb(PATH_MON)})"  if _mon_file_ok  else "❌ Not Found")
 
 styled_divider()
 
+# ── PORTFOLIO FILTERS (directly above tabs) ───────────────────────────────────
+f_col1, f_col2 = st.columns(2)
+
+all_groups = ["ALL GROUPS"]
+if not df_card.empty:
+    all_groups += sorted(df_card['MERCHANT_GROUP'].unique().tolist())
+with f_col1:
+    sel_group = st.selectbox("🏬 Merchant Group", all_groups, key="sb_group")
+
+filtered_brands = ["TOTAL GROUP"]
+if sel_group != "ALL GROUPS" and not df_card.empty:
+    brands = df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR'].unique().tolist()
+    filtered_brands += sorted(brands)
+elif sel_group == "ALL GROUPS" and not df_card.empty:
+    filtered_brands = ["TOTAL PORTFOLIO"]
+
+with f_col2:
+    sel_brand = st.selectbox("⚓ Merchant Brand (Anchor)", filtered_brands, key="sb_brand")
+
+if sel_group != "ALL GROUPS":
+    df_card      = df_card[df_card['MERCHANT_GROUP'] == sel_group]
+    df_card_hist = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_group]
+    if not df_mon.empty:        df_mon        = df_mon[df_mon['MERCHANT_GROUP'] == sel_group]
+    if not df_mon_weekly.empty: df_mon_weekly = df_mon_weekly[df_mon_weekly['MERCHANT_GROUP'] == sel_group]
+    if not df_target.empty:     df_target     = df_target[df_target['MERCHANT_GROUP'] == sel_group]
+    if sel_brand not in ["TOTAL GROUP", "TOTAL PORTFOLIO"]:
+        df_card      = df_card[df_card['MERCHANT_ANCHOR'] == sel_brand]
+        df_card_hist = df_card_hist[df_card_hist['MERCHANT_ANCHOR'] == sel_brand]
+
+st.caption(f"Showing results for: **{sel_group}** > **{sel_brand}**")
 
 CLAMP = CLUSTER_COLORS
 
@@ -719,8 +673,6 @@ with tab0:
                         else:
                             st.info(f"Insufficient historical Realisasi monthly data to chart statistical seasonality for {sel_merch}.")
 
-    with st.expander("📂 Environment & Path Visibility"):
-        st.code(f"DB Path:   {os.path.abspath(PATH_DB)}\nCARD Path: {os.path.abspath(PATH_CARD)}\nMON Path:  {os.path.abspath(PATH_MON)}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1172,11 +1124,22 @@ with tab2:
     # KPI footer from DB
     if not df_mon.empty:
         styled_divider()
-        # Force numeric — SQLite/Postgres may return these as object/string dtype,
-        # causing .mean()/.sum() to return NaN silently (renders as 0.0).
-        avg_wa = pd.to_numeric(df_mon['WEEKS_ACTIVE'], errors='coerce').mean() \
-                 if 'WEEKS_ACTIVE' in df_mon.columns else 0.0
-        avg_wa = float(avg_wa) if not pd.isna(avg_wa) else 0.0
+        # Avg Weeks Active — PROCESSED_MONITORING has no WEEKS_ACTIVE on Neon.
+        # Derive it from df_mon_weekly: for each VOL row count how many W columns
+        # are non-zero, then average across merchants.
+        avg_wa = 0.0
+        if not df_mon_weekly.empty and 'DIMENSI' in df_mon_weekly.columns:
+            _wk_cols_avail = sorted([c for c in df_mon_weekly.columns if c.startswith('W') and c[1:].isdigit()])
+            _vol_rows = df_mon_weekly[df_mon_weekly['DIMENSI'] == 'VOL']
+            if _wk_cols_avail and not _vol_rows.empty:
+                avg_wa = float(
+                    _vol_rows[_wk_cols_avail]
+                    .apply(pd.to_numeric, errors='coerce')
+                    .gt(0).sum(axis=1).mean()
+                )
+        elif 'WEEKS_ACTIVE' in df_mon.columns:
+            avg_wa = pd.to_numeric(df_mon['WEEKS_ACTIVE'], errors='coerce').mean()
+            avg_wa = float(avg_wa) if not pd.isna(avg_wa) else 0.0
         # Column may be named 'YTD' in PROCESSED_MONITORING (not 'YTD_VOL')
         _ytd_col = next((c for c in ['YTD_VOL', 'YTD'] if c in df_mon.columns), None)
         ytd_v = pd.to_numeric(df_mon[_ytd_col], errors='coerce').sum() if _ytd_col else 0.0
