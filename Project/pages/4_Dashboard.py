@@ -256,7 +256,7 @@ except:
 # ── HEADER + STATUS STRIP ────────────────────────────────────────────────────
 header_col1, header_col2 = st.columns([0.8, 0.2])
 with header_col1:
-    page_header("🏦", "BTN Anchor Merchant", "Decision Intelligence Platform")
+    page_header("🏦", "BTN Anchor Merchant Decision Intelligence Platform")
 with header_col2:
     if _show_new_badge:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -315,7 +315,7 @@ if sel_group != "ALL GROUPS":
         df_card_hist = df_card_hist[df_card_hist['MERCHANT_ANCHOR'] == sel_brand]
 
 st.caption(f"Showing results for: **{sel_group}** > **{sel_brand}**")
-st.markdown("---")
+st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
 
 # ── Global KPI Summary Row ────────────────────────────────────────────────────
 # Sourced from live DB data; shows zeros gracefully if tables are empty
@@ -379,26 +379,26 @@ def _file_kb(p):
 _card_file_ok = os.path.exists(PATH_CARD)
 _mon_file_ok  = os.path.exists(PATH_MON)
 
-sc1, sc2, sc3, sc4, sc5 = st.columns([1.2, 1.2, 1, 1, 1])
-sc1.metric("📊 Card Share DB",
-           f"✅ {_card_rows:,} rows" if _card_rows > 0 else ("⚠️ Empty" if has_card else "❌ Missing"))
-sc2.metric("📅 Monitoring DB",
-           f"✅ {_mon_rows:,} rows" if _mon_rows  > 0 else ("⚠️ Empty" if has_mon  else "❌ Missing"))
-sc3.metric("🎯 Target Data",
-           f"✅ {_tgt_rows:,} merchants" if _tgt_rows > 0 else "❌ Missing")
-sc4.metric("📄 Card Share File",
-           f"✅ Found ({_file_kb(PATH_CARD)})" if _card_file_ok else "❌ Not Found")
-sc5.metric("📄 Monitoring File",
-           f"✅ Found ({_file_kb(PATH_MON)})"  if _mon_file_ok  else "❌ Not Found")
+with st.expander("⚙️ System Health & Data Status"):
+    sc1, sc2, sc3, sc4, sc5 = st.columns([1.2, 1.2, 1, 1, 1])
+    sc1.metric("📊 Card Share DB",
+               f"✅ {_card_rows:,} rows" if _card_rows > 0 else ("⚠️ Empty" if has_card else "❌ Missing"))
+    sc2.metric("📅 Monitoring DB",
+               f"✅ {_mon_rows:,} rows" if _mon_rows  > 0 else ("⚠️ Empty" if has_mon  else "❌ Missing"))
+    sc3.metric("🎯 Target Data",
+               f"✅ {_tgt_rows:,} merchants" if _tgt_rows > 0 else "❌ Missing")
+    sc4.metric("📄 Card Share File",
+               f"✅ Found ({_file_kb(PATH_CARD)})" if _card_file_ok else "❌ Not Found")
+    sc5.metric("📄 Monitoring File",
+               f"✅ Found ({_file_kb(PATH_MON)})"  if _mon_file_ok  else "❌ Not Found")
 
-st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 styled_divider()
 
 
 CLAMP = CLUSTER_COLORS
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🏠  Overview",
     "💰  Card Share",
     "📅  Weekly Monitor",
@@ -406,7 +406,6 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "⚠️  Risk & Churn",
     "🔍  Merchant Detail",
     "🔮  AI Insights",
-    "📊  Batch Impact",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -450,6 +449,64 @@ with tab0:
         st.warning(f"⚠️ **{_high_risk_count} high-risk merchant(s)** detected based on current data. Check the **Risk & Churn** tab for details.")
     else:
         st.success("✅ No high-risk merchants detected in the current filter selection.")
+
+    # ── Batch Impact (merged from former Batch Impact tab) ────────────────────
+    styled_divider()
+    section_header("📊", "Batch Impact Analysis", "Latest ingestion vs previous cycle")
+    if not os.path.exists(PATH_DB):
+        st.warning("Database not found.")
+    else:
+        try:
+            conn_b = sqlite3.connect(PATH_DB)
+            fetch_dates = pd.read_sql_query(
+                "SELECT DISTINCT EDW_FETCH_DATE FROM CARD_SHARE ORDER BY EDW_FETCH_DATE DESC LIMIT 2", conn_b
+            )
+            if len(fetch_dates) < 1:
+                st.info("Not enough batches to compare. Upload data first.")
+            else:
+                latest_date = fetch_dates.iloc[0, 0]
+                prev_date   = fetch_dates.iloc[1, 0] if len(fetch_dates) > 1 else None
+                st.markdown(f"**Ingestion Batch:** `{latest_date}`")
+                df_latest = pd.read_sql_query(
+                    f"SELECT MERCHANT_GROUP, TOTAL_SV, TOTAL_TRX FROM CARD_SHARE WHERE EDW_FETCH_DATE = '{latest_date}'", conn_b
+                )
+                sum_latest_sv  = df_latest['TOTAL_SV'].sum()
+                sum_latest_trx = df_latest['TOTAL_TRX'].sum()
+                if prev_date:
+                    df_prev = pd.read_sql_query(
+                        f"SELECT MERCHANT_GROUP, TOTAL_SV, TOTAL_TRX FROM CARD_SHARE WHERE EDW_FETCH_DATE = '{prev_date}'", conn_b
+                    )
+                    sum_prev_sv  = df_prev['TOTAL_SV'].sum()
+                    sum_prev_trx = df_prev['TOTAL_TRX'].sum()
+                    delta_sv  = sum_latest_sv  - sum_prev_sv
+                    pct_sv    = (delta_sv  / sum_prev_sv  * 100) if sum_prev_sv  > 0 else 0
+                    delta_trx = sum_latest_trx - sum_prev_trx
+                    pct_trx   = (delta_trx / sum_prev_trx * 100) if sum_prev_trx > 0 else 0
+                    bi1, bi2 = st.columns(2)
+                    bi1.metric("Ingested Sales Volume",  f"Rp {sum_latest_sv/1e9:,.2f}B",  f"{delta_sv/1e6:,.1f}M ({pct_sv:+.1f}%)")
+                    bi2.metric("Ingested Transactions",  f"{sum_latest_trx:,.0f}",          f"{delta_trx:,.0f} ({pct_trx:+.1f}%)")
+                    merged = pd.merge(
+                        df_latest.groupby('MERCHANT_GROUP').sum().reset_index(),
+                        df_prev.groupby('MERCHANT_GROUP').sum().reset_index(),
+                        on='MERCHANT_GROUP', suffixes=('_new','_old')
+                    )
+                    merged['Delta SV']  = merged['TOTAL_SV_new'] - merged['TOTAL_SV_old']
+                    merged['Growth %']  = (merged['Delta SV'] / merged['TOTAL_SV_old'].replace(0, 1) * 100)
+                    styled_divider()
+                    g_col, l_col = st.columns(2)
+                    with g_col:
+                        section_label("🟢 Top Gainers in this Batch")
+                        st.dataframe(merged.sort_values('Delta SV', ascending=False).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, use_container_width=True)
+                    with l_col:
+                        section_label("🔴 Top Losers in this Batch")
+                        st.dataframe(merged.sort_values('Delta SV', ascending=True).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, use_container_width=True)
+                else:
+                    st.info(f"Only one batch found ({latest_date}). Comparison available after the next update.")
+                    st.metric("Ingested Sales Volume", f"Rp {sum_latest_sv/1e9:,.2f}B")
+                    st.metric("Ingested Transactions", f"{sum_latest_trx:,.0f}")
+            conn_b.close()
+        except Exception as e:
+            st.error(f"Error Analyzing Batch: {e}")
 
     with st.expander("📂 Environment & Path Visibility"):
         st.code(f"DB Path:   {os.path.abspath(PATH_DB)}\nCARD Path: {os.path.abspath(PATH_CARD)}\nMON Path:  {os.path.abspath(PATH_MON)}")
@@ -595,22 +652,19 @@ with tab1:
                             styles.append('')
                     return styles
 
-                # ── side-by-side: charts left (3) | summary table right (2) ──
-                ch_left, ch_right = st.columns([3, 2])
-                with ch_right:
-                    st.dataframe(
-                        disp_fmt.style.apply(style_table_db, axis=1),
-                        use_container_width=True, hide_index=True,
-                        height=min(38 * len(disp_fmt) + 40, 500),
-                    )
+                # ── Full-width data viewer ──────────────────────────────────────
+                st.dataframe(
+                    disp_fmt.style.apply(style_table_db, axis=1),
+                    use_container_width=True, hide_index=True,
+                    height=min(38 * len(disp_fmt) + 40, 500),
+                )
 
-                # Charts
+                # ── Charts + Donut below the table ──────────────────────────────
+                ch_left, ch_right = st.columns([1, 1])
                 with ch_left:
                     if chart_type in ("Stacked Bar", "Both"):
-                        # Composition chart
                         type_cols_clean = [clean_map[c] for c in valid_sub]
                         melted = display.melt(id_vars="Bulan", value_vars=type_cols_clean, var_name="Type", value_name="Value")
-                        
                         fig_s = px.bar(
                             melted, x="Bulan", y="Value", color="Type",
                             color_discrete_map=PAYMENT_COLORS,
@@ -619,7 +673,6 @@ with tab1:
                         )
                         fig_s.update_layout(height=340, margin=dict(l=0, r=0, t=36, b=0), **_chart_base())
                         st.plotly_chart(fig_s, width="stretch")
-                    
                     if chart_type in ("Line Trend", "Both"):
                         fig_l = go.Figure()
                         fig_l.add_trace(go.Scatter(
@@ -632,7 +685,6 @@ with tab1:
                         ))
                         fig_l.update_layout(title=f"{sec_name} — Total Trend", height=340, margin=dict(l=0, r=0, t=36, b=0), **_chart_base())
                         st.plotly_chart(fig_l, width="stretch")
-                
                 with ch_right:
                     section_label("🍩 Mix Composition (Selected Period)")
                     fig_pie = px.pie(
@@ -644,7 +696,7 @@ with tab1:
                     )
                     fig_pie.update_layout(height=340, margin=dict(t=10, b=50, l=10, r=10), **_chart_base())
                     st.plotly_chart(fig_pie, width="stretch")
-                
+
                 styled_divider()
     else:
         conn.close()
@@ -905,8 +957,15 @@ with tab2:
     # KPI footer from DB
     if not df_mon.empty:
         styled_divider()
-        avg_wa = df_mon['WEEKS_ACTIVE'].mean() if 'WEEKS_ACTIVE' in df_mon.columns else 0
-        ytd_v  = df_mon['YTD_VOL'].sum() if 'YTD_VOL' in df_mon.columns else 0
+        # Force numeric — SQLite/Postgres may return these as object/string dtype,
+        # causing .mean()/.sum() to return NaN silently (renders as 0.0).
+        avg_wa = pd.to_numeric(df_mon['WEEKS_ACTIVE'], errors='coerce').mean() \
+                 if 'WEEKS_ACTIVE' in df_mon.columns else 0.0
+        avg_wa = float(avg_wa) if not pd.isna(avg_wa) else 0.0
+        # Column may be named 'YTD' in PROCESSED_MONITORING (not 'YTD_VOL')
+        _ytd_col = next((c for c in ['YTD_VOL', 'YTD'] if c in df_mon.columns), None)
+        ytd_v = pd.to_numeric(df_mon[_ytd_col], errors='coerce').sum() if _ytd_col else 0.0
+        ytd_v = float(ytd_v) if not pd.isna(ytd_v) else 0.0
         st.markdown(f"""<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">
             <div class="stat-card amber">
                 <div class="stat-label">Merchants in DB</div>
@@ -1590,71 +1649,3 @@ with tab6:
                     else:
                         st.info(f"Insufficient historical Realisasi monthly data to chart statistical seasonality for {sel_merch}.")
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# TAB 7 — BATCH IMPACT ANALYSIS
-# ═══════════════════════════════════════════════════════════════════════════════
-with tab7:
-    tab_desc("Analyze the impact of the latest data ingestion. Compare the newest data batch with previous records.")
-    
-    if not os.path.exists(PATH_DB):
-         st.warning("Database not found.")
-    else:
-        try:
-            conn_b = sqlite3.connect(PATH_DB)
-            # Get the two most recent EDW_FETCH_DATEs from CARD_SHARE
-            fetch_dates = pd.read_sql_query("SELECT DISTINCT EDW_FETCH_DATE FROM CARD_SHARE ORDER BY EDW_FETCH_DATE DESC LIMIT 2", conn_b)
-            
-            if len(fetch_dates) < 1:
-                st.info("Not enough batches to compare. Upload data first.")
-            else:
-                latest_date = fetch_dates.iloc[0, 0]
-                prev_date = fetch_dates.iloc[1, 0] if len(fetch_dates) > 1 else None
-                
-                st.markdown(f"### 📊 Ingestion Batch: `{latest_date}`")
-                
-                # Fetch latest batch data
-                df_latest = pd.read_sql_query(f"SELECT MERCHANT_GROUP, TOTAL_SV, TOTAL_TRX FROM CARD_SHARE WHERE EDW_FETCH_DATE = '{latest_date}'", conn_b)
-                sum_latest_sv = df_latest['TOTAL_SV'].sum()
-                sum_latest_trx = df_latest['TOTAL_TRX'].sum()
-                
-                if prev_date:
-                    df_prev = pd.read_sql_query(f"SELECT MERCHANT_GROUP, TOTAL_SV, TOTAL_TRX FROM CARD_SHARE WHERE EDW_FETCH_DATE = '{prev_date}'", conn_b)
-                    sum_prev_sv = df_prev['TOTAL_SV'].sum()
-                    sum_prev_trx = df_prev['TOTAL_TRX'].sum()
-                    
-                    delta_sv = sum_latest_sv - sum_prev_sv
-                    pct_sv = (delta_sv / sum_prev_sv * 100) if sum_prev_sv > 0 else 0
-                    
-                    delta_trx = sum_latest_trx - sum_prev_trx
-                    pct_trx = (delta_trx / sum_prev_trx * 100) if sum_prev_trx > 0 else 0
-                    
-                    c1, c2 = st.columns(2)
-                    c1.metric("Ingested Sales Volume", f"Rp {sum_latest_sv/1e9:,.2f}B", f"{delta_sv/1e6:,.1f}M ({pct_sv:+.1f}%)")
-                    c2.metric("Ingested Transactions", f"{sum_latest_trx:,.0f}", f"{delta_trx:,.0f} ({pct_trx:+.1f}%)")
-                    
-                    # Merge for gainer/loser comparison
-                    merged = pd.merge(df_latest.groupby('MERCHANT_GROUP').sum().reset_index(), 
-                                      df_prev.groupby('MERCHANT_GROUP').sum().reset_index(), 
-                                      on='MERCHANT_GROUP', suffixes=('_new', '_old'))
-                    merged['Delta SV'] = merged['TOTAL_SV_new'] - merged['TOTAL_SV_old']
-                    merged['Growth %'] = (merged['Delta SV'] / merged['TOTAL_SV_old'].replace(0, 1) * 100)
-                    
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    styled_divider()
-                    st.markdown("#### 🚀 Batch Variance vs Previous Cycle")
-                    
-                    g_col, l_col = st.columns(2)
-                    with g_col:
-                        section_label("🟢 Top Gainers in this Batch")
-                        st.dataframe(merged.sort_values('Delta SV', ascending=False).head(8)[['MERCHANT_GROUP', 'Delta SV', 'Growth %']], hide_index=True, width='stretch')
-                    with l_col:
-                        section_label("🔴 Top Losers in this Batch")
-                        st.dataframe(merged.sort_values('Delta SV', ascending=True).head(8)[['MERCHANT_GROUP', 'Delta SV', 'Growth %']], hide_index=True, width='stretch')
-                else:
-                    st.info(f"Only one batch found ({latest_date}). Comparison will be available after the next update.")
-                    st.metric("Ingested Sales Volume", f"Rp {sum_latest_sv/1e9:,.2f}B")
-                    st.metric("Ingested Transactions", f"{sum_latest_trx:,.0f}")
-                    
-            conn_b.close()
-        except Exception as e:
-            st.error(f"Error Analyzing Batch: {e}")
