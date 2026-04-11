@@ -1037,7 +1037,6 @@ with tab2:
             grp_cols_mon = ['MERCHANT_GROUP', 'DIMENSI', 'PM', 'FY', 'YTD']
             avail_grp_mon = [c for c in grp_cols_mon if c in df_filt_mon.columns]
             
-            _n_merch_mon = df_filt_mon['MERCHANT_GROUP'].nunique()
             # YTD from df_mon_weekly is often object dtype — coerce before summing
             _total_ytd_mon = pd.to_numeric(
                 df_filt_mon[df_filt_mon['DIMENSI'] == 'VOL']['YTD'], errors='coerce'
@@ -1050,12 +1049,7 @@ with tab2:
                 if v >= 1e6:  return f"Rp {v/1e6:,.0f}Jt"
                 return f"{v:,.0f}"
 
-            st.markdown(f"""<div class="stats-grid">
-                <div class="stat-card amber">
-                    <div class="stat-label">Active Merchants</div>
-                    <div class="stat-value">{_n_merch_mon}</div>
-                    <div class="stat-meta">with {sel_yr_mon} records</div>
-                </div>
+            st.markdown(f"""<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">
                 <div class="stat-card green">
                     <div class="stat-label">Filtered YTD Volume</div>
                     <div class="stat-value">{fmt_ytd_mon(_total_ytd_mon)}</div>
