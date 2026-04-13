@@ -90,7 +90,9 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
                'PM', 'WEEKS_ACTIVE', 'SV_GROWTH_RATE', 'ACHIEVEMENT_PCT', 'AVG_SV', 'AVG_FBI',
                'ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH', 'SV_GROWTH_CLIPPED',
                'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS',
-               'IF_ANOMALY_SCORE', 'IF_IS_ANOMALY']
+               'IF_ANOMALY_SCORE', 'IF_IS_ANOMALY',
+               'IF_CONTRIB_AVG_SV', 'IF_CONTRIB_AVG_FBI', 'IF_CONTRIB_RASIO_ONUS',
+               'IF_CONTRIB_SV_GROWTH', 'IF_CONTRIB_ACHIEVEMENT', 'IF_CONTRIB_WEEKS_ACTIVE']
 
     if df_c.empty:
         return pd.DataFrame(columns=ML_COLS)
@@ -192,12 +194,36 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
                     iso.fit(X_s)
                     df['IF_ANOMALY_SCORE'] = (-iso.score_samples(X_s)).round(4)
                     df['IF_IS_ANOMALY']    = (iso.fit_predict(X_s) == -1)
+
+                    # ── LOFO Feature Contribution ──────────────────────────
+                    # Leave-One-Feature-Out: for each feature, neutralize it
+                    # (set to 0 = portfolio mean in scaled space), re-score,
+                    # measure delta. No re-fitting needed — just re-scoring.
+                    # Positive delta = feature makes this merchant MORE anomalous.
+                    _lofo_keys = [
+                        'IF_CONTRIB_AVG_SV', 'IF_CONTRIB_AVG_FBI',
+                        'IF_CONTRIB_RASIO_ONUS', 'IF_CONTRIB_SV_GROWTH',
+                        'IF_CONTRIB_ACHIEVEMENT', 'IF_CONTRIB_WEEKS_ACTIVE'
+                    ]
+                    _base_scores = -iso.score_samples(X_s)
+                    for _fi, _fk in enumerate(_lofo_keys):
+                        _X_abl = X_s.copy()
+                        _X_abl[:, _fi] = 0.0
+                        df[_fk] = (_base_scores - (-iso.score_samples(_X_abl))).round(4)
                 else:
                     df['IF_ANOMALY_SCORE'] = 0.0
                     df['IF_IS_ANOMALY']    = False
+                    for _fk in ['IF_CONTRIB_AVG_SV', 'IF_CONTRIB_AVG_FBI',
+                                 'IF_CONTRIB_RASIO_ONUS', 'IF_CONTRIB_SV_GROWTH',
+                                 'IF_CONTRIB_ACHIEVEMENT', 'IF_CONTRIB_WEEKS_ACTIVE']:
+                        df[_fk] = 0.0
             except Exception:
                 df['IF_ANOMALY_SCORE'] = 0.0
                 df['IF_IS_ANOMALY']    = False
+                for _fk in ['IF_CONTRIB_AVG_SV', 'IF_CONTRIB_AVG_FBI',
+                             'IF_CONTRIB_RASIO_ONUS', 'IF_CONTRIB_SV_GROWTH',
+                             'IF_CONTRIB_ACHIEVEMENT', 'IF_CONTRIB_WEEKS_ACTIVE']:
+                    df[_fk] = 0.0
 
         else:
             df['CLUSTER'] = 'REGULER'
@@ -771,6 +797,65 @@ with tab0:
                             )
                             st.plotly_chart(fig_fi, use_container_width=True)
                             st.caption("Higher bars = stronger domain-expert contribution to this merchant's risk profile. Scores are computed from operational metrics, not a trained ML model.")
+
+                        # ── Isolation Forest Feature Contribution (Model-Based) ──
+                        # Only shown when this merchant is flagged by Isolation Forest.
+                        # Method: Leave-One-Feature-Out (LOFO) — each feature is
+                        # individually neutralized to the portfolio mean (scaled 0),
+                        # the model is re-scored (no re-fit), and the delta is measured.
+                        # Positive delta = feature drives the anomaly.
+                        _lofo_col_map = {
+                            'IF_CONTRIB_AVG_SV':      'Avg Settlement Volume',
+                            'IF_CONTRIB_AVG_FBI':      'Avg Fee-Based Income',
+                            'IF_CONTRIB_RASIO_ONUS':   'On-Us Ratio',
+                            'IF_CONTRIB_SV_GROWTH':    'Volume Growth Rate',
+                            'IF_CONTRIB_ACHIEVEMENT':  'Target Achievement %',
+                            'IF_CONTRIB_WEEKS_ACTIVE': 'Activity Weeks'
+                        }
+                        _merch_ml = _ml_kpi[_ml_kpi['MERCHANT_GROUP'] == sel_merch] if not _ml_kpi.empty else pd.DataFrame()
+                        _is_if_anomaly = (
+                            not _merch_ml.empty and
+                            'IF_IS_ANOMALY' in _merch_ml.columns and
+                            bool(_merch_ml['IF_IS_ANOMALY'].iloc[0])
+                        )
+                        if _is_if_anomaly and all(c in _merch_ml.columns for c in _lofo_col_map):
+                            with st.expander("🤖 Isolation Forest Feature Contribution (Model-Based)", expanded=True):
+                                _lofo_vals = {
+                                    label: float(_merch_ml[col].iloc[0])
+                                    for col, label in _lofo_col_map.items()
+                                }
+                                _lofo_df = pd.DataFrame(
+                                    list(_lofo_vals.items()),
+                                    columns=['Feature', 'Contribution']
+                                ).sort_values('Contribution', ascending=True)
+                                _lofo_colors = [
+                                    '#F87171' if v > 0 else '#34D399'
+                                    for v in _lofo_df['Contribution']
+                                ]
+                                fig_lofo = go.Figure(go.Bar(
+                                    x=_lofo_df['Contribution'],
+                                    y=_lofo_df['Feature'],
+                                    orientation='h',
+                                    marker_color=_lofo_colors,
+                                    marker_line_width=0,
+                                    text=[f"{v:+.4f}" for v in _lofo_df['Contribution']],
+                                    textposition='outside',
+                                    hovertemplate='<b>%{y}</b><br>LOFO Delta: <b>%{x:+.4f}</b><extra></extra>',
+                                ))
+                                fig_lofo.update_layout(
+                                    title='IF Feature Contribution (LOFO Method)',
+                                    height=260,
+                                    margin=dict(l=0, r=80, t=36, b=0),
+                                    xaxis=dict(title='Anomaly Score Delta', showgrid=False, tickfont=dict(color=_pp6['TEXT_SEC'])),
+                                    yaxis=dict(showgrid=False, tickfont=dict(color=_pp6['TEXT_PRI'])),
+                                    **_chart_base(),
+                                )
+                                st.plotly_chart(fig_lofo, use_container_width=True)
+                                st.caption(
+                                    "🔴 Red = feature drives the anomaly (neutralizing it lowers the score). "
+                                    "🟢 Green = feature reduces anomaly risk. "
+                                    "LOFO: each feature is set to the portfolio mean and the Isolation Forest score delta is measured — no model re-fitting."
+                                )
                     with col_graph:
                         if not season_df.empty:
                             mo_names    = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']

@@ -31,7 +31,65 @@ from sklearn.metrics import (silhouette_score,
                              davies_bouldin_score,
                              calinski_harabasz_score)
 from sklearn.ensemble import IsolationForest
+try:
+    from statsmodels.tsa.holtwinters import ExponentialSmoothing as HoltWinters
+    _HW_AVAILABLE_ETL = True
+except ImportError:
+    _HW_AVAILABLE_ETL = False
 warnings.filterwarnings('ignore')
+
+
+def _mad_zscore_etl(series):
+    """Robust Z-Score using Median Absolute Deviation (MAD).
+    Mirrors dashboard implementation for consistency. Resistant to outliers
+    in small portfolios (n~38). Formula: z = 0.6745 * (x - median) / MAD
+    Constant 0.6745 = 1/norm.ppf(0.75), converting MAD to std-dev scale."""
+    s = pd.to_numeric(series, errors='coerce').fillna(0)
+    if len(s) < 2:
+        return pd.Series(0.0, index=s.index)
+    median = s.median()
+    mad = (s - median).abs().median()
+    if mad < 1e-9:
+        return pd.Series(0.0, index=s.index)
+    return 0.6745 * (s - median) / mad
+
+
+def _hw_forecast_etl(monthly_sv_series, periods_ahead=12):
+    """Holt-Winters exponential smoothing on monthly SV for ETL mart.
+    Mirrors dashboard _hw_forecast(). Falls back to {'success': False} if
+    data is insufficient (<6 months) or model fitting fails."""
+    result = {'forecast': None, 'projected_eoy': None, 'method': 'Insufficient data', 'success': False}
+    if not _HW_AVAILABLE_ETL:
+        return result
+    series = pd.to_numeric(monthly_sv_series, errors='coerce').fillna(0)
+    series = series[series > 0]
+    if len(series) < 6:
+        return result
+    try:
+        use_seasonal = len(series) >= 24
+        if use_seasonal:
+            model = HoltWinters(
+                series.values, trend='add', seasonal='add',
+                seasonal_periods=12, initialization_method='estimated'
+            )
+            method_label = 'Holt-Winters (trend + seasonal)'
+        else:
+            model = HoltWinters(
+                series.values, trend='add', seasonal=None,
+                initialization_method='estimated'
+            )
+            method_label = "Holt's Double Smoothing (trend only)"
+        fit = model.fit(optimized=True, remove_bias=True)
+        forecast_values = np.maximum(fit.forecast(periods_ahead), 0)
+        result.update({
+            'forecast': forecast_values,
+            'projected_eoy': float(np.sum(forecast_values)),
+            'method': method_label,
+            'success': True
+        })
+    except Exception:
+        pass
+    return result
 
 # ─────────────────────────────────────────────
 # KONFIGURASI
@@ -64,6 +122,20 @@ df = pd.read_sql_query("""
 """, conn)
 
 print(f"  ✓ {len(df)} merchant loaded")
+
+# Load monthly card history for Holt-Winters forecasting
+try:
+    df_hist_hw = pd.read_sql_query(
+        "SELECT MERCHANT_GROUP, TRX_MONTH, TOTAL_SV FROM PROCESSED_CARD_HISTORY ORDER BY MERCHANT_GROUP, TRX_MONTH",
+        conn
+    )
+    df_hist_hw.columns = [c.upper() for c in df_hist_hw.columns]
+    _HW_HIST_AVAILABLE = not df_hist_hw.empty
+    print(f"  ✓ Monthly history loaded: {len(df_hist_hw)} rows across {df_hist_hw['MERCHANT_GROUP'].nunique()} merchants")
+except Exception as _e:
+    df_hist_hw = pd.DataFrame()
+    _HW_HIST_AVAILABLE = False
+    print(f"  ⚠️  Monthly history not available: {_e}")
 
 
 # ─────────────────────────────────────────────
@@ -279,6 +351,38 @@ print(f"  ✓ Isolation Forest: {n_flagged} merchant(s) flagged as anomalous "
 for m in df[df['IF_IS_ANOMALY']]['MERCHANT_GROUP'].tolist():
     print(f"    ⚠️  {m}")
 
+# ─────────────────────────────────────────────
+# [5c/6] HOLT-WINTERS FORECAST PER MERCHANT
+# Winters (1960) exponential smoothing: level + trend + seasonal.
+# Uses monthly historical SV from PROCESSED_CARD_HISTORY.
+# seasonal='add' requires >=24 months; falls back to trend-only otherwise.
+# ─────────────────────────────────────────────
+print("\n[5c/6] Holt-Winters EOY Forecast per Merchant...")
+if _HW_HIST_AVAILABLE and _HW_AVAILABLE_ETL:
+    hw_eoy    = {}
+    hw_method = {}
+    for merch in df['MERCHANT_GROUP'].tolist():
+        merch_series = df_hist_hw[df_hist_hw['MERCHANT_GROUP'] == merch].sort_values('TRX_MONTH')['TOTAL_SV']
+        ytd_sv       = float(df[df['MERCHANT_GROUP'] == merch]['YTD_VOL'].iloc[0]) if 'YTD_VOL' in df.columns else 0
+        remaining    = max(0, 12 - len(merch_series))
+        result       = _hw_forecast_etl(merch_series, periods_ahead=remaining if remaining > 0 else 6)
+        if result['success'] and remaining > 0:
+            hw_eoy[merch]    = round(ytd_sv + result['projected_eoy'], 0)
+            hw_method[merch] = result['method']
+        else:
+            hw_eoy[merch]    = 0.0
+            hw_method[merch] = 'Insufficient data'
+    df['HW_EOY_PROJECTION'] = df['MERCHANT_GROUP'].map(hw_eoy).fillna(0.0)
+    df['HW_METHOD']         = df['MERCHANT_GROUP'].map(hw_method).fillna('Insufficient data')
+    n_hw = (df['HW_EOY_PROJECTION'] > 0).sum()
+    print(f"  ✓ HW forecast computed for {n_hw}/{len(df)} merchants")
+    for _, _row in df[['MERCHANT_GROUP', 'HW_EOY_PROJECTION', 'HW_METHOD']].iterrows():
+        print(f"    {_row['MERCHANT_GROUP']}: Rp {_row['HW_EOY_PROJECTION']/1e9:.3f}B  ({_row['HW_METHOD']})")
+else:
+    df['HW_EOY_PROJECTION'] = 0.0
+    df['HW_METHOD']         = 'Unavailable'
+    print("  ⚠️  Skipped — statsmodels or PROCESSED_CARD_HISTORY not available")
+
 # Plot cluster profile
 fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 fig.suptitle('Profil Cluster K-Means (K=3)', fontsize=14, fontweight='bold')
@@ -339,10 +443,12 @@ print(f"\n  ✓ Grafik profil cluster disimpan: output/cluster_profile.png")
 # - Pendekatan: scoring multi-kriteria, bukan single threshold
 print("\n[6/6] Anomaly Detection (Z-Score + IQR)...")
 
-# Z-Score: hitung dari LOG(AVG_SV_MONTHLY) agar tidak bias outlier besar
+# MAD Z-Score: robust terhadap outlier, konsisten dengan implementasi dashboard.
+# Menggunakan Median Absolute Deviation (MAD) bukan standard deviation.
+# Formula: z = 0.6745 * (x - median) / MAD — lebih stabil untuk n=38 merchant.
 log_sv = np.log1p(df['AVG_SV_MONTHLY'])
-df['ZSCORE_GROWTH'] = stats.zscore(df['SV_GROWTH_RATE'].fillna(0))
-df['ZSCORE_SV']     = stats.zscore(log_sv)
+df['ZSCORE_GROWTH'] = _mad_zscore_etl(df['SV_GROWTH_RATE'].fillna(0))
+df['ZSCORE_SV']     = _mad_zscore_etl(log_sv)
 
 # IQR: merchant dengan SV di bawah lower fence → below-average performer
 Q1 = df['AVG_SV_MONTHLY'].quantile(0.25)
@@ -427,7 +533,8 @@ cols_to_save = [
     'SV_GROWTH_RATE', 'SV_GROWTH_RATE_CLIPPED', 'ACHIEVEMENT_PCT', 'WEEKS_ACTIVE',
     'YTD_VOL', 'TARGET_VOL_2026', 'TARGET_TRX_2026', 'TARGET_FBI_2026',
     'CLUSTER_RAW', 'CLUSTER', 'ZSCORE_GROWTH', 'ZSCORE_SV', 'IS_BELOW_IQR', 'CHURN_RISK',
-    'IF_ANOMALY_SCORE', 'IF_IS_ANOMALY'
+    'IF_ANOMALY_SCORE', 'IF_IS_ANOMALY',
+    'HW_EOY_PROJECTION', 'HW_METHOD'
 ]
 
 df[cols_to_save].to_sql("mart_merchant_cluster", conn, if_exists="replace", index=False)
