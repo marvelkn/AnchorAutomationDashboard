@@ -22,6 +22,15 @@ from utils.pipeline_bg import get_pipeline_status, start_pipeline_background, re
 from utils.cloud_db import build_engine, test_connection, read_uploaded_dataframe, upsert_dataframe
 from utils.sqlite_to_neon import ingest_sqlite_bytes_to_neon, fetch_recent_ingestion_runs
 from utils.master_files_db import sync_all_masters_to_disk
+from utils.governance import (
+    _norm_text,
+    _read_target_entities,
+    _read_master_parameter,
+    _detect_governance_delta,
+    _compute_db_signature,
+    _append_to_parameter_sheet,
+    _write_governance_audit,
+)
 
 cloud_mode_enabled = bool(os.getenv("DATABASE_URL"))
 
@@ -322,154 +331,7 @@ def _init_gov_state():
             st.session_state[key] = value
 
 
-def _norm_text(value):
-    if pd.isna(value):
-        return None
-    cleaned = str(value).strip()
-    if not cleaned or cleaned.lower() in {"nan", "none", "null"}:
-        return None
-    return cleaned
-
-
-def _read_target_entities(db_path: str) -> pd.DataFrame:
-    if not os.path.exists(db_path):
-        return pd.DataFrame(columns=["Anchor", "PM"])
-    conn = sqlite3.connect(db_path)
-    try:
-        query = """
-            SELECT
-                TRIM(MERCHANT_GROUP) AS Anchor,
-                TRIM(PM) AS PM
-            FROM TARGET
-            WHERE MERCHANT_GROUP IS NOT NULL OR PM IS NOT NULL
-        """
-        return pd.read_sql_query(query, conn)
-    except Exception:
-        return pd.DataFrame(columns=["Anchor", "PM"])
-    finally:
-        conn.close()
-
-
-def _read_master_parameter(path_mon: str) -> pd.DataFrame:
-    if not os.path.exists(path_mon):
-        return pd.DataFrame(columns=["Anchor", "PM"])
-    try:
-        wb = openpyxl.load_workbook(path_mon, data_only=True)
-        if "PARAMETER" not in wb.sheetnames:
-            return pd.DataFrame(columns=["Anchor", "PM"])
-        ws = wb["PARAMETER"]
-        rows = []
-        for row_idx in range(2, ws.max_row + 1):
-            pm_val = _norm_text(ws.cell(row=row_idx, column=1).value)      # col A
-            anchor_val = _norm_text(ws.cell(row=row_idx, column=4).value)  # col D
-            if pm_val or anchor_val:
-                rows.append({"Anchor": anchor_val, "PM": pm_val})
-        return pd.DataFrame(rows, columns=["Anchor", "PM"])
-    except Exception:
-        return pd.DataFrame(columns=["Anchor", "PM"])
-
-
-def _detect_governance_delta(db_path: str, path_mon: str) -> dict:
-    uploaded_df = _read_target_entities(db_path)
-    master_df = _read_master_parameter(path_mon)
-
-    up_anchor_series = uploaded_df["Anchor"].map(_norm_text).dropna() if "Anchor" in uploaded_df.columns else pd.Series(dtype="object")
-    up_pm_series = uploaded_df["PM"].map(_norm_text).dropna() if "PM" in uploaded_df.columns else pd.Series(dtype="object")
-    m_anchor_series = master_df["Anchor"].map(_norm_text).dropna() if "Anchor" in master_df.columns else pd.Series(dtype="object")
-    m_pm_series = master_df["PM"].map(_norm_text).dropna() if "PM" in master_df.columns else pd.Series(dtype="object")
-
-    uploaded_anchors = {x for x in up_anchor_series.tolist() if x}
-    uploaded_pms = {x for x in up_pm_series.tolist() if x}
-    master_anchors = {x for x in m_anchor_series.tolist() if x}
-    master_pms = {x for x in m_pm_series.tolist() if x}
-
-    new_anchors = sorted(uploaded_anchors - master_anchors)
-    new_pms = sorted(uploaded_pms - master_pms)
-
-    impact_anchor_rows = int(up_anchor_series.isin(new_anchors).sum()) if len(new_anchors) else 0
-    impact_pm_rows = int(up_pm_series.isin(new_pms).sum()) if len(new_pms) else 0
-    return {
-        "new_anchors": new_anchors,
-        "new_pms": new_pms,
-        "impact_anchor_rows": impact_anchor_rows,
-        "impact_pm_rows": impact_pm_rows,
-    }
-
-
-def _compute_db_signature(db_path: str) -> str:
-    if not os.path.exists(db_path):
-        return "missing-db"
-    stat = os.stat(db_path)
-    return f"{int(stat.st_mtime)}-{int(stat.st_size)}"
-
-
-def _append_to_parameter_sheet(path_mon: str, approved_anchors: list, approved_pms: list):
-    if not os.path.exists(path_mon):
-        raise FileNotFoundError(f"Master monitoring file not found: {path_mon}")
-
-    wb = openpyxl.load_workbook(path_mon)
-    if "PARAMETER" not in wb.sheetnames:
-        raise ValueError("Sheet 'PARAMETER' not found in master_monitoring.xlsx")
-    ws = wb["PARAMETER"]
-
-    existing_anchor = set()
-    existing_pm = set()
-    max_data_row = 1
-
-    for row_idx in range(2, ws.max_row + 1):
-        pm_val = _norm_text(ws.cell(row=row_idx, column=1).value)
-        anchor_val = _norm_text(ws.cell(row=row_idx, column=4).value)
-        if pm_val:
-            existing_pm.add(pm_val)
-            max_data_row = row_idx
-        if anchor_val:
-            existing_anchor.add(anchor_val)
-            max_data_row = row_idx
-
-    # Add anchor rows (A=UNASSIGNED, D=anchor), only net-new
-    anchors_to_add = [a for a in approved_anchors if a not in existing_anchor]
-    for anchor in anchors_to_add:
-        max_data_row += 1
-        ws.cell(row=max_data_row, column=1).value = "UNASSIGNED"
-        ws.cell(row=max_data_row, column=4).value = anchor
-        ws.cell(row=max_data_row, column=2).value = f"=IF(A{max_data_row}=A{max_data_row-1},B{max_data_row-1}+1,1)"
-        ws.cell(row=max_data_row, column=3).value = f"=CONCATENATE(A{max_data_row},B{max_data_row})"
-        existing_anchor.add(anchor)
-
-    # Add PM rows without forcing anchor assignment, only net-new
-    pms_to_add = [p for p in approved_pms if p not in existing_pm]
-    for pm in pms_to_add:
-        max_data_row += 1
-        ws.cell(row=max_data_row, column=1).value = pm
-        ws.cell(row=max_data_row, column=4).value = "UNMAPPED_ANCHOR"
-        ws.cell(row=max_data_row, column=2).value = f"=IF(A{max_data_row}=A{max_data_row-1},B{max_data_row-1}+1,1)"
-        ws.cell(row=max_data_row, column=3).value = f"=CONCATENATE(A{max_data_row},B{max_data_row})"
-        existing_pm.add(pm)
-
-    wb.save(path_mon)
-
-
-def _write_governance_audit(audit_path: str, decisions: dict):
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    rows = []
-    for entity in decisions.get("approved_anchors", []):
-        rows.append({"timestamp": now_str, "entity_type": "Anchor", "entity_value": entity, "decision": "approve"})
-    for entity in decisions.get("ignored_anchors", []):
-        rows.append({"timestamp": now_str, "entity_type": "Anchor", "entity_value": entity, "decision": "ignore"})
-    for entity in decisions.get("approved_pms", []):
-        rows.append({"timestamp": now_str, "entity_type": "PM", "entity_value": entity, "decision": "approve"})
-    for entity in decisions.get("ignored_pms", []):
-        rows.append({"timestamp": now_str, "entity_type": "PM", "entity_value": entity, "decision": "ignore"})
-
-    if not rows:
-        return
-
-    audit_df = pd.DataFrame(rows)
-    if os.path.exists(audit_path):
-        old = pd.read_csv(audit_path)
-        audit_df = pd.concat([old, audit_df], ignore_index=True)
-    Path(audit_path).parent.mkdir(parents=True, exist_ok=True)
-    audit_df.to_csv(audit_path, index=False)
+# Governance helpers are imported from utils.governance (see top of file)
 
 
 page_header(

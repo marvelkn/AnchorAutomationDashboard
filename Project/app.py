@@ -129,7 +129,7 @@ with st.sidebar:
     # stSidebarNav is hidden via CSS; st.navigation() below still handles routing.
     st.markdown('<div class="custom-nav">', unsafe_allow_html=True)
 
-    if db_exists:
+    if data_exists:
         st.markdown('<div class="custom-nav-group">Analytics</div>', unsafe_allow_html=True)
         st.page_link("pages/4_Dashboard.py",           label="Dashboard",            icon=":material/bar_chart:")
 

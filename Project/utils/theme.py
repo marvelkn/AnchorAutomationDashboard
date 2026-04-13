@@ -200,9 +200,28 @@ html, body {{
 [data-testid="block-container"] {{
     background-color: var(--btn-bg) !important;
 }}
+/* ── Kill top dead-space ── */
+/* 1. Collapse the Streamlit toolbar bar (hamburguer + deploy button row) */
 [data-testid="stHeader"] {{
-    background: var(--btn-bg) !important;
-    border-bottom: 1px solid var(--btn-border);
+    display: none !important;
+}}
+/* 2. Remove the padding-top that Streamlit reserves for that bar */
+[data-testid="stMainBlockContainer"] {{
+    padding-top: 1rem !important;
+}}
+/* 3. Collapse the sidebar header row (collapse-arrow button area) */
+[data-testid="stSidebarHeader"] {{
+    min-height: 0 !important;
+    height: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+}}
+/* 3a. Float the collapse button so it sits over the sidebar content */
+[data-testid="stSidebarCollapseButton"] {{
+    position: absolute !important;
+    top: 0.5rem !important;
+    right: -2.25rem !important;   /* lands just outside the sidebar edge */
+    z-index: 999 !important;
 }}
 
 /* ── Metric cards ── */

@@ -403,8 +403,9 @@ with header_col2:
             except: pass
 
 # ── Stale Data Banner ─────────────────────────────────────────────────────────
-# Show amber notice if staging.db is older than 24 hours
-stale_data_banner(db_path=PATH_DB, threshold_hours=24)
+# Only relevant in local mode — Neon data has no local file age to check
+if not neon_url:
+    stale_data_banner(db_path=PATH_DB, threshold_hours=24)
 
 # ── Global KPI Strip (full-portfolio totals, always unfiltered) ───────────────
 _total_merchants = df_card['MERCHANT_GROUP'].nunique()          if not df_card.empty and 'MERCHANT_GROUP' in df_card.columns else 0
@@ -527,57 +528,83 @@ with tab0:
     # ── Batch Impact (merged from former Batch Impact tab) ────────────────────
     styled_divider()
     section_header("📊", "Batch Impact Analysis", "Latest ingestion vs previous cycle")
-    if not os.path.exists(PATH_DB):
+
+    def _render_batch_impact(fetch_dates, df_getter):
+        """Shared rendering logic for both Neon and SQLite batch sources."""
+        if len(fetch_dates) < 1:
+            st.info("Not enough batches to compare. Upload data first.")
+            return
+        latest_date = fetch_dates.iloc[0, 0]
+        prev_date   = fetch_dates.iloc[1, 0] if len(fetch_dates) > 1 else None
+        st.markdown(f"**Ingestion Batch:** `{latest_date}`")
+        df_latest = df_getter(latest_date)
+        sum_latest_sv  = df_latest['TOTAL_SV'].sum()
+        sum_latest_trx = df_latest['TOTAL_TRX'].sum()
+        if prev_date:
+            df_prev = df_getter(prev_date)
+            sum_prev_sv  = df_prev['TOTAL_SV'].sum()
+            sum_prev_trx = df_prev['TOTAL_TRX'].sum()
+            delta_sv  = sum_latest_sv  - sum_prev_sv
+            pct_sv    = (delta_sv  / sum_prev_sv  * 100) if sum_prev_sv  > 0 else 0
+            delta_trx = sum_latest_trx - sum_prev_trx
+            pct_trx   = (delta_trx / sum_prev_trx * 100) if sum_prev_trx > 0 else 0
+            bi1, bi2 = st.columns(2)
+            bi1.metric("Ingested Sales Volume",  f"Rp {sum_latest_sv/1e9:,.2f}B",  f"{delta_sv/1e6:,.1f}M ({pct_sv:+.1f}%)")
+            bi2.metric("Ingested Transactions",  f"{sum_latest_trx:,.0f}",          f"{delta_trx:,.0f} ({pct_trx:+.1f}%)")
+            merged = pd.merge(
+                df_latest.groupby('MERCHANT_GROUP').sum().reset_index(),
+                df_prev.groupby('MERCHANT_GROUP').sum().reset_index(),
+                on='MERCHANT_GROUP', suffixes=('_new','_old')
+            )
+            merged['Delta SV']  = merged['TOTAL_SV_new'] - merged['TOTAL_SV_old']
+            merged['Growth %']  = (merged['Delta SV'] / merged['TOTAL_SV_old'].replace(0, 1) * 100)
+            styled_divider()
+            g_col, l_col = st.columns(2)
+            with g_col:
+                section_label("🟢 Top Gainers in this Batch")
+                st.dataframe(merged.sort_values('Delta SV', ascending=False).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, use_container_width=True)
+            with l_col:
+                section_label("🔴 Top Losers in this Batch")
+                st.dataframe(merged.sort_values('Delta SV', ascending=True).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, use_container_width=True)
+        else:
+            st.info(f"Only one batch found ({latest_date}). Comparison available after the next update.")
+            st.metric("Ingested Sales Volume", f"Rp {sum_latest_sv/1e9:,.2f}B")
+            st.metric("Ingested Transactions", f"{sum_latest_trx:,.0f}")
+
+    if neon_url:
+        try:
+            fetch_dates = pd.read_sql_query(
+                "SELECT DISTINCT edw_fetch_date FROM card_share ORDER BY edw_fetch_date DESC LIMIT 2", engine
+            )
+            fetch_dates.columns = [c.upper() for c in fetch_dates.columns]
+            fetch_dates = fetch_dates.rename(columns={"EDW_FETCH_DATE": fetch_dates.columns[0]})
+
+            def _neon_getter(date_val):
+                df = pd.read_sql_query(
+                    "SELECT merchant_group, total_sv, total_trx FROM card_share WHERE edw_fetch_date = %(d)s",
+                    engine, params={"d": date_val}
+                )
+                df.columns = [c.upper() for c in df.columns]
+                return df
+
+            _render_batch_impact(fetch_dates, _neon_getter)
+        except Exception as e:
+            st.error(f"Error Analyzing Batch: {e}")
+    elif not os.path.exists(PATH_DB):
         st.warning("Database not found.")
     else:
         try:
             conn_b = sqlite3.connect(PATH_DB)
+
+            def _sqlite_getter(date_val):
+                return pd.read_sql_query(
+                    f"SELECT MERCHANT_GROUP, TOTAL_SV, TOTAL_TRX FROM CARD_SHARE WHERE EDW_FETCH_DATE = '{date_val}'", conn_b
+                )
+
             fetch_dates = pd.read_sql_query(
                 "SELECT DISTINCT EDW_FETCH_DATE FROM CARD_SHARE ORDER BY EDW_FETCH_DATE DESC LIMIT 2", conn_b
             )
-            if len(fetch_dates) < 1:
-                st.info("Not enough batches to compare. Upload data first.")
-            else:
-                latest_date = fetch_dates.iloc[0, 0]
-                prev_date   = fetch_dates.iloc[1, 0] if len(fetch_dates) > 1 else None
-                st.markdown(f"**Ingestion Batch:** `{latest_date}`")
-                df_latest = pd.read_sql_query(
-                    f"SELECT MERCHANT_GROUP, TOTAL_SV, TOTAL_TRX FROM CARD_SHARE WHERE EDW_FETCH_DATE = '{latest_date}'", conn_b
-                )
-                sum_latest_sv  = df_latest['TOTAL_SV'].sum()
-                sum_latest_trx = df_latest['TOTAL_TRX'].sum()
-                if prev_date:
-                    df_prev = pd.read_sql_query(
-                        f"SELECT MERCHANT_GROUP, TOTAL_SV, TOTAL_TRX FROM CARD_SHARE WHERE EDW_FETCH_DATE = '{prev_date}'", conn_b
-                    )
-                    sum_prev_sv  = df_prev['TOTAL_SV'].sum()
-                    sum_prev_trx = df_prev['TOTAL_TRX'].sum()
-                    delta_sv  = sum_latest_sv  - sum_prev_sv
-                    pct_sv    = (delta_sv  / sum_prev_sv  * 100) if sum_prev_sv  > 0 else 0
-                    delta_trx = sum_latest_trx - sum_prev_trx
-                    pct_trx   = (delta_trx / sum_prev_trx * 100) if sum_prev_trx > 0 else 0
-                    bi1, bi2 = st.columns(2)
-                    bi1.metric("Ingested Sales Volume",  f"Rp {sum_latest_sv/1e9:,.2f}B",  f"{delta_sv/1e6:,.1f}M ({pct_sv:+.1f}%)")
-                    bi2.metric("Ingested Transactions",  f"{sum_latest_trx:,.0f}",          f"{delta_trx:,.0f} ({pct_trx:+.1f}%)")
-                    merged = pd.merge(
-                        df_latest.groupby('MERCHANT_GROUP').sum().reset_index(),
-                        df_prev.groupby('MERCHANT_GROUP').sum().reset_index(),
-                        on='MERCHANT_GROUP', suffixes=('_new','_old')
-                    )
-                    merged['Delta SV']  = merged['TOTAL_SV_new'] - merged['TOTAL_SV_old']
-                    merged['Growth %']  = (merged['Delta SV'] / merged['TOTAL_SV_old'].replace(0, 1) * 100)
-                    styled_divider()
-                    g_col, l_col = st.columns(2)
-                    with g_col:
-                        section_label("🟢 Top Gainers in this Batch")
-                        st.dataframe(merged.sort_values('Delta SV', ascending=False).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, use_container_width=True)
-                    with l_col:
-                        section_label("🔴 Top Losers in this Batch")
-                        st.dataframe(merged.sort_values('Delta SV', ascending=True).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, use_container_width=True)
-                else:
-                    st.info(f"Only one batch found ({latest_date}). Comparison available after the next update.")
-                    st.metric("Ingested Sales Volume", f"Rp {sum_latest_sv/1e9:,.2f}B")
-                    st.metric("Ingested Transactions", f"{sum_latest_trx:,.0f}")
+            _render_batch_impact(fetch_dates, _sqlite_getter)
             conn_b.close()
         except Exception as e:
             st.error(f"Error Analyzing Batch: {e}")
