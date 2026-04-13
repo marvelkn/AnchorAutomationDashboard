@@ -30,6 +30,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import (silhouette_score,
                              davies_bouldin_score,
                              calinski_harabasz_score)
+from sklearn.ensemble import IsolationForest
 warnings.filterwarnings('ignore')
 
 # ─────────────────────────────────────────────
@@ -260,6 +261,24 @@ for label in ['PREMIUM', 'REGULER', 'PASIF']:
     merchants = df[df['CLUSTER']==label]['MERCHANT_GROUP'].tolist()
     print(f"  {label}: {', '.join(merchants)}")
 
+# ─────────────────────────────────────────────
+# [5b/6] ISOLATION FOREST — Multivariate Anomaly Detection
+# Liu et al. (2008): builds n_estimators random trees; anomalies need
+# fewer splits to isolate → shorter avg path length → anomaly score.
+# Trained on same X_scaled as K-Means for methodological consistency.
+# contamination=0.10: tuned for anchor portfolio (~38 merchants, expects 3-4 anomalies).
+# ─────────────────────────────────────────────
+print("\n[5b/6] Isolation Forest Anomaly Detection...")
+iso_etl = IsolationForest(n_estimators=100, contamination=0.10, random_state=42)
+iso_etl.fit(X_scaled)
+df['IF_ANOMALY_SCORE'] = (-iso_etl.score_samples(X_scaled)).round(4)
+df['IF_IS_ANOMALY']    = iso_etl.fit_predict(X_scaled) == -1
+n_flagged = df['IF_IS_ANOMALY'].sum()
+print(f"  ✓ Isolation Forest: {n_flagged} merchant(s) flagged as anomalous "
+      f"(contamination=10%, n={len(df)})")
+for m in df[df['IF_IS_ANOMALY']]['MERCHANT_GROUP'].tolist():
+    print(f"    ⚠️  {m}")
+
 # Plot cluster profile
 fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 fig.suptitle('Profil Cluster K-Means (K=3)', fontsize=14, fontweight='bold')
@@ -407,7 +426,8 @@ cols_to_save = [
     'AVG_SV_MONTHLY', 'AVG_FBI_MONTHLY', 'RASIO_ONUS',
     'SV_GROWTH_RATE', 'SV_GROWTH_RATE_CLIPPED', 'ACHIEVEMENT_PCT', 'WEEKS_ACTIVE',
     'YTD_VOL', 'TARGET_VOL_2026', 'TARGET_TRX_2026', 'TARGET_FBI_2026',
-    'CLUSTER_RAW', 'CLUSTER', 'ZSCORE_GROWTH', 'ZSCORE_SV', 'IS_BELOW_IQR', 'CHURN_RISK'
+    'CLUSTER_RAW', 'CLUSTER', 'ZSCORE_GROWTH', 'ZSCORE_SV', 'IS_BELOW_IQR', 'CHURN_RISK',
+    'IF_ANOMALY_SCORE', 'IF_IS_ANOMALY'
 ]
 
 df[cols_to_save].to_sql("mart_merchant_cluster", conn, if_exists="replace", index=False)

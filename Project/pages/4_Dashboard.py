@@ -8,7 +8,13 @@ from scipy import stats
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
+from sklearn.ensemble import IsolationForest
 import os
+try:
+    from statsmodels.tsa.holtwinters import ExponentialSmoothing as HoltWinters
+    _HW_AVAILABLE = True
+except ImportError:
+    _HW_AVAILABLE = False
 import sys
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -83,7 +89,8 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
     ML_COLS = ['MERCHANT_GROUP', 'CLUSTER', 'CHURN_RISK', 'RISK_SCORE', 'SILHOUETTE_SCORE',
                'PM', 'WEEKS_ACTIVE', 'SV_GROWTH_RATE', 'ACHIEVEMENT_PCT', 'AVG_SV', 'AVG_FBI',
                'ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH', 'SV_GROWTH_CLIPPED',
-               'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS']
+               'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS',
+               'IF_ANOMALY_SCORE', 'IF_IS_ANOMALY']
 
     if df_c.empty:
         return pd.DataFrame(columns=ML_COLS)
@@ -170,6 +177,28 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
             # Range: -1 to 1 | >0.5 = strong | 0.25–0.5 = moderate | <0.25 = weak
             if len(df) >= 2:
                 df['SILHOUETTE_SCORE'] = round(float(silhouette_score(X_s, df['CLUSTER_RAW'])), 4)
+
+            # ── 4a. Isolation Forest — Multivariate Anomaly Detection ─────────
+            # Liu et al. (2008): builds n_estimators random trees; anomalies need
+            # fewer splits to isolate → shorter average path length → anomaly score.
+            # Uses same X_s (scaled, log-transformed) as K-Means for methodological
+            # consistency. contamination=0.10 flags ~10% of portfolio (~3-4 merchants).
+            try:
+                if len(df) >= 4:
+                    iso = IsolationForest(
+                        n_estimators=100, contamination=0.10,
+                        random_state=42, n_jobs=-1
+                    )
+                    iso.fit(X_s)
+                    df['IF_ANOMALY_SCORE'] = (-iso.score_samples(X_s)).round(4)
+                    df['IF_IS_ANOMALY']    = (iso.fit_predict(X_s) == -1)
+                else:
+                    df['IF_ANOMALY_SCORE'] = 0.0
+                    df['IF_IS_ANOMALY']    = False
+            except Exception:
+                df['IF_ANOMALY_SCORE'] = 0.0
+                df['IF_IS_ANOMALY']    = False
+
         else:
             df['CLUSTER'] = 'REGULER'
 
@@ -220,6 +249,49 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
 
     return df
 
+
+def _hw_forecast(monthly_sv_series, periods_ahead=12):
+    """
+    Holt-Winters exponential smoothing on historical monthly SV.
+    Algorithm: Winters (1960). Decomposes series into level, trend, and optionally
+    seasonal components. Parameters optimized via MLE.
+    Falls back gracefully to {'success': False} if model fails or data is insufficient.
+
+    seasonal='add' with seasonal_periods=12 requires >= 24 data points for stable
+    estimation. With fewer months, uses Holt's Double Smoothing (trend only).
+    """
+    result = {'forecast': None, 'projected_eoy': None, 'method': 'Linear (fallback)', 'success': False}
+    if not _HW_AVAILABLE:
+        return result
+    series = pd.to_numeric(monthly_sv_series, errors='coerce').fillna(0)
+    series = series[series > 0]
+    if len(series) < 6:
+        return result
+    try:
+        use_seasonal = len(series) >= 24
+        if use_seasonal:
+            model = HoltWinters(
+                series.values, trend='add', seasonal='add',
+                seasonal_periods=12, initialization_method='estimated'
+            )
+            method_label = 'Holt-Winters (trend + seasonal)'
+        else:
+            model = HoltWinters(
+                series.values, trend='add', seasonal=None,
+                initialization_method='estimated'
+            )
+            method_label = "Holt's Double Smoothing (trend only)"
+        fit = model.fit(optimized=True, remove_bias=True)
+        forecast_values = np.maximum(fit.forecast(periods_ahead), 0)
+        result.update({
+            'forecast': forecast_values,
+            'projected_eoy': float(np.sum(forecast_values)),
+            'method': method_label,
+            'success': True
+        })
+    except Exception:
+        pass
+    return result
 
 
 # ── DB LOAD (Cloud-Aware) ─────────────────────────────────────────────────────
@@ -596,8 +668,23 @@ with tab0:
                     target_row = df_target[df_target['MERCHANT_GROUP'] == sel_merch]
                     fy_target  = float(target_row['TARGET_VOL_2026'].iloc[0]) if not target_row.empty else 0
                     active_weeks_count = int((df_m_vol[W_COLS].iloc[0] > 0).sum()) if not df_m_vol.empty else 0
-                    proj_eoy   = (ytd_actual / active_weeks_count * 52) if active_weeks_count > 0 else 0
                     merch_hist = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_merch].copy()
+                    # ── Holt-Winters Forecast ─────────────────────────────────
+                    # Attempt statistical forecast. Falls back to linear if
+                    # insufficient data (<6 months) or if model fitting fails.
+                    _remaining_months = max(0, 12 - len(merch_hist))
+                    _hw_result = _hw_forecast(
+                        merch_hist.sort_values('TRX_MONTH')['TOTAL_SV'] if not merch_hist.empty else pd.Series([], dtype=float),
+                        periods_ahead=_remaining_months if _remaining_months > 0 else 6
+                    )
+                    if _hw_result['success'] and _remaining_months > 0:
+                        proj_eoy          = ytd_actual + _hw_result['projected_eoy']
+                        _proj_method      = _hw_result['method']
+                        _hw_forecast_vals = _hw_result['forecast']
+                    else:
+                        proj_eoy          = (ytd_actual / active_weeks_count * 52) if active_weeks_count > 0 else 0
+                        _proj_method      = 'Linear extrapolation (insufficient historical data)'
+                        _hw_forecast_vals = None
                     seasonality_str = "No historical seasonality data found."
                     season_df  = pd.DataFrame()
                     if not merch_hist.empty:
@@ -647,11 +734,14 @@ with tab0:
                                     <b>🌊 Seasonality Intelligence:</b> {seasonality_str}
                                 </div>""", unsafe_allow_html=True
                             )
-                        st.metric(label="Projected Year-End Run Rate", value=f"Rp {proj_eoy/1e9:,.2f} B",
-                                  delta=f"{rate_pct:.1f}% of Target",
-                                  delta_color="normal" if rate_pct >= 100 else "inverse")
+                        st.metric(
+                            label=f"Projected Year-End Run Rate ({_proj_method})",
+                            value=f"Rp {proj_eoy/1e9:,.2f} B",
+                            delta=f"{rate_pct:.1f}% of Target",
+                            delta_color="normal" if rate_pct >= 100 else "inverse"
+                        )
                         st.markdown("<br>", unsafe_allow_html=True)
-                        with st.expander("🧠 Why this assessment? — Explainable AI (XAI)", expanded=True):
+                        with st.expander("🧠 Risk Factor Contribution Analysis (Domain Heuristic)", expanded=True):
                             fi_scores = {}
                             if active_weeks_count > 0 and latest_wk_num > 0:
                                 inactivity_ratio = 1.0 - (active_weeks_count / latest_wk_num)
@@ -674,13 +764,13 @@ with tab0:
                                 hovertemplate="<b>%{y}</b><br>Impact: <b>%{x:.1f}</b><extra></extra>",
                             ))
                             fig_fi.update_layout(
-                                title="Risk Factor Contribution", height=240, margin=dict(l=0, r=50, t=36, b=0),
+                                title="Risk Factor Contribution (Domain Heuristic)", height=240, margin=dict(l=0, r=50, t=36, b=0),
                                 xaxis=dict(title="Risk Impact Score (0–100)", range=[0, max(fi_df["Impact Score"].max() * 1.25, 10)], showgrid=False, tickfont=dict(color=_pp6["TEXT_SEC"])),
                                 yaxis=dict(showgrid=False, tickfont=dict(color=_pp6["TEXT_PRI"])),
                                 **_chart_base(),
                             )
                             st.plotly_chart(fig_fi, use_container_width=True)
-                            st.caption("Higher bars = stronger contribution to the AI's risk assessment for this merchant.")
+                            st.caption("Higher bars = stronger domain-expert contribution to this merchant's risk profile. Scores are computed from operational metrics, not a trained ML model.")
                     with col_graph:
                         if not season_df.empty:
                             mo_names    = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -696,6 +786,51 @@ with tab0:
                             st.plotly_chart(fig_sea, use_container_width=True)
                         else:
                             st.info(f"Insufficient historical Realisasi monthly data to chart statistical seasonality for {sel_merch}.")
+
+                        # ── Holt-Winters Forecast Chart ───────────────────────
+                        if _hw_forecast_vals is not None and len(_hw_forecast_vals) > 0:
+                            hist_sv = merch_hist.sort_values('TRX_MONTH')[['TRX_MONTH', 'TOTAL_SV']].copy()
+                            hist_sv['Label'] = hist_sv['TRX_MONTH'].astype(str)
+                            hist_sv['Type']  = 'Historical'
+
+                            # Generate future month labels (YYYYMM integers)
+                            last_month = int(hist_sv['TRX_MONTH'].max())
+                            future_months = []
+                            y_m, m_m = last_month // 100, last_month % 100
+                            for _ in range(len(_hw_forecast_vals)):
+                                m_m += 1
+                                if m_m > 12:
+                                    m_m = 1
+                                    y_m += 1
+                                future_months.append(y_m * 100 + m_m)
+
+                            fc_sv = pd.DataFrame({
+                                'TRX_MONTH': future_months,
+                                'TOTAL_SV':  _hw_forecast_vals,
+                                'Label':     [str(x) for x in future_months],
+                                'Type':      'Forecast'
+                            })
+
+                            combined = pd.concat([hist_sv, fc_sv], ignore_index=True)
+                            fig_hw = px.line(
+                                combined, x='Label', y='TOTAL_SV', color='Type',
+                                title=f"Holt-Winters Forecast — {sel_merch}",
+                                labels={'TOTAL_SV': 'Settlement Volume (Rp)', 'Label': 'Month'},
+                                color_discrete_map={
+                                    'Historical': get_palette()['GOLD'],
+                                    'Forecast':   '#60A5FA'
+                                }
+                            )
+                            fig_hw.update_traces(line=dict(width=2.5))
+                            fig_hw.update_layout(
+                                height=350,
+                                **_chart_base(),
+                                xaxis=dict(**_xaxis(), tickangle=-45),
+                                yaxis=_yaxis(),
+                                legend=dict(orientation="h", y=1.1)
+                            )
+                            st.plotly_chart(fig_hw, use_container_width=True)
+                            st.caption(f"Forecast model: {_proj_method}. Blue = model projection for remaining months of the year.")
 
 
 
@@ -1504,14 +1639,36 @@ with tab4:
             df_at_risk = pd.concat([df_high, df_medium], ignore_index=True)
             if len(df_at_risk) > 0:
                 section_label("⚠️ At-Risk Merchant Details")
+
+                # ── Ensemble Alert: dual-method flagging ──────────────────────
+                # Merchants flagged by BOTH statistical MAD Z-Score (HIGH RISK tier)
+                # AND model-based Isolation Forest → highest-confidence anomalies.
+                if 'IF_IS_ANOMALY' in df_at_risk.columns:
+                    ensemble_hits = df_at_risk[
+                        (df_at_risk['CHURN_RISK'] == 'HIGH RISK ⚠️') &
+                        (df_at_risk['IF_IS_ANOMALY'] == True)
+                    ]
+                    if len(ensemble_hits) > 0:
+                        names = ', '.join(ensemble_hits['MERCHANT_GROUP'].tolist())
+                        st.error(
+                            f"⚠️ **ENSEMBLE ALERT — {len(ensemble_hits)} merchant(s) flagged by BOTH methods:** {names}\n\n"
+                            f"These merchants are simultaneously classified as **HIGH RISK** by the statistical MAD Z-Score "
+                            f"AND flagged as anomalous by the **Isolation Forest** model (multivariate, non-parametric). "
+                            f"Dual-method confirmation significantly increases confidence — immediate PM follow-up recommended."
+                        )
+
                 risk_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK','RISK_SCORE',
                                           'WEEKS_ACTIVE','SV_GROWTH_RATE',
-                                          'ACHIEVEMENT_PCT','ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH'] if c in df_at_risk.columns]
+                                          'ACHIEVEMENT_PCT','ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH',
+                                          'IF_ANOMALY_SCORE','IF_IS_ANOMALY'] if c in df_at_risk.columns]
                 df_rd = df_at_risk[risk_cols].sort_values('RISK_SCORE', ascending=False).copy() if 'RISK_SCORE' in df_at_risk.columns else df_at_risk[risk_cols].copy()
                 if 'SV_GROWTH_RATE' in df_rd.columns:
                     df_rd['SV_GROWTH_RATE'] = (df_rd['SV_GROWTH_RATE']*100).round(1).astype(str)+'%'
                 if 'ACHIEVEMENT_PCT' in df_rd.columns:
                     df_rd['ACHIEVEMENT_PCT'] = df_rd['ACHIEVEMENT_PCT'].round(1).astype(str)+'%'
+                # Map IF_IS_ANOMALY boolean to readable label
+                if 'IF_IS_ANOMALY' in df_rd.columns:
+                    df_rd['IF_IS_ANOMALY'] = df_rd['IF_IS_ANOMALY'].map({True: '🔴 Anomaly', False: '✅ Normal'})
 
                 def style_risk_table(row):
                     styles = [''] * len(row)
@@ -1522,6 +1679,7 @@ with tab4:
 
                 fmt = {c: "{:.3f}" for c in ['ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH'] if c in df_rd.columns}
                 if 'RISK_SCORE' in df_rd.columns: fmt['RISK_SCORE'] = "{:.1f}"
+                if 'IF_ANOMALY_SCORE' in df_rd.columns: fmt['IF_ANOMALY_SCORE'] = "{:.4f}"
                 st.dataframe(df_rd.style.apply(style_risk_table, axis=1).format(fmt).hide(axis="index"), width='stretch')
                 st.download_button("⬇️ Export At-Risk List", df_rd.to_csv(index=False, encoding='utf-8-sig'),
                                    "churn_risk_merchants.csv", "text/csv")
