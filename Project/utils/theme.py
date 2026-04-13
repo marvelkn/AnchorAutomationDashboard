@@ -630,14 +630,14 @@ def _nav_css(p: dict) -> str:
     TEXT_SEC = p["TEXT_SEC"]
     return f"""
 <style>
-/* ── Brand Header — sticky, full sidebar width, single-row layout ── */
+/* ── Brand Header — sticky, full sidebar width ── */
 .sidebar-brand-header {{
     position: sticky !important; top: 0 !important; z-index: 100 !important;
     background: #0c0e14 !important;
     padding: 10px 44px 10px 16px !important;
-    border-bottom: 1px solid {BORDER} !important; box-sizing: border-box !important;
+    box-sizing: border-box !important;
     margin: 0 -1rem 0 -1rem !important; width: calc(100% + 2rem) !important;
-    display: flex !important; align-items: center !important; gap: 12px !important;
+    display: flex !important; flex-direction: column !important; align-items: flex-start !important; gap: 4px !important;
 }}
 .sidebar-brand-header img {{
     width: 72px !important;
@@ -648,8 +648,8 @@ def _nav_css(p: dict) -> str:
 
 /* ── Controls strip ── */
 .sb-controls {{
-    padding: 0.75rem 0 0.5rem 0 !important;
-    border-bottom: 1px solid {BORDER} !important; margin-bottom: 0.25rem !important;
+    padding: 0.5rem 0 0.25rem 0 !important;
+    margin-bottom: 0.25rem !important;
 }}
 .sb-controls .stSelectbox label {{
     font-size: 9px !important; text-transform: uppercase !important;
