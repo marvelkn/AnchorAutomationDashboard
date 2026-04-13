@@ -147,212 +147,130 @@ st.markdown(f"""<div class="stats-grid">
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── 2-TAB LAYOUT ─────────────────────────────────────────────────────────────
-tab_assign, tab_manage = st.tabs(["📋  Assignments", "⚙️  Manage PMs"])
+# ── Section 1: Edit / Reassign Merchants ─────────────────────────────────────
+section_label("✏️ Edit / Reassign Merchants")
+st.markdown(
+    """<div class="tab-desc">
+    Click any <b>Project Manager</b> cell to reassign a merchant.
+    Changes are only saved when you click <b>Save Assignments</b>.
+    </div>""",
+    unsafe_allow_html=True,
+)
 
+edited_df = st.data_editor(
+    current_data.copy(),
+    column_config={
+        "MERCHANT_GROUP": st.column_config.TextColumn(
+            "Merchant Group", disabled=True, width="large"
+        ),
+        "PM": st.column_config.SelectboxColumn(
+            "Project Manager", options=all_pms, required=True, width="medium"
+        ),
+    },
+    num_rows="fixed",
+    hide_index=True,
+    use_container_width=True,
+    height=420,
+    key=f"data_editor_{st.session_state.editor_key}",
+)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 1 — ASSIGNMENTS (editable data_editor)
-# ─────────────────────────────────────────────────────────────────────────────
-with tab_assign:
-    st.markdown(
-        """<div class="tab-desc">
-        Use the <b>Project Manager</b> dropdown in each row to reassign a Merchant Group.
-        Changes are only saved when you click <b>Save Assignments</b>.
-        </div>""",
-        unsafe_allow_html=True,
-    )
+has_changes = not edited_df.equals(current_data)
 
-    edited_df = st.data_editor(
-        current_data.copy(),
-        column_config={
-            "MERCHANT_GROUP": st.column_config.TextColumn(
-                "Merchant Group", disabled=True, width="large"
-            ),
-            "PM": st.column_config.SelectboxColumn(
-                "Project Manager", options=all_pms, required=True, width="medium"
-            ),
-        },
-        num_rows="fixed",
-        hide_index=True,
-        use_container_width=True,
-        height=420,
-        key=f"data_editor_{st.session_state.editor_key}",
-    )
+if st.button(
+    "💾 Save Assignments",
+    type="primary",
+    disabled=not has_changes,
+    use_container_width=False,
+    key="btn_save_assignments",
+):
+    diff_mask    = edited_df["PM"] != current_data["PM"]
+    changed_rows = edited_df[diff_mask]
 
-    # Detect changes
-    has_changes = not edited_df.equals(current_data)
-
-    if st.button(
-        "💾 Save Assignments",
-        type="primary",
-        disabled=not has_changes,
-        use_container_width=False,
-        key="btn_save_assignments",
-    ):
-        diff_mask    = edited_df["PM"] != current_data["PM"]
-        changed_rows = edited_df[diff_mask]
-
-        if len(changed_rows) > 0:
-            try:
-                if neon_exists:
-                    from sqlalchemy import text
-                    engine = get_cloud_engine()
-                    with engine.begin() as conn:
-                        for _, row in changed_rows.iterrows():
-                            conn.execute(
-                                text("UPDATE target SET pm = :pm WHERE merchant_group = :mg"),
-                                {"pm": row["PM"], "mg": row["MERCHANT_GROUP"]},
-                            )
-                            update_excel_assignment(row["MERCHANT_GROUP"], row["PM"])
-                else:
-                    conn = sqlite3.connect(DB_PATH)
-                    cursor = conn.cursor()
+    if len(changed_rows) > 0:
+        try:
+            if neon_exists:
+                from sqlalchemy import text
+                engine = get_cloud_engine()
+                with engine.begin() as conn:
                     for _, row in changed_rows.iterrows():
-                        cursor.execute(
-                            "UPDATE TARGET SET PM = ? WHERE MERCHANT_GROUP = ?",
-                            (row["PM"], row["MERCHANT_GROUP"]),
-                        )
-                        update_excel_assignment(row["MERCHANT_GROUP"], row["PM"])
-                    conn.commit()
-                    conn.close()
-
-                st.success(f"✅ Updated {len(changed_rows)} assignment(s) successfully!")
-                st.session_state.editor_key += 1
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error saving assignments: {e}")
-    elif not has_changes:
-        st.caption("No changes detected. Edit a PM cell in the table above to enable Save.")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TAB 2 — MANAGE PMs (Edit / Add / Danger Zone)
-# ─────────────────────────────────────────────────────────────────────────────
-with tab_manage:
-
-    # ── Section 1: Edit / Reassign Merchants ─────────────────────────────────
-    section_label("✏️ Edit / Reassign Merchants")
-    st.markdown(
-        """<div class="tab-desc">
-        Click any <b>Project Manager</b> cell to reassign a merchant.
-        Changes are only saved when you click <b>Save Assignments</b>.
-        </div>""",
-        unsafe_allow_html=True,
-    )
-
-    edited_df_manage = st.data_editor(
-        current_data.copy(),
-        column_config={
-            "MERCHANT_GROUP": st.column_config.TextColumn(
-                "Merchant Group", disabled=True, width="large"
-            ),
-            "PM": st.column_config.SelectboxColumn(
-                "Project Manager", options=all_pms, required=True, width="medium"
-            ),
-        },
-        num_rows="fixed",
-        hide_index=True,
-        use_container_width=True,
-        height=420,
-        key=f"manage_editor_{st.session_state.editor_key}",
-    )
-
-    has_changes_manage = not edited_df_manage.equals(current_data)
-
-    if st.button(
-        "💾 Save Assignments",
-        type="primary",
-        disabled=not has_changes_manage,
-        use_container_width=False,
-        key="btn_save_manage",
-    ):
-        diff_mask    = edited_df_manage["PM"] != current_data["PM"]
-        changed_rows = edited_df_manage[diff_mask]
-        if len(changed_rows) > 0:
-            try:
-                if neon_exists:
-                    from sqlalchemy import text
-                    engine = get_cloud_engine()
-                    with engine.begin() as conn:
-                        for _, row in changed_rows.iterrows():
-                            conn.execute(
-                                text("UPDATE target SET pm = :pm WHERE merchant_group = :mg"),
-                                {"pm": row["PM"], "mg": row["MERCHANT_GROUP"]},
-                            )
-                            update_excel_assignment(row["MERCHANT_GROUP"], row["PM"])
-                else:
-                    conn = sqlite3.connect(DB_PATH)
-                    cursor = conn.cursor()
-                    for _, row in changed_rows.iterrows():
-                        cursor.execute(
-                            "UPDATE TARGET SET PM = ? WHERE MERCHANT_GROUP = ?",
-                            (row["PM"], row["MERCHANT_GROUP"]),
-                        )
-                        update_excel_assignment(row["MERCHANT_GROUP"], row["PM"])
-                    conn.commit()
-                    conn.close()
-                st.success(f"✅ Updated {len(changed_rows)} assignment(s) successfully!")
-                st.session_state.editor_key += 1
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error saving assignments: {e}")
-    elif not has_changes_manage:
-        st.caption("No changes detected. Edit a PM cell in the table above to enable Save.")
-
-    st.divider()
-
-    # ── Section 2: Add New Assignment ─────────────────────────────────────────
-    section_label("➕ Add New Assignment")
-    with st.form("add_pm_form", clear_on_submit=True):
-        new_merchant = st.text_input(
-            "Merchant Group Name",
-            placeholder="e.g. HYPERMART JAKARTA",
-            key="new_mg",
-        )
-        new_pm_name = st.text_input(
-            "Project Manager Name",
-            placeholder="e.g. BUDI SANTOSO",
-            key="new_pm",
-        )
-        add_submitted = st.form_submit_button("➕ Add Assignment", type="primary", use_container_width=True)
-
-    if add_submitted:
-        new_merchant = new_merchant.strip().upper()
-        new_pm_name  = new_pm_name.strip().upper()
-        if not new_merchant or not new_pm_name:
-            st.warning("Both fields are required.")
-        elif new_merchant in current_data["MERCHANT_GROUP"].values:
-            st.error("This Merchant Group already exists. Use the Assignments tab to change its PM.")
-        else:
-            try:
-                if neon_exists:
-                    from sqlalchemy import text
-                    engine = get_cloud_engine()
-                    with engine.begin() as conn:
                         conn.execute(
-                            text("INSERT INTO target (merchant_group, pm) VALUES (:mg, :pm)"),
-                            {"mg": new_merchant, "pm": new_pm_name},
+                            text("UPDATE target SET pm = :pm WHERE merchant_group = :mg"),
+                            {"pm": row["PM"], "mg": row["MERCHANT_GROUP"]},
                         )
-                else:
-                    conn = sqlite3.connect(DB_PATH)
-                    conn.execute(
-                        "INSERT INTO TARGET (MERCHANT_GROUP, PM) VALUES (?, ?)",
-                        (new_merchant, new_pm_name),
+                        update_excel_assignment(row["MERCHANT_GROUP"], row["PM"])
+            else:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                for _, row in changed_rows.iterrows():
+                    cursor.execute(
+                        "UPDATE TARGET SET PM = ? WHERE MERCHANT_GROUP = ?",
+                        (row["PM"], row["MERCHANT_GROUP"]),
                     )
-                    conn.commit()
-                    conn.close()
-                update_excel_assignment(new_merchant, new_pm_name, is_new=True)
-                st.success(f"✅ Added **{new_merchant}** → **{new_pm_name}**")
-                st.session_state.editor_key += 1
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error adding mapping: {e}")
+                    update_excel_assignment(row["MERCHANT_GROUP"], row["PM"])
+                conn.commit()
+                conn.close()
 
-    st.divider()
+            st.success(f"✅ Updated {len(changed_rows)} assignment(s) successfully!")
+            st.session_state.editor_key += 1
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error saving assignments: {e}")
+elif not has_changes:
+    st.caption("No changes detected. Edit a PM cell in the table above to enable Save.")
 
-    # ── Section 3: Danger Zone ─────────────────────────────────────────────────
-    with st.expander("⚠️ Danger Zone: Remove PM", expanded=False):
+st.divider()
+
+# ── Section 2: Add New Assignment ─────────────────────────────────────────────
+section_label("➕ Add New Assignment")
+with st.form("add_pm_form", clear_on_submit=True):
+    new_merchant = st.text_input(
+        "Merchant Group Name",
+        placeholder="e.g. HYPERMART JAKARTA",
+        key="new_mg",
+    )
+    new_pm_name = st.text_input(
+        "Project Manager Name",
+        placeholder="e.g. BUDI SANTOSO",
+        key="new_pm",
+    )
+    add_submitted = st.form_submit_button("➕ Add Assignment", type="primary", use_container_width=True)
+
+if add_submitted:
+    new_merchant = new_merchant.strip().upper()
+    new_pm_name  = new_pm_name.strip().upper()
+    if not new_merchant or not new_pm_name:
+        st.warning("Both fields are required.")
+    elif new_merchant in current_data["MERCHANT_GROUP"].values:
+        st.error("This Merchant Group already exists. Edit the PM cell directly in the table above.")
+    else:
+        try:
+            if neon_exists:
+                from sqlalchemy import text
+                engine = get_cloud_engine()
+                with engine.begin() as conn:
+                    conn.execute(
+                        text("INSERT INTO target (merchant_group, pm) VALUES (:mg, :pm)"),
+                        {"mg": new_merchant, "pm": new_pm_name},
+                    )
+            else:
+                conn = sqlite3.connect(DB_PATH)
+                conn.execute(
+                    "INSERT INTO TARGET (MERCHANT_GROUP, PM) VALUES (?, ?)",
+                    (new_merchant, new_pm_name),
+                )
+                conn.commit()
+                conn.close()
+            update_excel_assignment(new_merchant, new_pm_name, is_new=True)
+            st.success(f"✅ Added **{new_merchant}** → **{new_pm_name}**")
+            st.session_state.editor_key += 1
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error adding mapping: {e}")
+
+st.divider()
+
+# ── Section 3: Danger Zone ─────────────────────────────────────────────────────
+with st.expander("⚠️ Danger Zone: Remove PM", expanded=False):
         _removable = [pm for pm in all_pms if pm != "UNASSIGNED"]
         if not _removable:
             st.info("No PMs available to remove.")
