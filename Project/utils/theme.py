@@ -221,28 +221,31 @@ html, body {{
 [data-testid="stMainBlockContainer"] {{
     padding-top: 1rem !important;
 }}
-/* 3. Reduce sidebar top dead-space while keeping stSidebarCollapseButton
-      fully visible and in normal document flow (never hidden or moved). */
+/* 3. Collapse the native header to zero height; overflow:visible lets the
+      absolutely-positioned collapse button float over the brand header. */
 [data-testid="stSidebarHeader"] {{
-    padding-top: 0.25rem !important;
-    padding-bottom: 0.25rem !important;
-    min-height: unset !important;
-}}
-/* Collapse only the purely decorative spacer that sits ABOVE the collapse
-   button — but do NOT hide the button itself. */
-[data-testid="stLogoSpacer"] {{
-    height: 0 !important;
-    min-height: 0 !important;
     padding: 0 !important;
-    overflow: hidden !important;
+    min-height: 0 !important;
+    height: 0 !important;
+    overflow: visible !important;
+    position: relative !important;
+    z-index: 200 !important;
 }}
-/* Guarantee the sidebar collapse/expand button is always visible & clickable */
+/* Hide decorative spacer entirely */
+[data-testid="stLogoSpacer"] {{
+    display: none !important;
+}}
+/* Float the collapse button to the top-right, visually aligned with the brand
+   header row below it (React state untouched — DOM node not moved). */
 [data-testid="stSidebarCollapseButton"] {{
+    position: absolute !important;
+    top: 16px !important;
+    right: 8px !important;
+    z-index: 201 !important;
     display: flex !important;
+    align-items: center !important;
     visibility: visible !important;
     opacity: 1 !important;
-    position: relative !important;
-    z-index: 999 !important;
     pointer-events: all !important;
 }}
 /* ── Fix phantom sidebar scrollbar ── */
@@ -627,12 +630,20 @@ def _nav_css(p: dict) -> str:
     TEXT_SEC = p["TEXT_SEC"]
     return f"""
 <style>
-/* ── Brand Header — sticky, full sidebar width ── */
+/* ── Brand Header — sticky, full sidebar width, single-row layout ── */
 .sidebar-brand-header {{
     position: sticky !important; top: 0 !important; z-index: 100 !important;
-    background: #0c0e14 !important; padding: 1.6rem 1.25rem 1rem 1.25rem !important;
+    background: #0c0e14 !important;
+    padding: 10px 44px 10px 16px !important;
     border-bottom: 1px solid {BORDER} !important; box-sizing: border-box !important;
-    margin: -1rem -1rem 0 -1rem !important; width: calc(100% + 2rem) !important;
+    margin: 0 -1rem 0 -1rem !important; width: calc(100% + 2rem) !important;
+    display: flex !important; align-items: center !important; gap: 12px !important;
+}}
+.sidebar-brand-header img {{
+    width: 72px !important;
+    margin: 0 !important;
+    display: block !important;
+    flex-shrink: 0 !important;
 }}
 
 /* ── Controls strip ── */
@@ -709,8 +720,8 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
     color: {GOLD}; letter-spacing: 2px; font-weight: 700;
 }}
 .logo-sub {{
-    font-size: 10px; color: #545c7e; margin-top: 2px;
-    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; color: #545c7e; margin-top: 0;
+    font-family: 'JetBrains Mono', monospace; line-height: 1.3;
 }}
 
 /* ── DB info card ── */

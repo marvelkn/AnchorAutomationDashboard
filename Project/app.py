@@ -19,7 +19,6 @@ st.set_page_config(
 # ── Session State Defaults — single initialization point ─────────────────────
 _DEFAULTS = {
     "theme_mode":       "dark",
-    "env_mode":         "PRODUCTION",
     "editor_key":       0,
     "_masters_synced":  False,
 }
@@ -98,7 +97,7 @@ with st.sidebar:
     if os.path.exists(LOGO_PATH):
         with open(LOGO_PATH, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode()
-        brand_icon_html = f'<img src="data:image/png;base64,{img_b64}" width="120" style="margin-bottom:6px; display:block;">'
+        brand_icon_html = f'<img src="data:image/png;base64,{img_b64}" style="display:block;">'
     else:
         brand_icon_html = '<div class="logo-mark">BTN // ANCHOR</div>'
 
@@ -110,18 +109,8 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # ══ SECTION B: CONTROLS (env + theme) ═════════════════════════════════════
+    # ══ SECTION B: CONTROLS (theme toggle) ════════════════════════════════════
     st.markdown('<div class="sb-controls">', unsafe_allow_html=True)
-
-    env_mode = st.selectbox(
-        "Environment",
-        options=["PRODUCTION", "STAGING"],
-        index=0 if st.session_state.get("env_mode", "PRODUCTION") == "PRODUCTION" else 1,
-        key="env_selector",
-        help="Switch between Production and Staging environments.",
-    )
-    st.session_state["env_mode"] = env_mode
-
     theme_toggle_sidebar()
     st.markdown('</div>', unsafe_allow_html=True)  # close .sb-controls
 
