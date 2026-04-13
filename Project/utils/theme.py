@@ -200,23 +200,50 @@ html, body {{
 [data-testid="block-container"] {{
     background-color: var(--btn-bg) !important;
 }}
-/* ── Kill top dead-space ── */
-/* 1. Collapse the Streamlit toolbar bar (hamburguer + deploy button row) */
+/* ── Reduce top dead-space (safe — preserves all native Streamlit controls) ── */
+/* 1. Shrink the Streamlit toolbar height but keep it visible so that the
+      stSidebarCollapseButton and the mobile hamburger remain reachable.
+      We only reduce its minimum height and zero out its internal padding;
+      we NEVER use display:none here. */
 [data-testid="stHeader"] {{
-    display: none !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
 }}
-/* 2. Remove the padding-top that Streamlit reserves for that bar */
+/* Keep the deploy/menu toolbar icon visible but collapsed to minimum space */
+[data-testid="stToolbar"] {{
+    padding: 0 !important;
+    min-height: 0 !important;
+}}
+/* 2. Reduce main content top padding now that the toolbar is slim */
 [data-testid="stMainBlockContainer"] {{
     padding-top: 1rem !important;
 }}
-/* 3. Remove sidebar top dead-space: hide only the empty spacer div,
-      leave stSidebarCollapseButton in normal flow so it stays visible */
-[data-testid="stLogoSpacer"] {{
-    display: none !important;
-}}
+/* 3. Reduce sidebar top dead-space while keeping stSidebarCollapseButton
+      fully visible and in normal document flow (never hidden or moved). */
 [data-testid="stSidebarHeader"] {{
-    padding: 0 !important;
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+    min-height: unset !important;
+}}
+/* Collapse only the purely decorative spacer that sits ABOVE the collapse
+   button — but do NOT hide the button itself. */
+[data-testid="stLogoSpacer"] {{
+    height: 0 !important;
     min-height: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}}
+/* Guarantee the sidebar collapse/expand button is always visible & clickable */
+[data-testid="stSidebarCollapseButton"] {{
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: relative !important;
+    z-index: 999 !important;
+    pointer-events: all !important;
 }}
 
 /* ── Metric cards ── */
