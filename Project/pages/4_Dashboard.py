@@ -433,7 +433,7 @@ _card_rows = len(df_card)   if has_card and not df_card.empty   else 0
 _mon_rows  = len(df_mon)    if has_mon  and not df_mon.empty    else 0
 _tgt_rows  = len(df_target) if has_tgt  and not df_target.empty else 0
 
-with st.expander("⚙️ System Health & Data Status"):
+with st.expander("⚙️ System Health & Data Status", expanded=True):
     sc1, sc2, sc3 = st.columns(3)
     sc1.metric("📊 Card Share DB",
                f"✅ {_card_rows:,} rows" if _card_rows > 0 else ("⚠️ Empty" if has_card else "❌ Missing"))
@@ -611,7 +611,7 @@ with tab0:
 
     # ── Merchant Explorer (formerly Merchant Detail tab) ─────────────────────
     styled_divider()
-    with st.expander("🔍 Merchant Explorer & Export", expanded=False):
+    with st.expander("🔍 Merchant Explorer & Export", expanded=True):
         st.caption("Fully interactive explorer. Apply any combination of filters, search, sort, and export to CSV.")
         if has_card and has_mon:
             df_exp = run_ml(df_card, df_mon, df_target)
@@ -668,7 +668,7 @@ with tab0:
                                "merchant_explorer_export.csv", "text/csv", type="primary")
 
     # ── AI Insights (formerly AI Insights tab) ────────────────────────────────
-    with st.expander("🤖 AI Insights & Recommendations", expanded=False):
+    with st.expander("🤖 AI Insights & Recommendations", expanded=True):
         if not has_mon_weekly:
             st.warning("⚠️ AI Insights require processed Monitoring Weekly data in the database.")
         else:

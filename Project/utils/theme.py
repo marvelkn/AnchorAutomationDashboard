@@ -405,9 +405,10 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 }}
 
 .section-label {{
-    font-size: 0.72rem; font-weight: 600; letter-spacing: 2px;
-    text-transform: uppercase; color: var(--btn-text3);
-    font-family: var(--btn-font-mono); margin: 20px 0 10px 0;
+    font-size: 0.78rem; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--btn-text-pri);
+    font-family: var(--btn-font-mono); margin: 24px 0 10px 0;
+    padding-left: 10px; border-left: 3px solid var(--btn-gold);
 }}
 
 .kpi-card {{
