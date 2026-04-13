@@ -245,6 +245,28 @@ html, body {{
     z-index: 999 !important;
     pointer-events: all !important;
 }}
+/* ── Fix phantom sidebar scrollbar ── */
+/* ROOT CAUSE 1: Streamlit ships ~6rem padding-bottom on the user-content
+   section. When stSidebarHeader shrinks (our fix above), this bottom pad
+   becomes the sole driver pushing height past 100vh → scrollbar appears.
+   We zero it here. The sidebar itself still uses overflow-y: auto so it
+   WILL scroll if you ever add enough links to genuinely need it. */
+section[data-testid="stSidebarUserContent"] {{
+    padding-bottom: 0 !important;
+}}
+/* ROOT CAUSE 2: stSidebarNav is hidden (display:none), but its sibling
+   margin-bottom can still contribute to scroll height in some Streamlit
+   versions. Zero it out safely. */
+[data-testid="stSidebarNav"] {{
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+}}
+/* ROOT CAUSE 3: The bottom status strip (.sb-status-strip) uses
+   margin-top: auto which can inflate the flex container height.
+   Pair it with an explicit bottom padding of 0 on the sidebar itself. */
+[data-testid="stSidebar"] > div:first-child {{
+    padding-bottom: 0 !important;
+}}
 
 /* ── Metric cards ── */
 [data-testid="metric-container"] {{
