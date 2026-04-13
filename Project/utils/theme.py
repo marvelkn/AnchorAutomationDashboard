@@ -209,19 +209,14 @@ html, body {{
 [data-testid="stMainBlockContainer"] {{
     padding-top: 1rem !important;
 }}
-/* 3. Collapse the sidebar header row (collapse-arrow button area) */
-[data-testid="stSidebarHeader"] {{
-    min-height: 0 !important;
-    height: 0 !important;
-    padding: 0 !important;
-    overflow: visible !important;
+/* 3. Remove sidebar top dead-space: hide only the empty spacer div,
+      leave stSidebarCollapseButton in normal flow so it stays visible */
+[data-testid="stLogoSpacer"] {{
+    display: none !important;
 }}
-/* 3a. Float the collapse button so it sits over the sidebar content */
-[data-testid="stSidebarCollapseButton"] {{
-    position: absolute !important;
-    top: 0.5rem !important;
-    right: -2.25rem !important;   /* lands just outside the sidebar edge */
-    z-index: 999 !important;
+[data-testid="stSidebarHeader"] {{
+    padding: 0 !important;
+    min-height: 0 !important;
 }}
 
 /* ── Metric cards ── */
