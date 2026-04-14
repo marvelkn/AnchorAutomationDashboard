@@ -152,10 +152,10 @@ def _make_css(p: dict) -> str:
     --btn-dropdown:  {DROP_BG};
     --btn-scroll:    {SCROLL};
 
-    /* Extended reference palette tokens */
-    --btn-text3:      #545c7e;
-    --btn-bg4:        #222738;
-    --btn-border2:    #353c58;
+    /* Extended reference palette tokens — all theme-aware */
+    --btn-text3:      {TEXT_SEC};
+    --btn-bg4:        {SURFACE2};
+    --btn-border2:    {BORDER};
     --btn-amber-dim:  rgba(245,166,35,0.12);
     --btn-teal:       #00cec9;
     --btn-purple:     #a29bfe;
@@ -343,16 +343,10 @@ section[data-testid="stSidebarUserContent"] {{
 [data-testid="stFileUploader"]:hover {{ border-color: var(--btn-gold-dim) !important; }}
 
 /* ── Data tables ── */
+/* Only the cosmetic wrapper border — let Streamlit's native theme handle
+   inner cell backgrounds so the table correctly follows the light/dark toggle. */
 [data-testid="stDataFrame"] {{
     border: 1px solid var(--btn-border) !important; border-radius: 6px !important; overflow: hidden;
-}}
-[data-testid="stDataFrame"] > div {{ background: var(--btn-surface) !important; }}
-[data-testid="stDataFrame"] tr:hover td {{ background: var(--btn-bg4) !important; }}
-
-/* ── Expanders ── */
-[data-testid="stExpander"] {{
-    background: var(--btn-surface) !important; border: 1px solid var(--btn-border) !important;
-    border-radius: 10px !important;
 }}
 
 /* ── Alerts ── */
@@ -378,7 +372,7 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 [data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     background: var(--btn-gold-dim) !important; color: #fff !important; border-radius: 16px !important;
 }}
-[data-testid="stExpander"] summary span {{ color: var(--btn-text-pri) !important; }}
+/* stExpander header colour intentionally left to Streamlit's native theme vars */
 [data-testid="stDownloadButton"] > button {{
     background: var(--btn-surface) !important; color: var(--btn-text-pri) !important;
     border: 1px solid var(--btn-border) !important; border-radius: 8px !important;

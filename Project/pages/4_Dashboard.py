@@ -510,7 +510,7 @@ with tab0:
                     "PM":             st.column_config.TextColumn("Project Manager", width="medium"),
                 },
                 hide_index=True,
-                width="stretch",
+                use_container_width=True,
                 height=380,
             )
         with ov_right:
@@ -567,10 +567,10 @@ with tab0:
             g_col, l_col = st.columns(2)
             with g_col:
                 section_label("🟢 Top Gainers in this Batch")
-                st.dataframe(merged.sort_values('Delta SV', ascending=False).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, width="stretch")
+                st.dataframe(merged.sort_values('Delta SV', ascending=False).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, use_container_width=True)
             with l_col:
                 section_label("🔴 Top Losers in this Batch")
-                st.dataframe(merged.sort_values('Delta SV', ascending=True).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, width="stretch")
+                st.dataframe(merged.sort_values('Delta SV', ascending=True).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, use_container_width=True)
         else:
             st.info(f"Only one batch found ({latest_date}). Comparison available after the next update.")
             st.metric("Ingested Sales Volume", f"Rp {sum_latest_sv/1e9:,.2f}B")
@@ -667,7 +667,7 @@ with tab0:
             asc_e  = es2.radio("Order", ["Desc", "Asc"], horizontal=True, key="e_asc")
             df_exp_s = df_exp[show_cols].sort_values(sort_e, ascending=(asc_e == 'Asc')).reset_index(drop=True) \
                        if sort_e else df_exp[show_cols].reset_index(drop=True)
-            st.dataframe(df_exp_s, width="stretch", height=480)
+            st.dataframe(df_exp_s, use_container_width=True, height=480)
             st.download_button("⬇️ Export Filtered View as CSV",
                                df_exp_s.to_csv(index=False, encoding='utf-8-sig'),
                                "merchant_explorer_export.csv", "text/csv", type="primary")
@@ -709,7 +709,7 @@ with tab0:
                     if not anomalies.empty:
                         anom_disp = anomalies[['MERCHANT_GROUP', 'DIMENSI', 'Trailing_4W_Avg', wk_curr, 'WoW_Variance']].copy()
                         anom_disp['WoW_Variance'] = (anom_disp['WoW_Variance']*100).round(1).astype(str) + "%"
-                        st.dataframe(anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['WoW_Variance']), width="stretch", hide_index=True)
+                        st.dataframe(anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['WoW_Variance']), use_container_width=True, hide_index=True)
                     else:
                         st.success(f"No massive {slider_drop}% drops detected. Portfolio is stable.")
 
@@ -827,7 +827,7 @@ with tab0:
                                 yaxis=dict(showgrid=False, tickfont=dict(color=_pp6["TEXT_PRI"])),
                                 **_chart_base(),
                             )
-                            st.plotly_chart(fig_fi, width="stretch")
+                            st.plotly_chart(fig_fi, use_container_width=True, theme=None)
                             st.caption("Higher bars = stronger domain-expert contribution to this merchant's risk profile. Scores are computed from operational metrics, not a trained ML model.")
 
                         # ── Isolation Forest Feature Contribution (Model-Based) ──
@@ -882,7 +882,7 @@ with tab0:
                                     yaxis=dict(showgrid=False, tickfont=dict(color=_pp6['TEXT_PRI'])),
                                     **_chart_base(),
                                 )
-                                st.plotly_chart(fig_lofo, width="stretch")
+                                st.plotly_chart(fig_lofo, use_container_width=True, theme=None)
                                 st.caption(
                                     "🔴 Red = feature drives the anomaly (neutralizing it lowers the score). "
                                     "🟢 Green = feature reduces anomaly risk. "
@@ -900,7 +900,7 @@ with tab0:
                             fig_sea.add_hline(y=1.0, line_dash="dash", line_color=get_palette()['TEXT_SEC'], annotation_text="Baseline Avg (1.0x)")
                             fig_sea.update_traces(line=dict(width=3, color=get_palette()['GOLD']), marker=dict(size=8))
                             fig_sea.update_layout(height=350, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-                            st.plotly_chart(fig_sea, width="stretch")
+                            st.plotly_chart(fig_sea, use_container_width=True, theme=None)
                         else:
                             st.info(f"Insufficient historical Realisasi monthly data to chart statistical seasonality for {sel_merch}.")
 
@@ -946,7 +946,7 @@ with tab0:
                                 yaxis=_yaxis(),
                                 legend=dict(orientation="h", y=1.1)
                             )
-                            st.plotly_chart(fig_hw, width="stretch")
+                            st.plotly_chart(fig_hw, use_container_width=True, theme=None)
                             st.caption(f"Forecast model: {_proj_method}. Blue = model projection for remaining months of the year.")
 
 
@@ -1094,7 +1094,7 @@ with tab1:
                 # ── Full-width data viewer ──────────────────────────────────────
                 st.dataframe(
                     disp_fmt.style.apply(style_table_db, axis=1),
-                    width="stretch", hide_index=True,
+                    use_container_width=True, hide_index=True,
                     height=min(38 * len(disp_fmt) + 40, 500),
                 )
 
@@ -1111,7 +1111,7 @@ with tab1:
                             title=f"{sec_name} — Composition",
                         )
                         fig_s.update_layout(height=340, margin=dict(l=0, r=0, t=36, b=0), **_chart_base())
-                        st.plotly_chart(fig_s, width="stretch")
+                        st.plotly_chart(fig_s, use_container_width=True, theme=None)
                     if chart_type in ("Line Trend", "Both"):
                         fig_l = go.Figure()
                         fig_l.add_trace(go.Scatter(
@@ -1123,7 +1123,7 @@ with tab1:
                             marker=dict(size=7, color=accent, line=dict(color=_p()['BG'], width=1.5)),
                         ))
                         fig_l.update_layout(title=f"{sec_name} — Total Trend", height=340, margin=dict(l=0, r=0, t=36, b=0), **_chart_base())
-                        st.plotly_chart(fig_l, width="stretch")
+                        st.plotly_chart(fig_l, use_container_width=True, theme=None)
                 with ch_right:
                     section_label("🍩 Mix Composition (Selected Period)")
                     fig_pie = px.pie(
@@ -1134,7 +1134,7 @@ with tab1:
                         color_discrete_map=PAYMENT_COLORS
                     )
                     fig_pie.update_layout(height=340, margin=dict(t=10, b=50, l=10, r=10), **_chart_base())
-                    st.plotly_chart(fig_pie, width="stretch")
+                    st.plotly_chart(fig_pie, use_container_width=True, theme=None)
 
                 styled_divider()
     else:
@@ -1187,11 +1187,11 @@ with tab1:
             _disp_top.style.format(format_dict)
             .background_gradient(cmap='Blues', subset=['Sales Volume', 'Transactions'])
             .background_gradient(cmap='Greens', subset=['Fee Based Income', 'FBI Yield']),
-            width='stretch', height=min(38 * len(disp_top) + 40, 500)
+            use_container_width=True, height=min(38 * len(disp_top) + 40, 500)
         )
 
         with st.expander("📋 Raw Card Share Data"):
-            st.dataframe(df_c.reset_index(drop=True), width='stretch')
+            st.dataframe(df_c.reset_index(drop=True), use_container_width=True)
             st.download_button("⬇️ Download CSV", df_c.to_csv(index=False, encoding='utf-8-sig'), "card_share_data.csv", "text/csv")
 
         # ── GROWTH ANALYTICS (Realisasi) ──────────────────────────────────
@@ -1262,10 +1262,10 @@ with tab1:
                 c1, c2 = st.columns(2)
                 with c1:
                     section_label(f"🟢 Top 10 by {metric_sel} Growth")
-                    st.dataframe(top_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), width='stretch')
+                    st.dataframe(top_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), use_container_width=True)
                 with c2:
                     section_label(f"🔴 Bottom 10 by {metric_sel} Growth")
-                    st.dataframe(bot_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), width='stretch')
+                    st.dataframe(bot_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), use_container_width=True)
             except Exception as e:
                 st.error(f"Growth calculation failed: {e}")
 
@@ -1348,7 +1348,7 @@ with tab2:
 
             # ── 3. Main Data Matrix ───────────
             section_label(f"🗓️ Weekly Matrix — {sel_yr_mon}")
-            st.dataframe(df_filt_mon[avail_grp_mon + W_COLS_DB].fillna(0).reset_index(drop=True), width='stretch', height=400)
+            st.dataframe(df_filt_mon[avail_grp_mon + W_COLS_DB].fillna(0).reset_index(drop=True), use_container_width=True, height=400)
             
             # ── 4. Trend & Visuals ───────────
             st.markdown("<br>", unsafe_allow_html=True)
@@ -1370,7 +1370,7 @@ with tab2:
                     title=f"Weekly Trend Analysis — {sel_yr_mon}",
                 )
                 fig_trend_mon.update_layout(height=450, legend=dict(orientation='h', y=-0.3), **_chart_base())
-                st.plotly_chart(fig_trend_mon, width='stretch')
+                st.plotly_chart(fig_trend_mon, use_container_width=True, theme=None)
                 
                 # Heatmap
                 st.markdown("<br>", unsafe_allow_html=True)
@@ -1384,7 +1384,7 @@ with tab2:
                     title=f"Weekly Performance Patterns — {sel_yr_mon}"
                 )
                 fig_heat_mon.update_layout(height=max(250, 30*len(heat_data_mon)+100), **_chart_base())
-                st.plotly_chart(fig_heat_mon, width='stretch')
+                st.plotly_chart(fig_heat_mon, use_container_width=True, theme=None)
             
             st.download_button("⬇️ Export Table",
                 df_filt_mon[avail_grp_mon + W_COLS_DB].to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig'),
@@ -1491,7 +1491,7 @@ with tab3:
                                  title=f'Merchant Segmentation (K={k_val})',
                                  color='CLUSTER', color_discrete_map=color_lookup)
                 fig_pie.update_layout(height=450, **_chart_base())
-                st.plotly_chart(fig_pie, width='stretch')
+                st.plotly_chart(fig_pie, use_container_width=True, theme=None)
 
             with sc2:
                 fig_sc = px.scatter_3d(df_f, x='AVG_SV', y='AVG_FBI', z='SV_GROWTH_CLIPPED',
@@ -1500,7 +1500,7 @@ with tab3:
                                     title="3D Mathematical Structure (SV x FBI x Growth)",
                                     color_discrete_map=color_lookup)
                 fig_sc.update_layout(height=450, margin=dict(l=0, r=0, b=0, t=30), **_chart_base())
-                st.plotly_chart(fig_sc, width='stretch')
+                st.plotly_chart(fig_sc, use_container_width=True, theme=None)
 
             section_label("Cluster Radar Profile")
             radar_m = ['AVG_SV','AVG_FBI','RASIO_ONUS','ACHIEVEMENT_PCT','WEEKS_ACTIVE']
@@ -1520,7 +1520,7 @@ with tab3:
                                            bgcolor='rgba(0,0,0,0)'),
                                  **_chart_base(),
                                  height=430, title="Each cluster's normalised characteristic profile")
-            st.plotly_chart(fig_r, width='stretch')
+            st.plotly_chart(fig_r, use_container_width=True, theme=None)
 
             if 'PM' in df_f.columns:
                 section_label("PM × Cluster Breakdown")
@@ -1529,13 +1529,13 @@ with tab3:
                                  barmode='stack', title="Cluster Distribution per Account Manager",
                                  color_discrete_map=CLAMP)
                 fig_stk.update_layout(height=380, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-                st.plotly_chart(fig_stk, width='stretch')
+                st.plotly_chart(fig_stk, use_container_width=True, theme=None)
 
             with st.expander("📋 View ML Results Table"):
                 show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','RISK_SCORE',
                                          'AVG_SV','AVG_FBI','ACHIEVEMENT_PCT',
                                          'WEEKS_ACTIVE','ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH'] if c in df_f.columns]
-                st.dataframe(df_f[show_cols].sort_values('RISK_SCORE', ascending=False).reset_index(drop=True), width='stretch')
+                st.dataframe(df_f[show_cols].sort_values('RISK_SCORE', ascending=False).reset_index(drop=True), use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — CHURN & RISK
@@ -1663,7 +1663,7 @@ with tab4:
                                  font=dict(color="#F87171", size=10)),
                         ],
                     )
-                    st.plotly_chart(fig_gauge, width="stretch")
+                    st.plotly_chart(fig_gauge, use_container_width=True, theme=None)
 
                 with ch_right_kpi:
                     risk_label = "🟢 LOW RISK" if rate < 20 else ("🟡 MEDIUM RISK" if rate < 45 else "🔴 HIGH RISK")
@@ -1706,7 +1706,7 @@ with tab4:
                             "Metric": ["High Risk Count", "Stable Count", "Total", "Churn Rate %"],
                             "Value": [str(len(df_high)), str(len(df_safe)), str(total), f"{rate:.2f}%"],
                         }
-                        st.dataframe(pd.DataFrame(audit_data), hide_index=True, width='stretch')
+                        st.dataframe(pd.DataFrame(audit_data), hide_index=True, use_container_width=True)
                         if 'CHURN_RISK' in df_c4.columns:
                             st.write("CHURN_RISK value_counts:")
                             st.dataframe(df_c4['CHURN_RISK'].value_counts().reset_index(), hide_index=True)
@@ -1719,7 +1719,7 @@ with tab4:
                                     color_discrete_map={'HIGH RISK ⚠️':'#C0392B','STABLE ✅':'#27AE60'},
                                     hole=0.4, title="Churn Risk Breakdown")
                     fig_rc.update_layout(height=350, **_chart_base())
-                    st.plotly_chart(fig_rc, width='stretch')
+                    st.plotly_chart(fig_rc, use_container_width=True, theme=None)
                 with ch_y:
                     if 'PM' in df_high.columns and len(df_high) > 0:
                         pm_churn = df_high.groupby('PM').size().reset_index(name='HIGH_RISK_COUNT')
@@ -1728,7 +1728,7 @@ with tab4:
                                         color='HIGH_RISK_COUNT', color_continuous_scale='Reds',
                                         title="High-Risk Merchants per PM")
                         fig_pc.update_layout(height=350, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-                        st.plotly_chart(fig_pc, width='stretch')
+                        st.plotly_chart(fig_pc, use_container_width=True, theme=None)
 
                 if 'ZSCORE_SV' in df_c4.columns:
                     st.markdown("<br>", unsafe_allow_html=True)
@@ -1748,9 +1748,9 @@ with tab4:
                         fig_z.update_layout(height=300, showlegend=False, margin=dict(l=10, r=10, t=40, b=10), **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
                         return fig_z
 
-                    z1.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_SV', "Volume Outlier Map", z_thresh_val), width='stretch')
-                    z2.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_FBI', "FBI Outlier Map", z_thresh_val), width='stretch')
-                    z3.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_GROWTH', "Growth Outlier Map", z_thresh_val), width='stretch')
+                    z1.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_SV', "Volume Outlier Map", z_thresh_val), use_container_width=True, theme=None)
+                    z2.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_FBI', "FBI Outlier Map", z_thresh_val), use_container_width=True, theme=None)
+                    z3.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_GROWTH', "Growth Outlier Map", z_thresh_val), use_container_width=True, theme=None)
 
             # Show HIGH + MEDIUM merchants sorted by Risk Score descending
             df_at_risk = pd.concat([df_high, df_medium], ignore_index=True)
@@ -1797,7 +1797,7 @@ with tab4:
                 fmt = {c: "{:.3f}" for c in ['ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH'] if c in df_rd.columns}
                 if 'RISK_SCORE' in df_rd.columns: fmt['RISK_SCORE'] = "{:.1f}"
                 if 'IF_ANOMALY_SCORE' in df_rd.columns: fmt['IF_ANOMALY_SCORE'] = "{:.4f}"
-                st.dataframe(df_rd.style.apply(style_risk_table, axis=1).format(fmt).hide(axis="index"), width='stretch')
+                st.dataframe(df_rd.style.apply(style_risk_table, axis=1).format(fmt).hide(axis="index"), use_container_width=True)
                 st.download_button("⬇️ Export At-Risk List", df_rd.to_csv(index=False, encoding='utf-8-sig'),
                                    "churn_risk_merchants.csv", "text/csv")
 
