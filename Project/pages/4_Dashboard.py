@@ -29,6 +29,7 @@ from utils.theme import (
     CLUSTER_COLORS, PAYMENT_COLORS,
 )
 from utils.cloud_db import build_engine
+from sqlalchemy import text
 
 # ── PAGE CONFIG ──────────────────────────────────────────────────────────────
 st.set_page_config(page_title="BTN Anchor Dashboard", page_icon="📈", layout="wide")
@@ -505,7 +506,7 @@ with tab0:
                     "PM":             st.column_config.TextColumn("Project Manager", width="medium"),
                 },
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 height=380,
             )
         with ov_right:
@@ -562,10 +563,10 @@ with tab0:
             g_col, l_col = st.columns(2)
             with g_col:
                 section_label("🟢 Top Gainers in this Batch")
-                st.dataframe(merged.sort_values('Delta SV', ascending=False).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, use_container_width=True)
+                st.dataframe(merged.sort_values('Delta SV', ascending=False).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, width="stretch")
             with l_col:
                 section_label("🔴 Top Losers in this Batch")
-                st.dataframe(merged.sort_values('Delta SV', ascending=True).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, use_container_width=True)
+                st.dataframe(merged.sort_values('Delta SV', ascending=True).head(8)[['MERCHANT_GROUP','Delta SV','Growth %']], hide_index=True, width="stretch")
         else:
             st.info(f"Only one batch found ({latest_date}). Comparison available after the next update.")
             st.metric("Ingested Sales Volume", f"Rp {sum_latest_sv/1e9:,.2f}B")
@@ -662,7 +663,7 @@ with tab0:
             asc_e  = es2.radio("Order", ["Desc", "Asc"], horizontal=True, key="e_asc")
             df_exp_s = df_exp[show_cols].sort_values(sort_e, ascending=(asc_e == 'Asc')).reset_index(drop=True) \
                        if sort_e else df_exp[show_cols].reset_index(drop=True)
-            st.dataframe(df_exp_s, use_container_width=True, height=480)
+            st.dataframe(df_exp_s, width="stretch", height=480)
             st.download_button("⬇️ Export Filtered View as CSV",
                                df_exp_s.to_csv(index=False, encoding='utf-8-sig'),
                                "merchant_explorer_export.csv", "text/csv", type="primary")
@@ -704,7 +705,7 @@ with tab0:
                     if not anomalies.empty:
                         anom_disp = anomalies[['MERCHANT_GROUP', 'DIMENSI', 'Trailing_4W_Avg', wk_curr, 'WoW_Variance']].copy()
                         anom_disp['WoW_Variance'] = (anom_disp['WoW_Variance']*100).round(1).astype(str) + "%"
-                        st.dataframe(anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['WoW_Variance']), use_container_width=True, hide_index=True)
+                        st.dataframe(anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['WoW_Variance']), width="stretch", hide_index=True)
                     else:
                         st.success(f"No massive {slider_drop}% drops detected. Portfolio is stable.")
 
@@ -822,7 +823,7 @@ with tab0:
                                 yaxis=dict(showgrid=False, tickfont=dict(color=_pp6["TEXT_PRI"])),
                                 **_chart_base(),
                             )
-                            st.plotly_chart(fig_fi, use_container_width=True)
+                            st.plotly_chart(fig_fi, width="stretch")
                             st.caption("Higher bars = stronger domain-expert contribution to this merchant's risk profile. Scores are computed from operational metrics, not a trained ML model.")
 
                         # ── Isolation Forest Feature Contribution (Model-Based) ──
@@ -877,7 +878,7 @@ with tab0:
                                     yaxis=dict(showgrid=False, tickfont=dict(color=_pp6['TEXT_PRI'])),
                                     **_chart_base(),
                                 )
-                                st.plotly_chart(fig_lofo, use_container_width=True)
+                                st.plotly_chart(fig_lofo, width="stretch")
                                 st.caption(
                                     "🔴 Red = feature drives the anomaly (neutralizing it lowers the score). "
                                     "🟢 Green = feature reduces anomaly risk. "
@@ -895,7 +896,7 @@ with tab0:
                             fig_sea.add_hline(y=1.0, line_dash="dash", line_color=get_palette()['TEXT_SEC'], annotation_text="Baseline Avg (1.0x)")
                             fig_sea.update_traces(line=dict(width=3, color=get_palette()['GOLD']), marker=dict(size=8))
                             fig_sea.update_layout(height=350, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-                            st.plotly_chart(fig_sea, use_container_width=True)
+                            st.plotly_chart(fig_sea, width="stretch")
                         else:
                             st.info(f"Insufficient historical Realisasi monthly data to chart statistical seasonality for {sel_merch}.")
 
@@ -941,7 +942,7 @@ with tab0:
                                 yaxis=_yaxis(),
                                 legend=dict(orientation="h", y=1.1)
                             )
-                            st.plotly_chart(fig_hw, use_container_width=True)
+                            st.plotly_chart(fig_hw, width="stretch")
                             st.caption(f"Forecast model: {_proj_method}. Blue = model projection for remaining months of the year.")
 
 
@@ -1089,7 +1090,7 @@ with tab1:
                 # ── Full-width data viewer ──────────────────────────────────────
                 st.dataframe(
                     disp_fmt.style.apply(style_table_db, axis=1),
-                    use_container_width=True, hide_index=True,
+                    width="stretch", hide_index=True,
                     height=min(38 * len(disp_fmt) + 40, 500),
                 )
 

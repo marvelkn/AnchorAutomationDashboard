@@ -121,7 +121,7 @@ if cloud_mode_enabled:
         if st.button(
             "Ingest full database to Neon",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             disabled=(engine is None),
             key="btn_ingest_full_db",
         ):
@@ -193,7 +193,7 @@ if cloud_mode_enabled:
 
                         tr = result.get("table_results") or []
                         if tr:
-                            st.dataframe(pd.DataFrame(tr), use_container_width=True, hide_index=True)
+                            st.dataframe(pd.DataFrame(tr), width="stretch", hide_index=True)
                         with st.expander("Technical details (JSON)"):
                             st.json(result.get("details") or {})
 
@@ -219,7 +219,7 @@ if cloud_mode_enabled:
             if st.button(
                 "Run upsert",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 disabled=(engine is None),
                 key="btn_cloud_upsert",
             ):
@@ -244,7 +244,7 @@ if cloud_mode_enabled:
                         st.success(
                             f"Upsert complete · {affected:,} row(s) → `{cloud_schema}.{cloud_table}`."
                         )
-                        st.dataframe(cloud_df.head(20), use_container_width=True)
+                        st.dataframe(cloud_df.head(20), width="stretch")
                     except Exception as upload_err:
                         st.error(f"Upsert failed: {upload_err}")
 
@@ -259,7 +259,7 @@ if cloud_mode_enabled:
             if st.button(
                 "Run cloud scrub / de-duplicate",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 disabled=(engine is None),
                 key="btn_scrub_neon_cloud",
             ):
@@ -285,7 +285,7 @@ if cloud_mode_enabled:
                 "RESET NEON CLOUD DATABASE",
                 type="primary",
                 disabled=not confirm_reset_neon,
-                use_container_width=True,
+                width="stretch",
                 key="btn_reset_neon_cloud",
             ):
                 with st.spinner("Purging Neon PostgreSQL tables..."):
@@ -307,7 +307,7 @@ if cloud_mode_enabled:
                 st.caption(f"Table `{_aud_schema}.ingestion_runs` — last 10 runs.")
                 st.dataframe(
                     fetch_recent_ingestion_runs(engine, schema=_aud_schema, limit=10),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
             except Exception as aud_err:
@@ -404,7 +404,7 @@ def governance_quarantine_dialog():
             else:
                 ignored_pms.append(pm)
 
-        submit = st.form_submit_button("Submit Resolution", type="primary", use_container_width=True)
+        submit = st.form_submit_button("Submit Resolution", type="primary", width="stretch")
 
     if submit:
         decisions = {
@@ -491,7 +491,7 @@ with col1:
     else:
         st.warning("⚠️ No database found. Please upload `staging.db`.")
 
-    if os.path.exists(PATH_LOCAL_DB) and st.button("🔍 Re-run Governance Delta Check", use_container_width=True):
+    if os.path.exists(PATH_LOCAL_DB) and st.button("🔍 Re-run Governance Delta Check", width="stretch"):
         st.session_state["gov_signature"] = _compute_db_signature(PATH_LOCAL_DB)
         st.session_state["gov_delta"] = _detect_governance_delta(PATH_LOCAL_DB, PATH_MON)
         has_delta = bool(st.session_state["gov_delta"]["new_anchors"] or st.session_state["gov_delta"]["new_pms"])
@@ -521,7 +521,7 @@ with col1:
     with st.expander("🗑️ Dangerous Zone: Reset Pipeline"):
         st.warning("This will completely delete the current `staging.db` and all versioned backups.")
         confirm_reset = st.checkbox("I confirm that I want to delete all transaction data.")
-        if st.button("🔴 RESET & DELETE ALL DATABASE DATA", type="primary", disabled=not confirm_reset, use_container_width=True):
+        if st.button("🔴 RESET & DELETE ALL DATABASE DATA", type="primary", disabled=not confirm_reset, width="stretch"):
             try:
                 # Delete main DB
                 if os.path.exists(PATH_LOCAL_DB):
@@ -542,7 +542,7 @@ with col1:
     st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
     with st.expander("🛠️ Maintenance & Data Integrity"):
         st.info("Use this if you notice data anomalies or duplicate entries in the dashboard.")
-        if st.button("🧼 Scrub/De-duplicate Master Data", use_container_width=True):
+        if st.button("🧼 Scrub/De-duplicate Master Data", width="stretch"):
             with st.spinner("Cleaning database and Excel files..."):
                 try:
                     from repair_data import scrub_database, scrub_excel_card_share, scrub_excel_monitoring
@@ -619,7 +619,7 @@ if gov_blocked:
         f"🛑 Governance Gate Active: {len(gov_delta.get('new_anchors', []))} new Anchor(s) "
         f"and {len(gov_delta.get('new_pms', []))} new PM(s) need review."
     )
-    if st.button("Open Quarantine Resolution Wizard", type="primary", use_container_width=True):
+    if st.button("Open Quarantine Resolution Wizard", type="primary", width="stretch"):
         governance_quarantine_dialog()
 else:
     if st.session_state.get("gov_status") == "resolved":
@@ -655,7 +655,7 @@ def execute_pipeline_fragment():
             if st.button(
                 "▶️ RUN END-TO-END ANALYTICS PIPELINE",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 disabled=disable_run
             ):
                 start_str = start_date.strftime("%Y-%m-%d")
@@ -730,7 +730,7 @@ def execute_pipeline_fragment():
 
         colA, colB = st.columns(2)
         with colA:
-            if st.button("🔄 Reset Pipeline Status", use_container_width=True):
+            if st.button("🔄 Reset Pipeline Status", width="stretch"):
                 reset_pipeline_status()
                 st.rerun()
         with colB:

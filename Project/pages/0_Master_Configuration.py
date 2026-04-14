@@ -237,13 +237,13 @@ with tab_files:
                     file_name=m["orig_filename"],
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key=f"dl_{m['uploader_key']}",
-                    use_container_width=True,
+                    width="stretch",
                 )
             else:
                 st.button(
                     f"⬇️ {m['title']} (not available)",
                     disabled=True,
-                    use_container_width=True,
+                    width="stretch",
                     key=f"dl_disabled_{m['uploader_key']}",
                 )
 
@@ -276,7 +276,7 @@ with tab_files:
         submitted = st.form_submit_button(
             "💾 Save All Changes",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
 
     if submitted:
@@ -355,7 +355,7 @@ with tab_history:
         st.dataframe(
             df_bkp,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -363,7 +363,7 @@ with tab_history:
         for b in all_backups:
             rc1, rc2 = st.columns([4, 1])
             rc1.markdown(f"**{b['icon']} {b['file']}** — Version {b['version']}  \n{b['timestamp']}")
-            if rc2.button("↩️ Restore", key=b["restore_key"], use_container_width=True):
+            if rc2.button("↩️ Restore", key=b["restore_key"], width="stretch"):
                 with st.spinner(f"Restoring {b['file']} v{b['version']}…"):
                     restored = restore_backup(b["path"], b["dest_path"])
                 if restored:

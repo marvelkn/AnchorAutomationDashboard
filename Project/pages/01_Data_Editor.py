@@ -115,7 +115,7 @@ with tab_edit:
             df_master,
             column_config=col_configs,
             num_rows="dynamic",
-            use_container_width=True,
+            width="stretch",
             height=500,
             key=f"editor_{dataset_choice}",
         )
@@ -126,17 +126,16 @@ with tab_edit:
     _n_new    = max(0, _edit_len - _orig_len)
 
     # Modified rows: compare only rows that exist in both
+    # Use fillna + astype(str) for NaN-safe comparison (NaN != NaN is True in plain pandas !=)
     _overlap = min(_orig_len, _edit_len)
     try:
-        _n_modified = int(
-            (edited_df.iloc[:_overlap].reset_index(drop=True) != df_master.iloc[:_overlap].reset_index(drop=True))
-            .any(axis=1)
-            .sum()
-        )
+        _a = edited_df.iloc[:_overlap].reset_index(drop=True).fillna("__NaN__").astype(str)
+        _b = df_master.iloc[:_overlap].reset_index(drop=True).fillna("__NaN__").astype(str)
+        _n_modified = int((_a != _b).any(axis=1).sum())
     except Exception:
         _n_modified = 0
 
-    _has_changes = not edited_df.equals(df_master)
+    _has_changes = _n_new > 0 or len(edited_df) != len(df_master) or _n_modified > 0
 
     with metrics_col:
         st.markdown(f"""
@@ -160,13 +159,13 @@ with tab_edit:
         commit_clicked = st.button(
             "💾 Commit Changes",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             disabled=not _has_changes,
             key="btn_commit",
         )
         discard_clicked = st.button(
             "↩️ Discard",
-            use_container_width=True,
+            width="stretch",
             disabled=not _has_changes,
             key="btn_discard",
         )
@@ -259,7 +258,7 @@ with tab_bulk:
             new_val    = st.text_input("Replace with:")
         with bc3:
             st.markdown("<div style='height:1.85rem'></div>", unsafe_allow_html=True)
-            apply_bulk = st.form_submit_button("Apply", type="primary", use_container_width=True)
+            apply_bulk = st.form_submit_button("Apply", type="primary", width="stretch")
 
     if apply_bulk:
         if not search_kw:

@@ -50,5 +50,16 @@ Project/__pycache__/
 Project/pages/__pycache__/
 Project/utils/__pycache__/
 Project/modules/__pycache__/
+
+# Database files (runtime — never commit)
+Project/database/*.db
 Project/database/*.db-journal
-Project/data/backups/
+
+# Runtime generated files
+Project/database/pipeline_status.json
+Project/data/master/governance_audit_log.csv
+
+# Backup directories (runtime artefacts)
+Project/data/master/backups/
+Project/data/master/backups_card/
+Project/data/master/backups_monitoring/

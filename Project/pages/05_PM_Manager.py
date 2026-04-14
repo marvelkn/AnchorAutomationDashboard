@@ -169,7 +169,7 @@ edited_df = st.data_editor(
     },
     num_rows="fixed",
     hide_index=True,
-    use_container_width=True,
+    width="stretch",
     height=420,
     key=f"data_editor_{st.session_state.editor_key}",
 )
@@ -180,7 +180,7 @@ if st.button(
     "💾 Save Assignments",
     type="primary",
     disabled=not has_changes,
-    use_container_width=False,
+    width="content",
     key="btn_save_assignments",
 ):
     diff_mask    = edited_df["PM"] != current_data["PM"]
@@ -233,7 +233,7 @@ with st.form("add_pm_form", clear_on_submit=True):
         placeholder="e.g. BUDI SANTOSO",
         key="new_pm",
     )
-    add_submitted = st.form_submit_button("➕ Add Assignment", type="primary", use_container_width=True)
+    add_submitted = st.form_submit_button("➕ Add Assignment", type="primary", width="stretch")
 
 if add_submitted:
     new_merchant = new_merchant.strip().upper()
@@ -301,7 +301,7 @@ with st.expander("⚠️ Danger Zone: Remove PM", expanded=False):
                 "⚠️ Confirm Removal & Reassign",
                 type="primary",
                 key="btn_remove_pm",
-                use_container_width=True,
+                width="stretch",
             ):
                 try:
                     if neon_exists:
