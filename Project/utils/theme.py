@@ -39,7 +39,7 @@ _LIGHT = dict(
     RED         = "#DC2626",
     AMBER       = "#CA8A04",
     BLUE_ACC    = "#2563EB",
-    SIDEBAR_BG  = "linear-gradient(180deg,#172B4D 0%,#0D1520 100%)",
+    SIDEBAR_BG  = "#EAE6DF",
     ALERT_BG    = "rgba(248,246,241,0.9)",
     DROPDOWN_BG = "#FFFFFF",
     SCROLLBAR   = "#D6CFC2",
@@ -190,7 +190,7 @@ html, body {{
 [data-testid="stSidebar"] div,
 [data-testid="stSidebar"] label,
 [data-testid="stSidebar"] span {{
-    color: #E8EDF5;  /* intentionally fixed — sidebar is always dark navy */
+    color: {TEXT_PRI};
 }}
 
 /* ── Main background ── */
@@ -626,22 +626,25 @@ def _nav_css(p: dict) -> str:
     styles the custom st.page_link()-based nav built in app.py.
     Consolidated here so it is maintained in one place only.
     """
-    GOLD   = p["GOLD"]
-    BORDER = p["BORDER"]
+    GOLD     = p["GOLD"]
+    BORDER   = p["BORDER"]
     TEXT_SEC = p["TEXT_SEC"]
+    TEXT_PRI = p["TEXT_PRI"]
+    BG       = p["BG"]
+    SURFACE2 = p["SURFACE2"]
     return f"""
 <style>
 /* ── Brand Header — sticky, full sidebar width ── */
 .sidebar-brand-header {{
     position: sticky !important; top: 0 !important; z-index: 100 !important;
-    background: #0c0e14 !important;
+    background: {BG} !important;
     padding: 10px 44px 10px 16px !important;
     box-sizing: border-box !important;
     margin: 0 -1rem 0 -1rem !important; width: calc(100% + 2rem) !important;
     display: flex !important; flex-direction: column !important; align-items: flex-start !important; gap: 4px !important;
 }}
 .sidebar-brand-header img {{
-    width: 72px !important;
+    width: 110px !important;
     margin: 0 !important;
     display: block !important;
     flex-shrink: 0 !important;
@@ -654,7 +657,7 @@ def _nav_css(p: dict) -> str:
 }}
 .sb-controls .stSelectbox label {{
     font-size: 9px !important; text-transform: uppercase !important;
-    letter-spacing: 2px !important; color: #545c7e !important; font-weight: 600 !important;
+    letter-spacing: 2px !important; color: {TEXT_SEC} !important; font-weight: 600 !important;
     font-family: 'JetBrains Mono', monospace !important;
 }}
 .sb-controls .stSelectbox > div > div {{
@@ -675,7 +678,7 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
     position: sticky !important; bottom: 0 !important;
     padding: 0.6rem 0 0.25rem 0 !important;
     border-top: 1px solid {BORDER} !important;
-    background: #0c0e14 !important;
+    background: {BG} !important;
     margin-top: auto !important;
 }}
 
@@ -687,7 +690,7 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
 .custom-nav-group {{
     font-family: 'JetBrains Mono', monospace; font-size: 9px;
     text-transform: uppercase; letter-spacing: 2px;
-    font-weight: 600; color: #545c7e;
+    font-weight: 600; color: {TEXT_SEC};
     margin: 0.9rem 0.8rem 0.3rem 0.8rem;
 }}
 
@@ -700,14 +703,14 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
     background: rgba(245,166,35,0.07) !important;
 }}
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a {{
-    color: #8890b0 !important; text-decoration: none !important;
+    color: {TEXT_SEC} !important; text-decoration: none !important;
     font-size: 0.85rem !important; padding: 0.45rem 0.8rem !important;
     display: flex !important; align-items: center !important;
     gap: 0.5rem !important; border-radius: 6px !important; width: 100% !important;
     font-family: 'Space Grotesk', sans-serif !important;
 }}
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a:hover {{
-    background: rgba(245,166,35,0.07) !important; color: #e2e6f3 !important;
+    background: rgba(245,166,35,0.07) !important; color: {TEXT_PRI} !important;
 }}
 /* Active page highlight — amber accent */
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a[aria-current="page"] {{
@@ -721,19 +724,19 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
     color: {GOLD}; letter-spacing: 2px; font-weight: 700;
 }}
 .logo-sub {{
-    font-size: 10px; color: #545c7e; margin-top: 0;
+    font-size: 10px; color: {TEXT_SEC}; margin-top: 0;
     font-family: 'JetBrains Mono', monospace; line-height: 1.3;
 }}
 
 /* ── DB info card ── */
 .db-info {{
-    background: #1a1e2b; border-radius: 6px; padding: 10px 12px;
+    background: {SURFACE2}; border-radius: 6px; padding: 10px 12px;
     font-family: 'JetBrains Mono', monospace; font-size: 10px;
     border-left: 3px solid {GOLD};
 }}
-.db-info .db-label {{ color: #545c7e; margin-bottom: 3px; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }}
+.db-info .db-label {{ color: {TEXT_SEC}; margin-bottom: 3px; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }}
 .db-info .db-status {{ font-size: 11px; font-weight: 700; line-height: 1.3; }}
-.db-info .db-meta {{ color: #8890b0; font-size: 9px; margin-top: 2px; }}
+.db-info .db-meta {{ color: {TEXT_SEC}; font-size: 9px; margin-top: 2px; }}
 </style>
 """
 

@@ -32,7 +32,11 @@ from utils.cloud_db import build_engine
 from sqlalchemy import text
 
 # ── PAGE CONFIG ──────────────────────────────────────────────────────────────
-st.set_page_config(page_title="BTN Anchor Dashboard", page_icon="📈", layout="wide")
+st.set_page_config(
+    page_title="BTN Anchor Dashboard",
+    page_icon=os.path.join(_BASE, "static", "btn_logo.png"),
+    layout="wide",
+)
 apply_theme()
 
 def _p():
@@ -386,7 +390,7 @@ except:
 # ── HEADER ───────────────────────────────────────────────────────────────────
 header_col1, header_col2 = st.columns([0.8, 0.2])
 with header_col1:
-    st.markdown("## 🏦 BTN Anchor Merchant Decision Intelligence Platform")
+    st.markdown("## BTN Anchor Merchant Decision Intelligence Platform")
 with header_col2:
     if _show_new_badge:
         st.markdown("<br>", unsafe_allow_html=True)
