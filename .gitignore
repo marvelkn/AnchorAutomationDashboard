@@ -62,4 +62,11 @@ Project/data/master/governance_audit_log.csv
 # Backup directories (runtime artefacts)
 Project/data/master/backups/
 Project/data/master/backups_card/
-Project/data/master/backups_monitoring/
+Project/data/master/backups_monitoring/
+
+# AnchorDash (Dash rewrite) — data/database are copies of Project/ or runtime-only
+AnchorDash/data/
+AnchorDash/database/*.db
+AnchorDash/database/*.db-journal
+AnchorDash/__pycache__/
+AnchorDash/**/__pycache__/

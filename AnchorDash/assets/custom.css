@@ -1,0 +1,113 @@
+/*
+  AnchorDash — Custom CSS overrides.
+
+  DBC/SPACELAB owns all base styling.
+  This file only fills in BTN brand specifics that Bootstrap doesn't provide.
+  Keep this file minimal — never re-implement what Bootstrap already does.
+*/
+
+/* ── Brand tokens ─────────────────────────────────────────────────────────── */
+:root {
+  --btn-gold:    #F0BE48;
+  --btn-navy:    #0D1520;
+  --btn-surface: #1A2538;
+  --btn-border:  #2A3A55;
+  --btn-text:    #EDF1F7;
+  --btn-muted:   #8A9BB5;
+}
+
+/* ── Body background (override SPACELAB's white) ──────────────────────────── */
+body, #root, .container-fluid {
+  background-color: var(--btn-navy) !important;
+  color: var(--btn-text);
+  font-family: 'Inter', 'Segoe UI', sans-serif;
+}
+
+/* ── Sidebar nav link active state ────────────────────────────────────────── */
+.nav-link.active {
+  background-color: rgba(240, 190, 72, 0.12) !important;
+  color: var(--btn-gold) !important;
+  border-left: 3px solid var(--btn-gold);
+}
+
+.nav-link:hover:not(.active) {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* ── Dash DataTable dark overrides ────────────────────────────────────────── */
+.dash-spreadsheet-container .dash-spreadsheet-inner th {
+  background-color: var(--btn-navy) !important;
+  color: var(--btn-gold) !important;
+}
+
+/* ── dcc.Dropdown dark skin ───────────────────────────────────────────────── */
+.Select-control, .Select-menu-outer {
+  background-color: var(--btn-surface) !important;
+  border-color: var(--btn-border) !important;
+  color: var(--btn-text) !important;
+}
+
+.Select-option {
+  background-color: var(--btn-surface) !important;
+  color: var(--btn-text) !important;
+}
+
+.Select-option:hover, .Select-option.is-focused {
+  background-color: rgba(240, 190, 72, 0.15) !important;
+}
+
+.Select-value-label, .Select-placeholder {
+  color: var(--btn-text) !important;
+}
+
+/* ── dbc.Accordion dark skin ─────────────────────────────────────────────── */
+.accordion-button {
+  background-color: var(--btn-surface) !important;
+  color: var(--btn-text) !important;
+}
+
+.accordion-button:not(.collapsed) {
+  color: var(--btn-gold) !important;
+  box-shadow: inset 0 -1px 0 var(--btn-border);
+}
+
+.accordion-body {
+  background-color: var(--btn-navy) !important;
+}
+
+/* ── dbc.Tabs dark skin ───────────────────────────────────────────────────── */
+.nav-tabs {
+  border-bottom-color: var(--btn-border) !important;
+}
+
+.nav-tabs .nav-link {
+  color: var(--btn-muted) !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
+}
+
+.nav-tabs .nav-link.active {
+  color: var(--btn-gold) !important;
+  background-color: transparent !important;
+  border-bottom: 2px solid var(--btn-gold) !important;
+  border-left: none !important;
+}
+
+/* ── dbc.Card dark default ────────────────────────────────────────────────── */
+.card {
+  background-color: var(--btn-surface);
+  border-color: var(--btn-border);
+}
+
+.card-header {
+  background-color: transparent;
+  border-bottom-color: var(--btn-border);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+/* ── dbc.Badge & Alert ────────────────────────────────────────────────────── */
+.badge {
+  font-size: 0.75rem;
+}
