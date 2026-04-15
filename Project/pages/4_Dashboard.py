@@ -438,7 +438,7 @@ _card_rows = len(df_card)   if has_card and not df_card.empty   else 0
 _mon_rows  = len(df_mon)    if has_mon  and not df_mon.empty    else 0
 _tgt_rows  = len(df_target) if has_tgt  and not df_target.empty else 0
 
-with st.expander("⚙️ System Health & Data Status", expanded=True):
+with st.expander("⚙️ System Health & Data Status", expanded=False):
     sc1, sc2, sc3 = st.columns(3)
     sc1.metric("📊 Card Share DB",
                f"✅ {_card_rows:,} rows" if _card_rows > 0 else ("⚠️ Empty" if has_card else "❌ Missing"))
@@ -1037,11 +1037,19 @@ with tab1:
             }
             
             TYPE_LABELS = {
-                'DEBIT_ONUS': 'Debit BTN (On-Us)',
-                'DEBIT_OFFUS':'Debit Other (Off-Us)',
+                'DEBIT_ONUS':  'Debit BTN (On-Us)',
+                'DEBIT_OFFUS': 'Debit Other (Off-Us)',
                 'CREDIT_OFFUS':'Credit Card',
-                'QRIS_ONUS':  'QRIS BTN (On-Us)',
-                'QRIS_OFFUS': 'QRIS Other (Off-Us)'
+                'QRIS_ONUS':   'QRIS BTN (On-Us)',
+                'QRIS_OFFUS':  'QRIS Other (Off-Us)'
+            }
+            # Colour map keyed to the TYPE_LABELS values actually used in charts
+            CHART_TYPE_COLORS = {
+                'Debit BTN (On-Us)':    "#1B2F5E",
+                'Debit Other (Off-Us)': "#3B82F6",
+                'Credit Card':          "#F59E0B",
+                'QRIS BTN (On-Us)':     "#22C55E",
+                'QRIS Other (Off-Us)':  "#6EE7B7",
             }
 
             def fmt_num_db(v, sec_name):
@@ -1101,16 +1109,24 @@ with tab1:
                 # ── Charts + Donut below the table ──────────────────────────────
                 ch_left, ch_right = st.columns([1, 1])
                 with ch_left:
+                    # Chronological order for the x-axis (data is already sorted by TRX_MONTH)
+                    bulan_order = display["Bulan"].tolist()
                     if chart_type in ("Stacked Bar", "Both"):
                         type_cols_clean = [clean_map[c] for c in valid_sub]
                         melted = display.melt(id_vars="Bulan", value_vars=type_cols_clean, var_name="Type", value_name="Value")
                         fig_s = px.bar(
                             melted, x="Bulan", y="Value", color="Type",
-                            color_discrete_map=PAYMENT_COLORS,
+                            color_discrete_map=CHART_TYPE_COLORS,
                             barmode="stack",
                             title=f"{sec_name} — Composition",
+                            category_orders={"Bulan": bulan_order},
                         )
-                        fig_s.update_layout(height=340, margin=dict(l=0, r=0, t=36, b=0), **_chart_base())
+                        fig_s.update_layout(
+                            height=340, margin=dict(l=0, r=0, t=36, b=60),
+                            **_chart_base(),
+                            xaxis=dict(**_xaxis(), tickangle=-30, categoryorder='array', categoryarray=bulan_order),
+                            yaxis=_yaxis(),
+                        )
                         st.plotly_chart(fig_s, use_container_width=True, theme=None)
                     if chart_type in ("Line Trend", "Both"):
                         fig_l = go.Figure()
@@ -1122,7 +1138,13 @@ with tab1:
                             textposition="top center",
                             marker=dict(size=7, color=accent, line=dict(color=_p()['BG'], width=1.5)),
                         ))
-                        fig_l.update_layout(title=f"{sec_name} — Total Trend", height=340, margin=dict(l=0, r=0, t=36, b=0), **_chart_base())
+                        fig_l.update_layout(
+                            title=f"{sec_name} — Total Trend",
+                            height=340, margin=dict(l=0, r=0, t=36, b=60),
+                            **_chart_base(),
+                            xaxis=dict(**_xaxis(), tickangle=-30, categoryorder='array', categoryarray=bulan_order),
+                            yaxis=_yaxis(),
+                        )
                         st.plotly_chart(fig_l, use_container_width=True, theme=None)
                 with ch_right:
                     section_label("🍩 Mix Composition (Selected Period)")
