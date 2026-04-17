@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr create --title 'feat\\(ml+viz\\): ML quality fixes \\(A1-A10\\) + missing visualizations \\(B1-B5\\)' --base main --head BigMac/great-brahmagupta-3f7a2b --body ' *)",
+      "Bash(where gh *)",
+      "Bash(winget list *)",
+      "Bash(powershell -Command \"Remove-Item -Recurse -Force 'AnchorDash','Project'\")"
+    ]
+  }
+}
