@@ -1,14 +1,15 @@
 """
 Risk & Churn tab callbacks.
 Maps to Tab 4 logic in pages/4_Dashboard.py.
+
+Reads pre-computed ML results from store-ml-result instead of re-fitting models.
 """
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from dash import callback, Input, Output, html, dash_table
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
-
-from services.data_service import load_card_share, load_monitoring, load_target
-from services.ml_service import run_ml
 
 GOLD    = "#F0BE48"
 NAVY    = "#0D1520"
@@ -19,6 +20,8 @@ MUTED   = "#8A9BB5"
 RED     = "#EF4444"
 AMBER   = "#F59E0B"
 GREEN   = "#22C55E"
+PURPLE  = "#A855F7"
+BLUE    = "#3B82F6"
 
 _BASE = dict(
     paper_bgcolor="rgba(0,0,0,0)",
@@ -39,38 +42,31 @@ def _empty():
     }
 
 
-def _get_ml_df(sel_group):
-    df_c = load_card_share()
-    df_m = load_monitoring()
-    df_t = load_target()
-    if sel_group and sel_group != "ALL GROUPS":
-        if not df_c.empty and "MERCHANT_GROUP" in df_c.columns:
-            df_c = df_c[df_c["MERCHANT_GROUP"] == sel_group]
-        if not df_m.empty and "MERCHANT_GROUP" in df_m.columns:
-            df_m = df_m[df_m["MERCHANT_GROUP"] == sel_group]
-    return run_ml(df_c, df_m, df_t if not df_t.empty else None)
-
-
 @callback(
-    Output("chart-risk-pie",          "figure"),
-    Output("chart-risk-gauge",        "figure"),
-    Output("risk-table",              "children"),
-    Output("risk-drilldown-accordion","children"),
-    Input("dd-risk-tier",             "value"),
-    Input("store-filter-group",       "data"),
+    Output("chart-risk-pie",           "figure"),
+    Output("chart-risk-gauge",         "figure"),
+    Output("risk-table",               "children"),
+    Output("risk-drilldown-accordion", "children"),
+    Output("chart-anomaly-scores",     "figure"),
+    Input("dd-risk-tier",              "value"),
+    Input("store-ml-result",           "data"),
 )
-def update_risk_tab(sel_tier, sel_group):
-    df = _get_ml_df(sel_group)
+def update_risk_tab(sel_tier, ml_json):
+    if not ml_json:
+        raise PreventUpdate
+
+    df = pd.read_json(ml_json, orient="split")
+
     if df.empty:
         empty = _empty()
-        return empty, empty, html.P("No data.", className="text-muted small"), []
+        return empty, empty, html.P("No data.", className="text-muted small"), [], empty
 
-    # Filter by risk tier
+    # Filter by risk tier (post-ML)
     df_filt = df.copy()
     if sel_tier and sel_tier != "ALL":
         df_filt = df_filt[df_filt["CHURN_RISK"] == sel_tier]
 
-    # Pie — churn risk distribution
+    # ── Pie — churn risk distribution ─────────────────────────────────────────
     counts = df["CHURN_RISK"].value_counts().reset_index()
     counts.columns = ["Tier", "Count"]
     tier_colors = {"HIGH RISK": RED, "MEDIUM RISK": AMBER, "STABLE": GREEN}
@@ -81,7 +77,7 @@ def update_risk_tab(sel_tier, sel_group):
     )
     fig_pie.update_layout(height=320, **_BASE)
 
-    # Gauge — portfolio average risk score
+    # ── Gauge — portfolio average risk score ──────────────────────────────────
     avg_risk = df["RISK_SCORE"].mean() if "RISK_SCORE" in df.columns else 0
     fig_gauge = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -102,7 +98,7 @@ def update_risk_tab(sel_tier, sel_group):
     ))
     fig_gauge.update_layout(height=320, **_BASE)
 
-    # Risk table
+    # ── Risk table ────────────────────────────────────────────────────────────
     show_cols = ["MERCHANT_GROUP", "CLUSTER", "CHURN_RISK", "RISK_SCORE",
                  "ACHIEVEMENT_PCT", "SV_GROWTH_RATE", "WEEKS_ACTIVE", "PM"]
     present = [c for c in show_cols if c in df_filt.columns]
@@ -125,14 +121,13 @@ def update_risk_tab(sel_tier, sel_group):
         ],
     )
 
-    # Drill-down accordion — one item per HIGH RISK merchant
+    # ── Drill-down accordion — one item per HIGH RISK merchant ────────────────
     high_risk = df[df["CHURN_RISK"] == "HIGH RISK"] if "CHURN_RISK" in df.columns else df.head(0)
     accordion_items = []
     for _, row in high_risk.iterrows():
-        merchant = row.get("MERCHANT_GROUP", "Unknown")
+        merchant   = row.get("MERCHANT_GROUP", "Unknown")
         risk_score = row.get("RISK_SCORE", 0)
 
-        # Risk factor contribution bar (domain heuristics)
         factors = []
         if "ZSCORE_GROWTH" in row:
             factors.append({"Factor": "Declining Volume Trend", "Impact": max(0, -row["ZSCORE_GROWTH"])})
@@ -144,9 +139,7 @@ def update_risk_tab(sel_tier, sel_group):
             gap = max(0, 1 - row["ACHIEVEMENT_PCT"] / 100)
             factors.append({"Factor": "Target Gap",             "Impact": gap})
 
-        import pandas as pd
         df_factors = pd.DataFrame(factors).sort_values("Impact", ascending=True)
-
         bar_colors = [RED if v > 0.5 else (AMBER if v > 0.2 else GREEN)
                       for v in df_factors["Impact"]]
         fig_factors = go.Figure(go.Bar(
@@ -161,7 +154,6 @@ def update_risk_tab(sel_tier, sel_group):
             yaxis=dict(showgrid=False, color=TEXT),
         )
 
-        # IF feature contribution (if available)
         if_cols = [c for c in row.index if c.startswith("IF_CONTRIB_")]
         if_section = html.Div()
         if if_cols and row.get("IF_IS_ANOMALY", False):
@@ -206,4 +198,31 @@ def update_risk_tab(sel_tier, sel_group):
             )
         )
 
-    return fig_pie, fig_gauge, risk_table, accordion_items
+    # ── B3: Isolation Forest anomaly score bar chart ───────────────────────────
+    if "IF_ANOMALY_SCORE" in df_filt.columns and not df_filt.empty:
+        df_sorted = df_filt.sort_values("IF_ANOMALY_SCORE", ascending=True)
+        colors = [RED if a else BLUE for a in df_sorted["IF_IS_ANOMALY"].fillna(False)]
+        fig_anomaly = go.Figure(go.Bar(
+            x=df_sorted["IF_ANOMALY_SCORE"],
+            y=df_sorted["MERCHANT_GROUP"],
+            orientation="h",
+            marker_color=colors,
+            text=[f"{s:.3f}" for s in df_sorted["IF_ANOMALY_SCORE"]],
+            textposition="outside",
+            name="Anomaly Score",
+        ))
+        fig_anomaly.update_layout(
+            **_BASE,
+            height=max(300, len(df_sorted) * 22),
+            title=dict(text="Isolation Forest Anomaly Scores", font=dict(color=TEXT, size=14)),
+            xaxis=dict(title="Anomaly Score (higher = more anomalous)", gridcolor=BORDER, range=[0, 1]),
+            yaxis=dict(tickfont=dict(size=10)),
+            shapes=[dict(
+                type="line", x0=0.5, x1=0.5, y0=-0.5, y1=len(df_sorted) - 0.5,
+                line=dict(color=GOLD, dash="dot", width=1),
+            )],
+        )
+    else:
+        fig_anomaly = _empty()
+
+    return fig_pie, fig_gauge, risk_table, accordion_items, fig_anomaly

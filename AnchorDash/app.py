@@ -60,6 +60,8 @@ app.layout = dbc.Container(
         dcc.Store(id="store-filter-group",  storage_type="session"),
         dcc.Store(id="store-filter-brand",  storage_type="session"),
         dcc.Store(id="store-db-exists",     storage_type="session"),
+        # Cached ML result — populated once by ml_store_callback, read by all ML/risk callbacks.
+        dcc.Store(id="store-ml-result",     storage_type="session"),
     ],
     fluid=True,
     className="p-0",
@@ -73,8 +75,11 @@ import callbacks.nav_callbacks          # noqa: E402, F401
 import callbacks.filter_callbacks       # noqa: E402, F401
 import callbacks.card_share_callbacks   # noqa: E402, F401
 import callbacks.monitoring_callbacks   # noqa: E402, F401
+import callbacks.ml_store_callback      # noqa: E402, F401
 import callbacks.ml_callbacks           # noqa: E402, F401
 import callbacks.risk_callbacks         # noqa: E402, F401
+import callbacks.forecast_callbacks     # noqa: E402, F401
+import callbacks.overview_callbacks     # noqa: E402, F401
 
 
 if __name__ == "__main__":

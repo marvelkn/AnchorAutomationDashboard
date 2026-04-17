@@ -1,13 +1,17 @@
 """
 ML / Segmentation tab callbacks.
 Maps to Tab 3 (K-Means++) logic in pages/4_Dashboard.py.
+
+Reads pre-computed ML results from store-ml-result (populated by
+ml_store_callback) instead of re-fitting models on every interaction.
 """
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from dash import callback, Input, Output, html, dash_table
+from dash.exceptions import PreventUpdate
 
-from services.data_service import load_card_share, load_monitoring, load_target
-from services.ml_service import run_ml
+from services.data_service import load_monitoring
 
 GOLD    = "#F0BE48"
 NAVY    = "#0D1520"
@@ -66,24 +70,14 @@ def populate_ml_pm_dropdown(_group):
     Output("chart-ml-pm-stack", "figure"),
     Output("badge-silhouette",  "children"),
     Output("ml-segment-table",  "children"),
-    Input("slider-k",           "value"),
+    Input("store-ml-result",    "data"),
     Input("dd-ml-pm",           "value"),
-    Input("store-filter-group", "data"),
 )
-def update_ml_charts(k_val, sel_pms, sel_group):
-    k = int(k_val or 3)
-    df_c = load_card_share()
-    df_m = load_monitoring()
-    df_t = load_target()
+def update_ml_charts(ml_json, sel_pms):
+    if not ml_json:
+        raise PreventUpdate
 
-    # Apply group filter before ML
-    if sel_group and sel_group != "ALL GROUPS":
-        if not df_c.empty and "MERCHANT_GROUP" in df_c.columns:
-            df_c = df_c[df_c["MERCHANT_GROUP"] == sel_group]
-        if not df_m.empty and "MERCHANT_GROUP" in df_m.columns:
-            df_m = df_m[df_m["MERCHANT_GROUP"] == sel_group]
-
-    df = run_ml(df_c, df_m, df_t if not df_t.empty else None, k_clusters=k)
+    df = pd.read_json(ml_json, orient="split")
 
     if df.empty:
         empty = _empty()
@@ -93,9 +87,15 @@ def update_ml_charts(k_val, sel_pms, sel_group):
     if sel_pms and "PM" in df.columns:
         df = df[df["PM"].isin(sel_pms)]
 
-    sil_val = df["SILHOUETTE_SCORE"].iloc[0] if "SILHOUETTE_SCORE" in df.columns else 0.0
+    sil_val  = df["SILHOUETTE_SCORE"].iloc[0] if "SILHOUETTE_SCORE" in df.columns else 0.0
     sil_label = "Strong" if sil_val > 0.5 else ("Moderate" if sil_val > 0.25 else "Weak")
     badge_text = f"Silhouette: {sil_val:.3f} ({sil_label})"
+
+    # Append best-k recommendation if available
+    if "BEST_K" in df.columns and "BEST_K_SCORE" in df.columns:
+        best_k      = int(df["BEST_K"].iloc[0])
+        best_score  = float(df["BEST_K_SCORE"].iloc[0])
+        badge_text += f" | Recommended k={best_k} (Score: {best_score:.3f})"
 
     # 3D Scatter
     fig_3d = px.scatter_3d(

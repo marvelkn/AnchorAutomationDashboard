@@ -388,6 +388,9 @@ def _tab_risk() -> dbc.Tab:
                 className="g-3 mb-3",
             ),
             html.Div(id="risk-table", className="mb-4"),
+            # Anomaly score bar chart (B3)
+            html.H6("Isolation Forest Anomaly Scores", className="text-warning mt-3 mb-2"),
+            dcc.Graph(id="chart-anomaly-scores", figure=_EMPTY_FIG, className="mb-4"),
             # Merchant drill-down
             dbc.Accordion(
                 id="risk-drilldown-accordion",
@@ -429,7 +432,31 @@ def _ai_insights() -> dbc.Accordion:
                 item_id="ai-churn",
             ),
             dbc.AccordionItem(
-                html.Div(id="ai-deep-dive"),
+                [
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    html.Label("Select Merchant", className="text-secondary small mb-1"),
+                                    dcc.Dropdown(
+                                        id="dd-forecast-merchant",
+                                        placeholder="Select merchant…",
+                                        clearable=True,
+                                        className="dash-dropdown-dark",
+                                    ),
+                                ],
+                                width=6,
+                            ),
+                            dbc.Col(
+                                html.Div(id="badge-forecast-method"),
+                                width=6,
+                                className="d-flex align-items-center",
+                            ),
+                        ],
+                        className="mb-3",
+                    ),
+                    dcc.Graph(id="chart-forecast", figure=_EMPTY_FIG, style={"height": "380px"}),
+                ],
                 title="Deep Dive & Projection",
                 item_id="ai-deepdive",
             ),
