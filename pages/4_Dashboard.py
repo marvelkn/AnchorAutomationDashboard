@@ -438,7 +438,7 @@ _card_rows = len(df_card)   if has_card and not df_card.empty   else 0
 _mon_rows  = len(df_mon)    if has_mon  and not df_mon.empty    else 0
 _tgt_rows  = len(df_target) if has_tgt  and not df_target.empty else 0
 
-with st.expander("⚙️ System Health & Data Status", expanded=True):
+with st.expander("⚙️ System Health & Data Status", expanded=False):
     sc1, sc2, sc3 = st.columns(3)
     sc1.metric("📊 Card Share DB",
                f"✅ {_card_rows:,} rows" if _card_rows > 0 else ("⚠️ Empty" if has_card else "❌ Missing"))
@@ -1110,7 +1110,11 @@ with tab1:
                             barmode="stack",
                             title=f"{sec_name} — Composition",
                         )
-                        fig_s.update_layout(height=340, margin=dict(l=0, r=0, t=36, b=48), **_chart_base())
+                        fig_s.update_layout(
+                            height=340, margin=dict(l=0, r=0, t=36, b=64),
+                            xaxis=dict(tickangle=-30),
+                            **_chart_base(),
+                        )
                         st.plotly_chart(fig_s, use_container_width=True, theme=None)
                     if chart_type in ("Line Trend", "Both"):
                         fig_l = go.Figure()
@@ -1122,7 +1126,12 @@ with tab1:
                             textposition="top center",
                             marker=dict(size=7, color=accent, line=dict(color=_p()['BG'], width=1.5)),
                         ))
-                        fig_l.update_layout(title=f"{sec_name} — Total Trend", height=340, margin=dict(l=0, r=0, t=36, b=48), **_chart_base())
+                        fig_l.update_layout(
+                            title=f"{sec_name} — Total Trend",
+                            height=340, margin=dict(l=0, r=0, t=36, b=64),
+                            xaxis=dict(tickangle=-30),
+                            **_chart_base(),
+                        )
                         st.plotly_chart(fig_l, use_container_width=True, theme=None)
                 with ch_right:
                     section_label("🍩 Mix Composition (Selected Period)")
