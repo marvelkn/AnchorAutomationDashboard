@@ -359,7 +359,7 @@ if neon_url:
     has_mon        = table_exists(engine, "PROCESSED_MONITORING")
     has_mon_weekly = table_exists(engine, "PROCESSED_MONITORING_WEEKLY")
     has_tgt        = table_exists(engine, "TARGET")
-    
+
     df_card        = pd.read_sql_query("SELECT * FROM processed_card_share", engine) if has_card else pd.DataFrame()
     df_card_hist   = pd.read_sql_query("SELECT * FROM processed_card_history", engine) if has_card_hist else pd.DataFrame()
     df_mon         = pd.read_sql_query("SELECT * FROM processed_monitoring", engine) if has_mon else pd.DataFrame()
@@ -370,21 +370,25 @@ if neon_url:
     for df in [df_card, df_card_hist, df_mon, df_mon_weekly, df_target]:
         if len(df.columns) > 0:
             df.columns = [c.upper() for c in df.columns]
-    
-    # Custom exists check for monthly detailed table used later
+
     has_monthly_tbl = table_exists(engine, "PROCESSED_CARD_MONTHLY")
-else:
-    if not os.path.exists(PATH_DB):
+
+    # Show popup if Neon is connected but tables are empty (e.g. after a database reset)
+    if df_card.empty and df_mon.empty:
         _show_no_data_dialog()
         st.stop()
-    
+else:
+    if not os.path.exists(PATH_DB):
+        st.warning("⚠️ Database not found. Process files in the Processing pages first.")
+        st.stop()
+
     conn = sqlite3.connect(PATH_DB)
     has_card       = table_exists(conn, "PROCESSED_CARD_SHARE")
     has_card_hist  = table_exists(conn, "PROCESSED_CARD_HISTORY")
     has_mon        = table_exists(conn, "PROCESSED_MONITORING")
     has_mon_weekly = table_exists(conn, "PROCESSED_MONITORING_WEEKLY")
     has_tgt        = table_exists(conn, "TARGET")
-    
+
     df_card        = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_SHARE", conn) if has_card else pd.DataFrame()
     df_card_hist   = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_HISTORY", conn) if has_card_hist else pd.DataFrame()
     df_mon         = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING", conn) if has_mon else pd.DataFrame()
@@ -392,11 +396,6 @@ else:
     df_target      = pd.read_sql_query("SELECT * FROM TARGET", conn) if has_tgt else pd.DataFrame()
     has_monthly_tbl = table_exists(conn, "PROCESSED_CARD_MONTHLY")
     conn.close()
-
-# Show popup if database exists but all key tables are empty (e.g. after a reset)
-if df_card.empty and df_mon.empty:
-    _show_no_data_dialog()
-    st.stop()
 
 # ── BATCH METADATA & SIGNALS ──────────────────────────────────────────────────
 _last_update = "Unknown"
