@@ -39,6 +39,31 @@ st.set_page_config(
 )
 apply_theme()
 
+@st.dialog("📂 No Data Found", width="large")
+def _show_no_data_dialog():
+    st.markdown(
+        """
+        <div style="text-align:center;padding:16px 0 8px;">
+            <div style="font-size:3rem;margin-bottom:12px;">🗄️</div>
+            <div style="font-size:1.15rem;font-weight:700;margin-bottom:8px;">
+                The dashboard has no data to display.
+            </div>
+            <div style="font-size:0.92rem;color:#4D4D4D;line-height:1.6;max-width:480px;margin:0 auto 24px;">
+                The database is empty or was recently reset. Run the automated pipeline
+                to ingest Card Share &amp; Monitoring data before opening the dashboard.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("🚀 Go to Automated Pipeline", use_container_width=True, type="primary"):
+            st.switch_page("pages/00_Automated_Pipeline.py")
+    with c2:
+        if st.button("⚙️ Go to Global Settings", use_container_width=True):
+            st.switch_page("pages/0_Master_Configuration.py")
+
 def _p():
     """Get current palette dict for theme-aware chart colours."""
     return get_palette()
@@ -350,7 +375,7 @@ if neon_url:
     has_monthly_tbl = table_exists(engine, "PROCESSED_CARD_MONTHLY")
 else:
     if not os.path.exists(PATH_DB):
-        st.warning("⚠️ Database not found. Process files in the Processing pages first.")
+        _show_no_data_dialog()
         st.stop()
     
     conn = sqlite3.connect(PATH_DB)
@@ -368,6 +393,10 @@ else:
     has_monthly_tbl = table_exists(conn, "PROCESSED_CARD_MONTHLY")
     conn.close()
 
+# Show popup if database exists but all key tables are empty (e.g. after a reset)
+if df_card.empty and df_mon.empty:
+    _show_no_data_dialog()
+    st.stop()
 
 # ── BATCH METADATA & SIGNALS ──────────────────────────────────────────────────
 _last_update = "Unknown"
