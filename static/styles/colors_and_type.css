@@ -1,0 +1,153 @@
+/* =============================================================
+   BTN Anchor Automation Analytics — Design Tokens
+   ============================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@font-face {
+  font-family: 'Roboto';
+  src: url('../fonts/Roboto-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* ---------- BRAND CORE (BTN corporate) ---------- */
+  --btn-blue: #1B59F8;            /* primary / active */
+  --btn-blue-600: #0C49E8;        /* hover */
+  --btn-blue-700: #0A3AC0;        /* pressed */
+  --btn-blue-050: #F2F7FF;        /* subtle fill, selected row */
+  --btn-blue-100: #DDE8FE;        /* chip bg */
+  --btn-blue-soft: rgba(27, 89, 248, 0.10);  /* active nav pill */
+
+  --btn-gold: #FFBF1A;            /* primary yellow accent */
+  --btn-gold-600: #E9A800;
+  --btn-gold-050: #FFF8E3;
+
+  --btn-red: #E51837;             /* logo accent red */
+  --btn-navy: #0F2552;            /* deep text / sidebar brand */
+
+  /* ---------- NEUTRALS ---------- */
+  --ink-900: #000000;             /* primary text */
+  --ink-800: #151E23;
+  --ink-700: #4D4D4D;             /* secondary text */
+  --ink-600: #696974;
+  --ink-500: #838383;             /* tertiary / metadata */
+  --ink-400: #9098A3;
+  --ink-300: #DADADA;
+  --ink-200: #EFF0F6;             /* card border */
+  --ink-150: #E4E5E7;             /* divider, axis line */
+  --ink-100: #F0F0F0;
+  --ink-050: #F9F9F9;             /* canvas bg */
+  --ink-000: #FFFFFF;
+
+  /* 60%/70%/50%/10% black alphas — used extensively in source */
+  --ink-a90: rgba(0,0,0,0.90);
+  --ink-a70: rgba(0,0,0,0.70);
+  --ink-a50: rgba(0,0,0,0.50);
+  --ink-a10: rgba(0,0,0,0.10);
+  --ink-a05: rgba(0,0,0,0.05);
+
+  /* ---------- SEMANTIC / DATA-VIZ ---------- */
+  --ok-green: #2FEA9B;
+  --ok-lime:  #7FDD53;
+  --warn-gold: #FFBF1A;
+  --warn-pink: #FF4080;
+  --err-red: #E51837;
+
+  /* Gradient pairs lifted from Figma */
+  --grad-weak:   linear-gradient(90deg, #FFBF1A 0%, #FF4080 100%);
+  --grad-strong: linear-gradient(90deg, #2FEA9B 0%, #7FDD53 100%);
+  --grad-spark:  linear-gradient(180deg, #0062FF 0%, rgba(255,255,255,0) 100%);
+
+  /* Chart palette (up to 6) */
+  --c1: #1B59F8;
+  --c2: #FFBF1A;
+  --c3: #2FEA9B;
+  --c4: #FF4080;
+  --c5: #0F2552;
+  --c6: #7FDD53;
+
+  /* ---------- RADII ---------- */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;        /* default card */
+  --r-xl: 30px;        /* page/shell */
+  --r-pill: 999px;
+
+  /* ---------- SPACING (4-base) ---------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+  --sp-9: 56px;
+
+  /* ---------- ELEVATION ---------- */
+  --elev-0: none;
+  --elev-card:    0 5px 20px rgba(0,0,0,0.05);     /* default widget */
+  --elev-pop:     0 10px 30px rgba(0,0,0,0.08);    /* menu / dropdown */
+  --elev-modal:   0 0 50px rgba(0,0,0,0.10);       /* shell / modal */
+  --elev-focus:   0 0 0 3px rgba(27,89,248,0.20);  /* focus ring */
+
+  /* ---------- TYPOGRAPHY ---------- */
+  --f-sans: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --f-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --f-num:  'Roboto', sans-serif;  /* with feature-settings for tabular */
+
+  /* Type scale */
+  --fs-display: 32px;
+  --fs-h1: 24px;
+  --fs-h2: 20px;
+  --fs-h3: 18px;
+  --fs-body: 14px;
+  --fs-sm: 12px;
+  --fs-xs: 11px;
+
+  --lh-tight: 1.1;
+  --lh-snug: 1.25;
+  --lh-normal: 1.45;
+
+  /* ---------- MOTION ---------- */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-med: 220ms;
+  --dur-slow: 360ms;
+}
+
+/* =============================================================
+   Semantic base
+   ============================================================= */
+body {
+  font-family: var(--f-sans);
+  color: var(--ink-900);
+  background: var(--ink-050);
+  font-feature-settings: 'ss01', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.h-display { font: 800 var(--fs-display)/var(--lh-tight) var(--f-sans); letter-spacing: -0.02em; color: var(--ink-900); }
+.h1 { font: 700 var(--fs-h1)/var(--lh-tight) var(--f-sans); letter-spacing: -0.01em; color: var(--ink-900); }
+.h2 { font: 700 var(--fs-h2)/var(--lh-snug) var(--f-sans); color: var(--ink-900); }
+.h3 { font: 700 var(--fs-h3)/var(--lh-snug) var(--f-sans); color: var(--ink-900); }
+.eyebrow { font: 700 var(--fs-body)/1 var(--f-sans); color: var(--ink-a50); letter-spacing: 0.02em; }
+.body    { font: 400 var(--fs-body)/var(--lh-normal) var(--f-sans); color: var(--ink-a70); }
+.body-strong { font: 500 var(--fs-body)/var(--lh-normal) var(--f-sans); color: var(--ink-a70); letter-spacing: -0.011em; }
+.meta    { font: 400 var(--fs-sm)/1 var(--f-sans); color: var(--ink-500); }
+.num     { font: 700 var(--fs-display)/1 var(--f-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.num-sm  { font-variant-numeric: tabular-nums; }
+
+/* Card primitive */
+.card {
+  background: var(--ink-000);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-card);
+}

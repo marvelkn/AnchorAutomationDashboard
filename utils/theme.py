@@ -22,27 +22,37 @@ _DARK = dict(
     ALERT_BG    = "rgba(26,30,43,0.9)",
     DROPDOWN_BG = "#1a1e2b",
     SCROLLBAR   = "#353c58",
+    # primary button: gold gradient in dark mode
+    PRIMARY_BTN_BG  = "linear-gradient(135deg, #d4900f, #f5a623)",
+    PRIMARY_BTN_FG  = "#0c0e14",
+    NAV_ACTIVE      = "#f5a623",
+    NAV_ACTIVE_BG   = "rgba(245,166,35,0.12)",
 )
 
 _LIGHT = dict(
-    BG          = "#F8F6F1",
-    SURFACE     = "#FFFFFF",
-    SURFACE2    = "#F0ECE3",
-    BORDER      = "#D6CFC2",
-    TEXT_PRI    = "#1A1A2E",
-    TEXT_SEC    = "#596778",
-    NAVY        = "#1B2F5E",
-    NAVY2       = "#2B4470",
-    GOLD        = "#A06C06",
-    GOLD_DIM    = "#8A5C05",
-    GREEN       = "#16A34A",
-    RED         = "#DC2626",
-    AMBER       = "#CA8A04",
-    BLUE_ACC    = "#2563EB",
-    SIDEBAR_BG  = "#EAE6DF",
-    ALERT_BG    = "rgba(248,246,241,0.9)",
+    BG          = "#F9F9F9",   # --ink-050 canvas
+    SURFACE     = "#FFFFFF",   # white widgets
+    SURFACE2    = "#F2F7FF",   # --btn-blue-050
+    BORDER      = "#EFF0F6",   # --ink-200
+    TEXT_PRI    = "#000000",   # --ink-900
+    TEXT_SEC    = "#4D4D4D",   # --ink-700
+    NAVY        = "#0F2552",   # --btn-navy
+    NAVY2       = "#DDE8FE",   # --btn-blue-100
+    GOLD        = "#FFBF1A",   # --btn-gold
+    GOLD_DIM    = "#E9A800",   # --btn-gold-600
+    GREEN       = "#2FEA9B",   # --ok-green
+    RED         = "#E51837",   # --btn-red
+    AMBER       = "#FFBF1A",   # reuse gold for warning
+    BLUE_ACC    = "#1B59F8",   # --btn-blue
+    SIDEBAR_BG  = "#FFFFFF",   # white sidebar
+    ALERT_BG    = "rgba(249,249,249,0.9)",
     DROPDOWN_BG = "#FFFFFF",
-    SCROLLBAR   = "#D6CFC2",
+    SCROLLBAR   = "#DADADA",   # --ink-300
+    # primary button: BTN blue in light mode
+    PRIMARY_BTN_BG  = "#1B59F8",
+    PRIMARY_BTN_FG  = "#FFFFFF",
+    NAV_ACTIVE      = "#1B59F8",
+    NAV_ACTIVE_BG   = "rgba(27,89,248,0.10)",
 )
 
 
@@ -97,28 +107,30 @@ PAYMENT_COLORS = {
 # CSS GENERATOR
 # ──────────────────────────────────────────────────────────────────────────────
 def _make_css(p: dict) -> str:
-    BG         = p["BG"]
-    SURFACE    = p["SURFACE"]
-    SURFACE2   = p["SURFACE2"]
-    BORDER     = p["BORDER"]
-    TEXT_PRI   = p["TEXT_PRI"]
-    TEXT_SEC   = p["TEXT_SEC"]
-    NAVY       = p["NAVY"]
-    NAVY2      = p["NAVY2"]
-    GOLD       = p["GOLD"]
-    GOLD_DIM   = p["GOLD_DIM"]
-    GREEN      = p["GREEN"]
-    RED        = p["RED"]
-    AMBER      = p["AMBER"]
-    BLUE_ACC   = p["BLUE_ACC"]
-    SIDEBAR_BG = p["SIDEBAR_BG"]
-    ALERT_BG   = p["ALERT_BG"]
-    DROP_BG    = p["DROPDOWN_BG"]
-    SCROLL     = p["SCROLLBAR"]
+    BG             = p["BG"]
+    SURFACE        = p["SURFACE"]
+    SURFACE2       = p["SURFACE2"]
+    BORDER         = p["BORDER"]
+    TEXT_PRI       = p["TEXT_PRI"]
+    TEXT_SEC       = p["TEXT_SEC"]
+    NAVY           = p["NAVY"]
+    NAVY2          = p["NAVY2"]
+    GOLD           = p["GOLD"]
+    GOLD_DIM       = p["GOLD_DIM"]
+    GREEN          = p["GREEN"]
+    RED            = p["RED"]
+    AMBER          = p["AMBER"]
+    BLUE_ACC       = p["BLUE_ACC"]
+    SIDEBAR_BG     = p["SIDEBAR_BG"]
+    ALERT_BG       = p["ALERT_BG"]
+    DROP_BG        = p["DROPDOWN_BG"]
+    SCROLL         = p["SCROLLBAR"]
+    PRIMARY_BTN_BG = p["PRIMARY_BTN_BG"]
+    PRIMARY_BTN_FG = p["PRIMARY_BTN_FG"]
 
     return f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* ══════════════════════════════════════════════════════════════════════════
    LAYER 1 — CSS CUSTOM PROPERTIES (single source of truth for all colors)
@@ -168,7 +180,7 @@ def _make_css(p: dict) -> str:
 
 *, *::before, *::after {{ box-sizing: border-box; }}
 html, body {{
-    font-family: 'Space Grotesk', -apple-system, sans-serif;
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background-color: var(--btn-bg) !important;
     color: var(--btn-text-pri) !important;
 }}
@@ -179,7 +191,7 @@ html, body {{
 [data-testid="stText"],
 .stMarkdown, .stText, p, h1, h2, h3, h4, h5, h6, span, li, label {{
     color: var(--btn-text-pri) !important;
-    font-family: 'Space Grotesk', -apple-system, sans-serif;
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }}
 
 /* ── Sidebar ── */
@@ -295,7 +307,7 @@ section[data-testid="stSidebarUserContent"] {{
     background: transparent !important; color: var(--btn-text-sec) !important;
     border-radius: 4px !important; font-weight: 500 !important;
     font-size: 0.85rem !important; padding: 8px 16px !important; transition: all 0.15s;
-    font-family: 'Space Grotesk', sans-serif !important;
+    font-family: 'Roboto', sans-serif !important;
 }}
 [data-testid="stTabs"] [aria-selected="true"] {{
     background: var(--btn-amber-dim) !important;
@@ -306,17 +318,22 @@ section[data-testid="stSidebarUserContent"] {{
 
 /* ── Buttons ── */
 [data-testid="stButton"] > button[kind="primary"] {{
-    background: linear-gradient(135deg, var(--btn-gold-dim), var(--btn-gold)) !important;
-    color: var(--btn-navy) !important; border: none !important; font-weight: 700 !important;
-    border-radius: 8px !important; transition: all 0.2s;
-    box-shadow: 0 2px 8px rgba(184,134,11,0.35) !important;
+    background: {PRIMARY_BTN_BG} !important;
+    color: {PRIMARY_BTN_FG} !important; border: none !important; font-weight: 700 !important;
+    border-radius: 10px !important; font-family: 'Roboto', sans-serif !important;
+    transition: all 120ms cubic-bezier(0.2,0.7,0.2,1);
+    box-shadow: 0 2px 8px rgba(27,89,248,0.20) !important;
 }}
 [data-testid="stButton"] > button[kind="primary"]:hover {{
-    transform: translateY(-1px); box-shadow: 0 4px 14px rgba(184,134,11,0.45) !important;
+    filter: brightness(0.92); box-shadow: 0 4px 14px rgba(27,89,248,0.30) !important;
+}}
+[data-testid="stButton"] > button[kind="primary"]:active {{
+    transform: scale(0.98);
 }}
 [data-testid="stButton"] > button:not([kind="primary"]) {{
     background: var(--btn-surface) !important; color: var(--btn-text-pri) !important;
-    border: 1px solid var(--btn-border) !important; border-radius: 8px !important;
+    border: 1px solid var(--btn-border) !important; border-radius: 10px !important;
+    font-family: 'Roboto', sans-serif !important;
 }}
 
 /* ── Inputs & Selects ── */
@@ -390,7 +407,7 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     padding: 16px 20px; margin-bottom: 24px;
 }}
 .page-header h1 {{
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: 'Roboto', sans-serif;
     font-size: 1.4rem; font-weight: 700; color: var(--btn-text-pri); margin: 0;
 }}
 .page-header .subtitle {{
@@ -407,24 +424,23 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 
 .kpi-card {{
     background: var(--btn-surface); border: 1px solid var(--btn-border);
-    border-radius: 6px; padding: 16px;
+    border-radius: 20px; padding: 22px 24px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.05);
     position: relative; overflow: hidden;
-}}
-.kpi-card::before {{
-    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: var(--btn-gold);
+    display: flex; flex-direction: column; gap: 10px;
 }}
 .kpi-card .kpi-val {{
-    font-size: 1.6rem; font-weight: 700; font-family: var(--btn-font-mono);
-    color: var(--btn-text-pri); line-height: 1.15; margin-bottom: 6px;
+    font-size: 28px; font-weight: 800; font-family: 'Roboto', sans-serif;
+    color: var(--btn-text-pri); line-height: 1.05;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
 }}
 .kpi-card .kpi-lbl {{
-    font-size: 10px; color: var(--btn-text3);
-    text-transform: uppercase; letter-spacing: 1.5px; font-family: var(--btn-font-mono);
+    font-size: 13px; font-weight: 500; color: var(--btn-text3);
+    font-family: 'Roboto', sans-serif; letter-spacing: -0.011em;
 }}
-.kpi-card.danger::before  {{ background: var(--btn-red); }}
-.kpi-card.success::before {{ background: var(--btn-green); }}
-.kpi-card.accent::before  {{ background: var(--btn-blue); }}
+.kpi-card.danger  {{ border-top: 3px solid var(--btn-red); }}
+.kpi-card.success {{ border-top: 3px solid var(--btn-green); }}
+.kpi-card.accent  {{ border-top: 3px solid var(--btn-blue); }}
 
 .tab-desc {{
     background: var(--btn-surface2); border-left: 4px solid var(--btn-gold-dim);
@@ -447,16 +463,16 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .status-badge.warn {{ background: rgba(245,158,11,.15);  color: var(--btn-amber); border: 1px solid rgba(245,158,11,.3); }}
 
 .config-card {{
-    background: linear-gradient(135deg, var(--btn-surface), var(--btn-surface2));
-    border: 1px solid var(--btn-border); border-radius: 14px; padding: 22px 20px;
-    height: 100%; box-shadow: 0 4px 14px rgba(0,0,0,.25);
+    background: var(--btn-surface);
+    border: 1px solid var(--btn-border); border-radius: 20px; padding: 24px;
+    height: 100%; box-shadow: 0 5px 20px rgba(0,0,0,0.05);
     position: relative; overflow: hidden;
 }}
 .config-card::before {{
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
     background: linear-gradient(90deg, var(--btn-gold-dim), var(--btn-gold));
 }}
-.config-card h3 {{ font-size: 1rem; font-weight: 700; color: var(--btn-text-pri); margin: 0 0 12px 0; }}
+.config-card h3 {{ font-size: 1rem; font-weight: 700; color: var(--btn-text-pri); margin: 0 0 12px 0; font-family: 'Roboto', sans-serif; }}
 
 .status-strip {{
     background: var(--btn-surface); border: 1px solid var(--btn-border);
@@ -563,7 +579,8 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .stats-grid {{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }}
 .stat-card {{
     background: var(--btn-surface); border: 1px solid var(--btn-border);
-    border-radius: 6px; padding: 16px; position: relative; overflow: hidden;
+    border-radius: 20px; padding: 22px 24px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.05); position: relative; overflow: hidden;
 }}
 .stat-card::before {{ content:''; position:absolute; top:0; left:0; right:0; height:2px; }}
 .stat-card.amber::before  {{ background: var(--btn-gold); }}
@@ -579,11 +596,11 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .stat-meta  {{ font-size: 10px; color: var(--btn-text3); margin-top: 4px; font-family: var(--btn-font-mono); }}
 
 /* ── Card container ── */
-.card {{ background: var(--btn-surface); border: 1px solid var(--btn-border); border-radius: 6px; overflow: hidden; margin-bottom: 16px; }}
-.card-header {{ padding: 14px 18px; border-bottom: 1px solid var(--btn-border); display: flex; align-items: center; gap: 10px; }}
-.card-title  {{ font-size: 13px; font-weight: 700; color: var(--btn-text-pri); font-family: 'Space Grotesk', sans-serif; }}
+.card {{ background: var(--btn-surface); border: 1px solid var(--btn-border); border-radius: 20px; box-shadow: 0 5px 20px rgba(0,0,0,0.05); overflow: hidden; margin-bottom: 16px; }}
+.card-header {{ padding: 16px 24px; border-bottom: 1px solid var(--btn-border); display: flex; align-items: center; gap: 10px; }}
+.card-title  {{ font-size: 14px; font-weight: 700; color: var(--btn-text-pri); font-family: 'Roboto', sans-serif; }}
 .card-subtitle {{ font-size: 11px; color: var(--btn-text3); margin-top: 2px; font-family: var(--btn-font-mono); }}
-.card-body   {{ padding: 16px 18px; }}
+.card-body   {{ padding: 20px 24px; }}
 .card-actions {{ margin-left: auto; display: flex; gap: 6px; }}
 
 /* ── Badges ── */
@@ -595,7 +612,7 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .badge-gray  {{ background: var(--btn-bg4); color: var(--btn-text3); }}
 
 /* ── Section title / sub ── */
-.section-title {{ font-size: 15px; font-weight: 700; color: var(--btn-text-pri); margin-bottom: 4px; font-family: 'Space Grotesk', sans-serif; }}
+.section-title {{ font-size: 15px; font-weight: 700; color: var(--btn-text-pri); margin-bottom: 4px; font-family: 'Roboto', sans-serif; }}
 .section-sub   {{ font-size: 11px; color: var(--btn-text3); margin-bottom: 16px; font-family: var(--btn-font-mono); }}
 
 /* ── Table value helpers ── */
@@ -620,22 +637,31 @@ def _nav_css(p: dict) -> str:
     styles the custom st.page_link()-based nav built in app.py.
     Consolidated here so it is maintained in one place only.
     """
-    GOLD     = p["GOLD"]
-    BORDER   = p["BORDER"]
-    TEXT_SEC = p["TEXT_SEC"]
-    TEXT_PRI = p["TEXT_PRI"]
-    BG       = p["BG"]
-    SURFACE2 = p["SURFACE2"]
+    BORDER      = p["BORDER"]
+    TEXT_SEC    = p["TEXT_SEC"]
+    TEXT_PRI    = p["TEXT_PRI"]
+    BG          = p["BG"]
+    SIDEBAR_BG  = p["SIDEBAR_BG"]
+    SURFACE2    = p["SURFACE2"]
+    NAV_ACTIVE  = p["NAV_ACTIVE"]
+    NAV_ACT_BG  = p["NAV_ACTIVE_BG"]
     return f"""
 <style>
+/* ── Sidebar background — white in light, dark in dark ── */
+[data-testid="stSidebar"] {{
+    background: {SIDEBAR_BG} !important;
+    border-right: 1px solid {BORDER} !important;
+}}
+
 /* ── Brand Header — sticky, full sidebar width ── */
 .sidebar-brand-header {{
     position: sticky !important; top: 0 !important; z-index: 100 !important;
-    background: {BG} !important;
-    padding: 10px 44px 10px 16px !important;
+    background: {SIDEBAR_BG} !important;
+    padding: 22px 44px 18px 20px !important;
     box-sizing: border-box !important;
     margin: 0 -1rem 0 -1rem !important; width: calc(100% + 2rem) !important;
     display: flex !important; flex-direction: column !important; align-items: flex-start !important; gap: 4px !important;
+    border-bottom: 1px solid {BORDER} !important;
 }}
 .sidebar-brand-header img {{
     width: 110px !important;
@@ -649,17 +675,7 @@ def _nav_css(p: dict) -> str:
     padding: 0.5rem 0 0.25rem 0 !important;
     margin-bottom: 0.25rem !important;
 }}
-.sb-controls .stSelectbox label {{
-    font-size: 9px !important; text-transform: uppercase !important;
-    letter-spacing: 2px !important; color: {TEXT_SEC} !important; font-weight: 600 !important;
-    font-family: 'JetBrains Mono', monospace !important;
-}}
-.sb-controls .stSelectbox > div > div {{
-    font-size: 0.82rem !important; padding: 5px 10px !important; min-height: 34px !important;
-    border-color: {BORDER} !important;
-}}
-.sb-controls .stSelectbox > div > div:focus-within {{ border-color: {GOLD} !important; }}
-.sb-controls .stToggle label {{ font-size: 0.8rem !important; color: {TEXT_SEC} !important; }}
+.sb-controls .stToggle label {{ font-size: 0.8rem !important; color: {TEXT_SEC} !important; font-family: 'Roboto', sans-serif !important; }}
 
 /* ── Hide the auto-generated nav widget — routing still works via st.navigation() ── */
 [data-testid="stSidebarNav"] {{ display: none !important; }}
@@ -672,7 +688,7 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
     position: sticky !important; bottom: 0 !important;
     padding: 0.6rem 0 0.25rem 0 !important;
     border-top: 1px solid {BORDER} !important;
-    background: {BG} !important;
+    background: {SIDEBAR_BG} !important;
     margin-top: auto !important;
 }}
 
@@ -682,51 +698,53 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
     border-top: 1px solid {BORDER}; margin-top: 0.5rem;
 }}
 .custom-nav-group {{
-    font-family: 'JetBrains Mono', monospace; font-size: 9px;
-    text-transform: uppercase; letter-spacing: 2px;
-    font-weight: 600; color: {TEXT_SEC};
-    margin: 0.9rem 0.8rem 0.3rem 0.8rem;
+    font-family: 'Roboto', sans-serif; font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: 0.09em;
+    font-weight: 700; color: rgba(0,0,0,0.45);
+    margin: 0.9rem 0.9rem 0.3rem 0.9rem;
 }}
 
-/* ── Style st.page_link() to match native nav link appearance ── */
+/* ── Style st.page_link() — BTN Anchor nav item appearance ── */
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] {{
-    border-radius: 6px !important; margin: 0.1rem 0.8rem !important;
-    padding: 0 !important; transition: background 0.15s !important;
+    border-radius: 10px !important; margin: 0.1rem 0.6rem !important;
+    padding: 0 !important; transition: background 120ms cubic-bezier(0.2,0.7,0.2,1) !important;
 }}
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"]:hover {{
-    background: rgba(245,166,35,0.07) !important;
+    background: rgba(0,0,0,0.03) !important;
 }}
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a {{
-    color: {TEXT_SEC} !important; text-decoration: none !important;
-    font-size: 0.85rem !important; padding: 0.45rem 0.8rem !important;
+    color: rgba(0,0,0,0.72) !important; text-decoration: none !important;
+    font-size: 13.5px !important; font-weight: 500 !important;
+    padding: 11px 14px !important;
     display: flex !important; align-items: center !important;
-    gap: 0.5rem !important; border-radius: 6px !important; width: 100% !important;
-    font-family: 'Space Grotesk', sans-serif !important;
+    gap: 0.5rem !important; border-radius: 10px !important; width: 100% !important;
+    font-family: 'Roboto', sans-serif !important; letter-spacing: -0.01em !important;
 }}
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a:hover {{
-    background: rgba(245,166,35,0.07) !important; color: {TEXT_PRI} !important;
+    background: rgba(0,0,0,0.03) !important; color: {TEXT_PRI} !important;
 }}
-/* Active page highlight — amber accent */
+/* Active page highlight — BTN blue in light, gold in dark ── */
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a[aria-current="page"] {{
-    background: rgba(245,166,35,0.12) !important; font-weight: 700 !important;
-    border-left: 3px solid {GOLD} !important; color: {GOLD} !important;
+    background: {NAV_ACT_BG} !important; font-weight: 700 !important;
+    color: {NAV_ACTIVE} !important;
 }}
 
 /* ── Sidebar logo-mark / logo-sub ── */
 .logo-mark {{
-    font-family: 'JetBrains Mono', monospace; font-size: 11px;
-    color: {GOLD}; letter-spacing: 2px; font-weight: 700;
+    font-family: 'Roboto', sans-serif; font-size: 14px;
+    color: {TEXT_PRI}; letter-spacing: -0.01em; font-weight: 700;
 }}
 .logo-sub {{
-    font-size: 10px; color: {TEXT_SEC}; margin-top: 0;
-    font-family: 'JetBrains Mono', monospace; line-height: 1.3;
+    font-size: 10.5px; color: {TEXT_SEC}; margin-top: 0;
+    font-family: 'Roboto', sans-serif; letter-spacing: 0.04em;
+    text-transform: uppercase; line-height: 1.3;
 }}
 
 /* ── DB info card ── */
 .db-info {{
-    background: {SURFACE2}; border-radius: 6px; padding: 10px 12px;
+    background: {SURFACE2}; border-radius: 10px; padding: 10px 14px;
     font-family: 'JetBrains Mono', monospace; font-size: 10px;
-    border-left: 3px solid {GOLD};
+    border-left: 3px solid {NAV_ACTIVE};
 }}
 .db-info .db-label {{ color: {TEXT_SEC}; margin-bottom: 3px; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }}
 .db-info .db-status {{ font-size: 11px; font-weight: 700; line-height: 1.3; }}
@@ -816,7 +834,7 @@ def section_header(icon: str, title: str, subtitle: str = "", accent_color: str 
         'box-shadow:0 2px 10px rgba(0,0,0,.15);">'
         f'<span style="font-size:1.8rem;line-height:1;">{icon}</span>'
         '<div>'
-        f'<div style="font-size:1.05rem;font-weight:800;color:{txt};letter-spacing:0.03em;">{title}</div>'
+        f'<div style="font-size:1.05rem;font-weight:800;color:{txt};letter-spacing:-0.01em;font-family:Roboto,sans-serif;">{title}</div>'
         f'{sub_html}'
         '</div>'
         '</div>'
@@ -884,7 +902,7 @@ def apply_plotly_theme(fig):
     """Apply active palette colours to a Plotly figure."""
     p = _palette()
     fig.update_layout(
-        font=dict(family="Space Grotesk, sans-serif", color=p["TEXT_PRI"]),
+        font=dict(family="Roboto, sans-serif", color=p["TEXT_PRI"]),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
     )
