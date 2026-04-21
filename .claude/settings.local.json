@@ -4,7 +4,12 @@
       "Bash(gh pr create --title 'feat\\(ml+viz\\): ML quality fixes \\(A1-A10\\) + missing visualizations \\(B1-B5\\)' --base main --head BigMac/great-brahmagupta-3f7a2b --body ' *)",
       "Bash(where gh *)",
       "Bash(winget list *)",
-      "Bash(powershell -Command \"Remove-Item -Recurse -Force 'AnchorDash','Project'\")"
+      "Bash(powershell -Command \"Remove-Item -Recurse -Force 'AnchorDash','Project'\")",
+      "Bash(cp -r Project/pages pages_streamlit_tmp)",
+      "Bash(cp -r Project/.streamlit .streamlit)",
+      "Bash(cp -r Project/modules modules_streamlit_tmp)",
+      "Bash(cp -r Project/utils utils_streamlit_tmp)",
+      "Bash(cp -r Project/tests tests)"
     ]
   }
 }

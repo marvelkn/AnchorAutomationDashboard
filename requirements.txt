@@ -1,23 +1,12 @@
-# ── Dash UI ───────────────────────────────────────────────────────────────────
-dash>=2.14.0
-dash-bootstrap-components>=1.5.0
-
-# ── Data & ML ─────────────────────────────────────────────────────────────────
+streamlit>=1.36.0
 pandas>=2.0.0
+matplotlib>=3.7.0
 numpy>=1.24.0
 plotly>=5.15.0
 scikit-learn>=1.3.0
-shap>=0.44.0
 scipy>=1.11.0
-statsmodels>=0.14.0
-
-# ── Database ──────────────────────────────────────────────────────────────────
+pywin32>=306; platform_system == "Windows"
+openpyxl>=3.1.2
 SQLAlchemy>=2.0.0
 psycopg2-binary>=2.9.9
-
-# ── Excel / ETL (unchanged modules) ──────────────────────────────────────────
-openpyxl>=3.1.2
-pywin32>=306; platform_system == "Windows"
-
-# ── Caching (optional server-side cache for ML results) ──────────────────────
-flask-caching>=2.1.0
+statsmodels>=0.14.0
