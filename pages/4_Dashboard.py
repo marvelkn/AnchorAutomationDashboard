@@ -822,7 +822,7 @@ with tab0:
                                 hovertemplate="<b>%{y}</b><br>Impact: <b>%{x:.1f}</b><extra></extra>",
                             ))
                             fig_fi.update_layout(
-                                title="Risk Factor Contribution (Domain Heuristic)", height=240, margin=dict(l=0, r=50, t=36, b=0),
+                                title="Risk Factor Contribution (Domain Heuristic)", height=240, margin=dict(l=0, r=50, t=36, b=32),
                                 xaxis=dict(title="Risk Impact Score (0–100)", range=[0, max(fi_df["Impact Score"].max() * 1.25, 10)], showgrid=False, tickfont=dict(color=_pp6["TEXT_SEC"])),
                                 yaxis=dict(showgrid=False, tickfont=dict(color=_pp6["TEXT_PRI"])),
                                 **_chart_base(),
@@ -877,7 +877,7 @@ with tab0:
                                 fig_lofo.update_layout(
                                     title='IF Feature Contribution (LOFO Method)',
                                     height=260,
-                                    margin=dict(l=0, r=80, t=36, b=0),
+                                    margin=dict(l=0, r=80, t=36, b=32),
                                     xaxis=dict(title='Anomaly Score Delta', showgrid=False, tickfont=dict(color=_pp6['TEXT_SEC'])),
                                     yaxis=dict(showgrid=False, tickfont=dict(color=_pp6['TEXT_PRI'])),
                                     **_chart_base(),
@@ -1110,7 +1110,7 @@ with tab1:
                             barmode="stack",
                             title=f"{sec_name} — Composition",
                         )
-                        fig_s.update_layout(height=340, margin=dict(l=0, r=0, t=36, b=0), **_chart_base())
+                        fig_s.update_layout(height=340, margin=dict(l=0, r=0, t=36, b=48), **_chart_base())
                         st.plotly_chart(fig_s, use_container_width=True, theme=None)
                     if chart_type in ("Line Trend", "Both"):
                         fig_l = go.Figure()
@@ -1122,7 +1122,7 @@ with tab1:
                             textposition="top center",
                             marker=dict(size=7, color=accent, line=dict(color=_p()['BG'], width=1.5)),
                         ))
-                        fig_l.update_layout(title=f"{sec_name} — Total Trend", height=340, margin=dict(l=0, r=0, t=36, b=0), **_chart_base())
+                        fig_l.update_layout(title=f"{sec_name} — Total Trend", height=340, margin=dict(l=0, r=0, t=36, b=48), **_chart_base())
                         st.plotly_chart(fig_l, use_container_width=True, theme=None)
                 with ch_right:
                     section_label("🍩 Mix Composition (Selected Period)")
@@ -1499,7 +1499,7 @@ with tab3:
                                     hover_data=['PM','ACHIEVEMENT_PCT','WEEKS_ACTIVE'],
                                     title="3D Mathematical Structure (SV x FBI x Growth)",
                                     color_discrete_map=color_lookup)
-                fig_sc.update_layout(height=450, margin=dict(l=0, r=0, b=0, t=30), **_chart_base())
+                fig_sc.update_layout(height=450, margin=dict(l=0, r=0, b=48, t=30), **_chart_base())
                 st.plotly_chart(fig_sc, use_container_width=True, theme=None)
 
             section_label("Cluster Radar Profile")
