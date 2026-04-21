@@ -1661,27 +1661,27 @@ with tab4:
                 _pp4 = _p()
                 gauge_col, ch_right_kpi = st.columns([1, 1])
                 with gauge_col:
+                    bar_color = "#34D399" if rate < 20 else ("#FBBF24" if rate < 45 else "#F87171")
                     fig_gauge = go.Figure(go.Indicator(
                         mode="gauge+number+delta",
                         value=rate,
-                        number={"suffix": "%", "font": {"size": 28, "color": _pp4["TEXT_PRI"]}},
+                        number={"suffix": "%", "font": {"size": 44, "color": _pp4["TEXT_PRI"]}},
                         delta={"reference": 20, "relative": False,
                                "increasing": {"color": "#F87171"},
                                "decreasing": {"color": "#34D399"},
                                "suffix": "% vs 20% bench",
-                               "font": {"size": 11}},
-                        domain={"x": [0, 1], "y": [0.05, 1]},
+                               "font": {"size": 13},
+                               "valueformat": ".1f"},
+                        # domain: arc uses top 72%, number+delta sit in the bottom 28%
+                        domain={"x": [0, 1], "y": [0.28, 1]},
                         gauge={
                             "axis": {
                                 "range": [0, 100],
                                 "tickwidth": 1,
                                 "tickcolor": _pp4["TEXT_SEC"],
-                                "tickfont": {"color": _pp4["TEXT_SEC"]},
+                                "tickfont": {"color": _pp4["TEXT_SEC"], "size": 10},
                             },
-                            "bar": {"color": (
-                                "#34D399" if rate < 20 else
-                                "#FBBF24" if rate < 45 else "#F87171"
-                            ), "thickness": 0.28},
+                            "bar": {"color": bar_color, "thickness": 0.28},
                             "bgcolor": "rgba(0,0,0,0)",
                             "borderwidth": 0,
                             "steps": [
@@ -1695,19 +1695,23 @@ with tab4:
                                 "value": 45,
                             },
                         },
-                        title={"text": "Portfolio Churn Rate", "font": {"size": 14, "color": _pp4["TEXT_SEC"]}},
+                        title={"text": "Portfolio Churn Rate", "font": {"size": 13, "color": _pp4["TEXT_SEC"]}},
                     ))
                     fig_gauge.update_layout(
-                        height=320,
-                        margin=dict(l=20, r=20, t=40, b=30),
+                        height=340,
+                        margin=dict(l=20, r=20, t=20, b=10),
                         paper_bgcolor="rgba(0,0,0,0)",
                         font_color=_pp4["TEXT_PRI"],
+                        # Zone labels anchored below the arc, well clear of the number block
                         annotations=[
-                            dict(x=0.18, y=0.08, text="<b>LOW</b>",   showarrow=False,
+                            dict(x=0.16, y=0.30, text="<b>LOW</b>",    showarrow=False,
+                                 xref="paper", yref="paper",
                                  font=dict(color="#34D399", size=10)),
-                            dict(x=0.50, y=0.08, text="<b>MEDIUM</b>", showarrow=False,
+                            dict(x=0.50, y=0.30, text="<b>MEDIUM</b>", showarrow=False,
+                                 xref="paper", yref="paper",
                                  font=dict(color="#FBBF24", size=10)),
-                            dict(x=0.82, y=0.08, text="<b>HIGH</b>",   showarrow=False,
+                            dict(x=0.84, y=0.30, text="<b>HIGH</b>",   showarrow=False,
+                                 xref="paper", yref="paper",
                                  font=dict(color="#F87171", size=10)),
                         ],
                     )
