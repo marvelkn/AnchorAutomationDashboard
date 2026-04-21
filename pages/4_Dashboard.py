@@ -1398,29 +1398,38 @@ with tab2:
             
             if sel_plot_merch:
                 df_plot_mon = df_filt_mon[df_filt_mon['MERCHANT_GROUP'].isin(sel_plot_merch)].copy()
-                df_plot_mon['LABEL'] = df_plot_mon['MERCHANT_GROUP'] + ' (' + df_plot_mon['DIMENSI'] + ')'
+                # Truncate long merchant names so labels don't crash the chart
+                def _abbrev(name, n=16):
+                    return name if len(name) <= n else name[:n].rstrip() + '…'
+                df_plot_mon['LABEL'] = df_plot_mon['MERCHANT_GROUP'].apply(_abbrev) + ' (' + df_plot_mon['DIMENSI'] + ')'
                 df_long_mon = df_plot_mon.melt(id_vars='LABEL', value_vars=W_COLS_DB, var_name='Week', value_name='Value')
                 df_long_mon = df_long_mon.sort_values(['LABEL', 'Week'])
-                
+
                 fig_trend_mon = px.line(
                     df_long_mon, x='Week', y='Value', color='LABEL', markers=True,
                     title=f"Weekly Trend Analysis — {sel_yr_mon}",
                 )
                 fig_trend_mon.update_layout(height=450, legend=dict(orientation='h', y=-0.3), **_chart_base())
                 st.plotly_chart(fig_trend_mon, use_container_width=True, theme=None)
-                
+
                 # Heatmap
                 st.markdown("<br>", unsafe_allow_html=True)
                 section_label("🔥 Performance Heatmap")
                 heat_data_mon = df_plot_mon.set_index('LABEL')[W_COLS_DB].fillna(0).apply(pd.to_numeric, errors='coerce').fillna(0)
-                
+
                 fig_heat_mon = px.imshow(
                     heat_data_mon,
                     color_continuous_scale='Viridis',
                     aspect='auto',
                     title=f"Weekly Performance Patterns — {sel_yr_mon}"
                 )
-                fig_heat_mon.update_layout(height=max(250, 30*len(heat_data_mon)+100), **_chart_base())
+                n_rows = len(heat_data_mon)
+                fig_heat_mon.update_layout(
+                    height=max(280, 36 * n_rows + 120),
+                    margin=dict(l=180, r=20, t=50, b=40),
+                    **_chart_base(),
+                )
+                fig_heat_mon.update_yaxes(tickfont=dict(size=11))
                 st.plotly_chart(fig_heat_mon, use_container_width=True, theme=None)
             
             st.download_button("⬇️ Export Table",
@@ -1655,11 +1664,13 @@ with tab4:
                     fig_gauge = go.Figure(go.Indicator(
                         mode="gauge+number+delta",
                         value=rate,
-                        number={"suffix": "%", "font": {"size": 36, "color": _pp4["TEXT_PRI"]}},
+                        number={"suffix": "%", "font": {"size": 28, "color": _pp4["TEXT_PRI"]}},
                         delta={"reference": 20, "relative": False,
                                "increasing": {"color": "#F87171"},
                                "decreasing": {"color": "#34D399"},
-                               "suffix": "% vs 20% bench"},
+                               "suffix": "% vs 20% bench",
+                               "font": {"size": 11}},
+                        domain={"x": [0, 1], "y": [0.05, 1]},
                         gauge={
                             "axis": {
                                 "range": [0, 100],
@@ -1687,8 +1698,8 @@ with tab4:
                         title={"text": "Portfolio Churn Rate", "font": {"size": 14, "color": _pp4["TEXT_SEC"]}},
                     ))
                     fig_gauge.update_layout(
-                        height=300,
-                        margin=dict(l=20, r=20, t=40, b=20),
+                        height=320,
+                        margin=dict(l=20, r=20, t=40, b=30),
                         paper_bgcolor="rgba(0,0,0,0)",
                         font_color=_pp4["TEXT_PRI"],
                         annotations=[
@@ -1781,8 +1792,15 @@ with tab4:
                                              title=title)
                         fig_z.add_vline(x=threshold, line_dash='dash', line_color=RED,
                                         annotation_text=f"Cutoff ({threshold})",
-                                        annotation_font_color=RED)
-                        fig_z.update_layout(height=300, showlegend=False, margin=dict(l=10, r=10, t=40, b=10), **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
+                                        annotation_font_color=RED,
+                                        annotation_position="top right")
+                        fig_z.update_layout(
+                            height=300, showlegend=False,
+                            margin=dict(l=48, r=16, t=40, b=52),
+                            **_chart_base(),
+                            xaxis={**_xaxis(), "tickangle": -30},
+                            yaxis=_yaxis(),
+                        )
                         return fig_z
 
                     z1.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_SV', "Volume Outlier Map", z_thresh_val), use_container_width=True, theme=None)
