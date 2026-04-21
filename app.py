@@ -18,7 +18,7 @@ st.set_page_config(
 
 # ── Session State Defaults — single initialization point ─────────────────────
 _DEFAULTS = {
-    "theme_mode":       "dark",
+    "theme_mode":       "light",
     "editor_key":       0,
     "_masters_synced":  False,
 }
@@ -97,14 +97,19 @@ with st.sidebar:
     if os.path.exists(LOGO_PATH):
         with open(LOGO_PATH, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode()
-        brand_icon_html = f'<img src="data:image/png;base64,{img_b64}" style="display:block;">'
+        brand_icon_html = f'<img src="data:image/png;base64,{img_b64}" style="display:block;width:58px;height:auto;">'
     else:
         brand_icon_html = '<div class="logo-mark">BTN // ANCHOR</div>'
 
     st.markdown(
         f"""<div class="sidebar-brand-header">
-            {brand_icon_html}
-            <div class="logo-sub">Merchant Intelligence Platform</div>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <div style="flex-shrink:0;">{brand_icon_html}</div>
+                <div>
+                    <div class="logo-mark">Anchor</div>
+                    <div class="logo-sub">Automation Analytics</div>
+                </div>
+            </div>
         </div>""",
         unsafe_allow_html=True,
     )

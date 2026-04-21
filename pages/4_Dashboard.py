@@ -49,7 +49,7 @@ def _chart_base():
     return dict(
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color=p['TEXT_PRI'], family='Space Grotesk, sans-serif'),
+        font=dict(color=p['TEXT_PRI'], family='Roboto, sans-serif'),
     )
 
 def _xaxis():

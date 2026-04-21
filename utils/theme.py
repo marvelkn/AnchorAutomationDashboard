@@ -700,7 +700,7 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
 .custom-nav-group {{
     font-family: 'Roboto', sans-serif; font-size: 10.5px;
     text-transform: uppercase; letter-spacing: 0.09em;
-    font-weight: 700; color: rgba(0,0,0,0.45);
+    font-weight: 700; color: {TEXT_SEC};
     margin: 0.9rem 0.9rem 0.3rem 0.9rem;
 }}
 
@@ -713,7 +713,7 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
     background: rgba(0,0,0,0.03) !important;
 }}
 [data-testid="stSidebarUserContent"] [data-testid="stPageLink"] a {{
-    color: rgba(0,0,0,0.72) !important; text-decoration: none !important;
+    color: {TEXT_SEC} !important; text-decoration: none !important;
     font-size: 13.5px !important; font-weight: 500 !important;
     padding: 11px 14px !important;
     display: flex !important; align-items: center !important;
