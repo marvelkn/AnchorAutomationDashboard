@@ -1705,18 +1705,18 @@ with tab4:
                     ))
                     fig_gauge.update_layout(
                         height=360,
-                        margin=dict(l=20, r=20, t=20, b=20),
+                        margin=dict(l=20, r=20, t=40, b=20),
                         paper_bgcolor="rgba(0,0,0,0)",
                         font_color=_pp4["TEXT_PRI"],
-                        # Zone labels: LOW/HIGH near their arc ends, MEDIUM lifted into the arc body
+                        # Zone labels placed inside each colored zone on the arc
                         annotations=[
-                            dict(x=0.08, y=0.52, text="<b>LOW</b>",    showarrow=False,
+                            dict(x=0.15, y=0.44, text="<b>LOW</b>",    showarrow=False,
                                  xref="paper", yref="paper",
                                  font=dict(color="#34D399", size=10)),
-                            dict(x=0.50, y=0.68, text="<b>MEDIUM</b>", showarrow=False,
+                            dict(x=0.34, y=0.60, text="<b>MED</b>",    showarrow=False,
                                  xref="paper", yref="paper",
                                  font=dict(color="#FBBF24", size=10)),
-                            dict(x=0.92, y=0.52, text="<b>HIGH</b>",   showarrow=False,
+                            dict(x=0.75, y=0.57, text="<b>HIGH</b>",   showarrow=False,
                                  xref="paper", yref="paper",
                                  font=dict(color="#F87171", size=10)),
                         ],
