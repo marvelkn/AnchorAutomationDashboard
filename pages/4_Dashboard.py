@@ -1409,7 +1409,13 @@ with tab2:
                     df_long_mon, x='Week', y='Value', color='LABEL', markers=True,
                     title=f"Weekly Trend Analysis — {sel_yr_mon}",
                 )
-                fig_trend_mon.update_layout(height=450, legend=dict(orientation='h', y=-0.3), **_chart_base())
+                fig_trend_mon.update_layout(
+                    height=480,
+                    margin=dict(l=0, r=0, t=36, b=80),
+                    legend=dict(orientation='h', y=-0.35),
+                    **_chart_base(),
+                )
+                fig_trend_mon.update_xaxes(tickangle=-45, **_xaxis())
                 st.plotly_chart(fig_trend_mon, use_container_width=True, theme=None)
 
                 # Heatmap
@@ -1672,8 +1678,8 @@ with tab4:
                                "suffix": "% vs 20% bench",
                                "font": {"size": 13},
                                "valueformat": ".1f"},
-                        # domain: arc uses top 72%, number+delta sit in the bottom 28%
-                        domain={"x": [0, 1], "y": [0.28, 1]},
+                        # domain: arc uses top 68%, number+delta sit in the bottom 32%
+                        domain={"x": [0, 1], "y": [0.32, 1]},
                         gauge={
                             "axis": {
                                 "range": [0, 100],
@@ -1698,19 +1704,19 @@ with tab4:
                         title={"text": "Portfolio Churn Rate", "font": {"size": 13, "color": _pp4["TEXT_SEC"]}},
                     ))
                     fig_gauge.update_layout(
-                        height=340,
-                        margin=dict(l=20, r=20, t=20, b=10),
+                        height=360,
+                        margin=dict(l=20, r=20, t=20, b=20),
                         paper_bgcolor="rgba(0,0,0,0)",
                         font_color=_pp4["TEXT_PRI"],
-                        # Zone labels anchored below the arc, well clear of the number block
+                        # Zone labels inside the arc, clear of the number+delta block below
                         annotations=[
-                            dict(x=0.16, y=0.30, text="<b>LOW</b>",    showarrow=False,
+                            dict(x=0.10, y=0.38, text="<b>LOW</b>",    showarrow=False,
                                  xref="paper", yref="paper",
                                  font=dict(color="#34D399", size=10)),
-                            dict(x=0.50, y=0.30, text="<b>MEDIUM</b>", showarrow=False,
+                            dict(x=0.50, y=0.38, text="<b>MEDIUM</b>", showarrow=False,
                                  xref="paper", yref="paper",
                                  font=dict(color="#FBBF24", size=10)),
-                            dict(x=0.84, y=0.30, text="<b>HIGH</b>",   showarrow=False,
+                            dict(x=0.90, y=0.38, text="<b>HIGH</b>",   showarrow=False,
                                  xref="paper", yref="paper",
                                  font=dict(color="#F87171", size=10)),
                         ],
