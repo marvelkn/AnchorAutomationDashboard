@@ -1306,14 +1306,7 @@ with tab1:
         df_c['AVG_TRX_VAL'] = np.where(df_c['TOTAL_TRX'] > 0, df_c['TOTAL_SV'] / df_c['TOTAL_TRX'], 0)
         df_c['FBI_YIELD'] = np.where(df_c['TOTAL_SV'] > 0, (df_c['TOTAL_FBI'] / df_c['TOTAL_SV']) * 100, 0)
         
-        cc1s, cc2s = st.columns([3, 1])
-        top_n_c = cc1s.slider("Top N Merchants", 10, 50, 20, key="t1_topn")
-        highlight_col = cc2s.selectbox(
-            "Highlight Metric",
-            ['Sales Volume', 'Transactions', 'Fee Based Income', 'On-Us Ratio', 'FBI Yield'],
-            key="t1_sort",
-            help="Changes which column is visually highlighted with a color gradient. Column headers remain sortable.",
-        )
+        top_n_c = st.slider("Top N Merchants", 10, 50, 20, key="t1_topn")
 
         df_top = df_c.sort_values('TOTAL_SV', ascending=False).head(top_n_c)
         
@@ -1341,17 +1334,8 @@ with tab1:
         }
         
         _disp_top = disp_top.rename(columns=col_names)
-        _hl_gradient_map = {
-            'Sales Volume':     ('Blues',   ['Sales Volume']),
-            'Transactions':     ('Blues',   ['Transactions']),
-            'Fee Based Income': ('Greens',  ['Fee Based Income']),
-            'FBI Yield':        ('Greens',  ['FBI Yield']),
-            'On-Us Ratio':      ('Purples', ['On-Us Ratio']),
-        }
-        _hl_cmap, _hl_subset = _hl_gradient_map.get(highlight_col, ('Blues', ['Sales Volume']))
         st.dataframe(
-            _disp_top.style.format(format_dict)
-            .background_gradient(cmap=_hl_cmap, subset=_hl_subset),
+            _disp_top.style.format(format_dict),
             use_container_width=True, height=min(38 * len(disp_top) + 40, 500)
         )
 
@@ -1516,21 +1500,27 @@ with tab2:
                 </div>
             </div>""", unsafe_allow_html=True)
 
-            # ── 3. Main Data Matrix ───────────
-            section_label(f"🗓️ Weekly Matrix — {sel_yr_mon}")
-            st.dataframe(df_filt_mon[avail_grp_mon + W_COLS_DB].fillna(0).reset_index(drop=True), use_container_width=True, height=400)
-            
-            # ── 4. Trend & Visuals ───────────
+            # ── 3. Trend & Visuals (visuals-first) ───────────
             st.markdown("<br>", unsafe_allow_html=True)
             section_label("📈 Weekly Aggregated Trend")
-            
-            all_merch_mon = sorted(df_filt_mon['MERCHANT_GROUP'].unique().tolist())
-            def_merch_mon = df_filt_mon[df_filt_mon['DIMENSI']=='VOL'].sort_values('YTD', ascending=False)['MERCHANT_GROUP'].head(5).tolist()
-            
+
+            _WEEKLY_PALETTE = [
+                "#2563EB","#DC2626","#16A34A","#D97706","#7C3AED",
+                "#0891B2","#BE185D","#65A30D","#EA580C","#4338CA",
+            ]
+
+            avail_dim = sorted(df_filt_mon['DIMENSI'].unique().tolist())
+            sel_dim = st.multiselect("📊 Filter Metrics (DIMENSI)", avail_dim, default=avail_dim, key="t2_dim_filter")
+            df_filt_for_plot = df_filt_mon[df_filt_mon['DIMENSI'].isin(sel_dim)] if sel_dim else df_filt_mon
+
+            all_merch_mon = sorted(df_filt_for_plot['MERCHANT_GROUP'].unique().tolist())
+            _vol_rows = df_filt_for_plot[df_filt_for_plot['DIMENSI']=='VOL'] if 'VOL' in sel_dim else df_filt_for_plot
+            def_merch_mon = _vol_rows.sort_values('YTD', ascending=False)['MERCHANT_GROUP'].head(5).tolist()
+
             sel_plot_merch = st.multiselect("🔍 Select Merchants to Plot", all_merch_mon, default=def_merch_mon, key="t2_plot_merch")
-            
+
             if sel_plot_merch:
-                df_plot_mon = df_filt_mon[df_filt_mon['MERCHANT_GROUP'].isin(sel_plot_merch)].copy()
+                df_plot_mon = df_filt_for_plot[df_filt_for_plot['MERCHANT_GROUP'].isin(sel_plot_merch)].copy()
                 # Truncate long merchant names so labels don't crash the chart
                 def _abbrev(name, n=16):
                     return name if len(name) <= n else name[:n].rstrip() + '…'
@@ -1541,6 +1531,7 @@ with tab2:
                 fig_trend_mon = px.line(
                     df_long_mon, x='Week', y='Value', color='LABEL', markers=True,
                     title=f"Weekly Trend Analysis — {sel_yr_mon}",
+                    color_discrete_sequence=_WEEKLY_PALETTE,
                 )
                 fig_trend_mon.update_layout(
                     height=480,
@@ -1570,7 +1561,12 @@ with tab2:
                 )
                 fig_heat_mon.update_yaxes(tickfont=dict(size=11))
                 st.plotly_chart(fig_heat_mon, use_container_width=True, theme=None)
-            
+
+            # ── 4. Main Data Matrix (details below charts) ───────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            section_label(f"🗓️ Weekly Matrix — {sel_yr_mon}")
+            st.dataframe(df_filt_mon[avail_grp_mon + W_COLS_DB].fillna(0).reset_index(drop=True), use_container_width=True, height=400)
+
             st.download_button("⬇️ Export Table",
                 df_filt_mon[avail_grp_mon + W_COLS_DB].to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig'),
                 f"monitoring_{sel_yr_mon}_export.csv", "text/csv")
@@ -1640,31 +1636,18 @@ with tab3:
             total_merchants = len(df_f)
             _pp3 = _p()
 
-            seg_cards_html = ""
+            tier_cols = st.columns(max(len(all_clusters), 1))
             for idx, seg in enumerate(all_clusters):
                 n = len(df_f[df_f['CLUSTER'] == seg])
                 pct = (n / total_merchants * 100) if total_merchants > 0 else 0
-                color = color_lookup.get(seg, fallback_colors[idx % len(fallback_colors)])
                 icon = SEGMENT_ICONS.get(seg, '🔹')
                 action = SEGMENT_ACTIONS.get(seg, "Review this group with your PM team.")
                 high_in_seg = len(df_ml[(df_ml['CLUSTER'] == seg) & (df_ml['CHURN_RISK'] == 'HIGH RISK ⚠️')]) if not df_ml.empty and 'CHURN_RISK' in df_ml.columns else 0
-                risk_line = f'<div style="font-size:0.72rem;color:#F87171;margin-top:4px;">⚠️ {high_in_seg} need attention</div>' if high_in_seg > 0 else ''
-                seg_cards_html += f"""<div class="stat-card" style="border-top:2px solid {color};">
-                    <div class="stat-label">{icon} {seg}</div>
-                    <div class="stat-value" style="color:{color};font-size:2rem;">{n}</div>
-                    <div class="stat-meta">{pct:.1f}% of fleet</div>
-                    {risk_line}
-                    <div style="margin-top:8px;font-size:0.72rem;color:{_pp3['TEXT_SEC']};line-height:1.4;
-                                border-top:1px solid {_pp3['BORDER']};padding-top:6px;">
-                        💡 {action}
-                    </div>
-                </div>"""
-            n_cols = max(len(all_clusters), 1)
-            st.markdown(
-                f'<div class="stats-grid" style="grid-template-columns:repeat({n_cols},1fr);">'
-                + seg_cards_html + "</div>",
-                unsafe_allow_html=True,
-            )
+                with tier_cols[idx]:
+                    st.metric(label=f"{icon} {seg}", value=n, delta=f"{pct:.1f}% of fleet")
+                    if high_in_seg > 0:
+                        st.warning(f"⚠️ {high_in_seg} need attention")
+                    st.caption(f"💡 {action}")
 
             # ── Grouping Confidence (business-friendly silhouette translation) ──
             if 'SILHOUETTE_SCORE' in df_ml.columns:
@@ -1717,20 +1700,28 @@ with tab3:
             }
             cm = df_f.groupby('CLUSTER')[radar_m].mean()
             norm = (cm - cm.min()) / (cm.max() - cm.min() + 1e-9)
+            norm.columns = [_radar_labels[c] for c in norm.columns]
             fig_r = go.Figure()
             for clust in all_clusters:
                 if clust in norm.index:
-                    vals = norm.loc[clust].tolist() + [norm.loc[clust].tolist()[0]]
-                    cats = [_radar_labels[m] for m in radar_m] + [_radar_labels[radar_m[0]]]
-                    fig_r.add_trace(go.Scatterpolar(r=vals, theta=cats, fill='toself',
-                        name=clust, line_color=color_lookup.get(clust, '#FFF')))
+                    fig_r.add_trace(go.Bar(
+                        y=list(norm.columns),
+                        x=norm.loc[clust].tolist(),
+                        name=clust,
+                        orientation='h',
+                        marker_color=color_lookup.get(clust, '#888'),
+                        hovertemplate='<b>%{fullData.name}</b><br>%{y}: %{x:.2f}<extra></extra>',
+                    ))
             _pp = _p()
-            fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0,1],
-                                                           gridcolor=_pp['BORDER'], tickfont=dict(color=_pp['TEXT_SEC'])),
-                                           angularaxis=dict(color=_pp['TEXT_SEC']),
-                                           bgcolor='rgba(0,0,0,0)'),
-                                 **_chart_base(),
-                                 height=430, title="How each merchant tier scores across key business metrics")
+            fig_r.update_layout(
+                barmode='group',
+                height=430,
+                title="How each merchant tier scores across key business metrics",
+                xaxis=dict(title="Normalised Score (0–1)", range=[0, 1], **_xaxis()),
+                yaxis=dict(title="Metric", **_yaxis()),
+                legend=dict(orientation='h', y=-0.18),
+                **_chart_base(),
+            )
             st.plotly_chart(fig_r, use_container_width=True, theme=None)
 
             if 'PM' in df_f.columns:
@@ -2007,17 +1998,17 @@ with tab4:
                         </div>""", unsafe_allow_html=True
                     )
                     
-                    # Debug audit — verify chart input data
-                    with st.expander("🔬 Chart Data Audit", expanded=False):
-                        st.caption("Raw aggregates feeding the gauge and donut charts:")
-                        audit_data = {
-                            "Metric": ["High Risk Count", "Stable Count", "Total", "Churn Rate %"],
-                            "Value": [str(len(df_high)), str(len(df_safe)), str(total), f"{rate:.2f}%"],
-                        }
-                        st.dataframe(pd.DataFrame(audit_data), hide_index=True, use_container_width=True)
-                        if 'CHURN_RISK' in df_c4.columns:
-                            st.write("CHURN_RISK value_counts:")
-                            st.dataframe(df_c4['CHURN_RISK'].value_counts().reset_index(), hide_index=True)
+                # ── Chart Data Audit — full-width row, isolated from gauge/KPI columns ──
+                with st.expander("🔬 Chart Data Audit", expanded=False):
+                    st.caption("Raw aggregates feeding the gauge and donut charts:")
+                    audit_data = {
+                        "Metric": ["High Risk Count", "Stable Count", "Total", "Churn Rate %"],
+                        "Value": [str(len(df_high)), str(len(df_safe)), str(total), f"{rate:.2f}%"],
+                    }
+                    st.dataframe(pd.DataFrame(audit_data), hide_index=True, use_container_width=True)
+                    if 'CHURN_RISK' in df_c4.columns:
+                        st.write("CHURN_RISK value_counts:")
+                        st.dataframe(df_c4['CHURN_RISK'].value_counts().reset_index(), hide_index=True)
 
                 # ── Donut + PM bar as before ──────────────────────────────────────
                 ch_x, ch_y = st.columns(2)
