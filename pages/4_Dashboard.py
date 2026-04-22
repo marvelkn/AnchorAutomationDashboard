@@ -1708,15 +1708,15 @@ with tab4:
                         margin=dict(l=20, r=20, t=20, b=20),
                         paper_bgcolor="rgba(0,0,0,0)",
                         font_color=_pp4["TEXT_PRI"],
-                        # Zone labels inside the arc, clear of the number+delta block below
+                        # Zone labels: LOW/HIGH near their arc ends, MEDIUM lifted into the arc body
                         annotations=[
-                            dict(x=0.10, y=0.38, text="<b>LOW</b>",    showarrow=False,
+                            dict(x=0.08, y=0.52, text="<b>LOW</b>",    showarrow=False,
                                  xref="paper", yref="paper",
                                  font=dict(color="#34D399", size=10)),
-                            dict(x=0.50, y=0.38, text="<b>MEDIUM</b>", showarrow=False,
+                            dict(x=0.50, y=0.68, text="<b>MEDIUM</b>", showarrow=False,
                                  xref="paper", yref="paper",
                                  font=dict(color="#FBBF24", size=10)),
-                            dict(x=0.90, y=0.38, text="<b>HIGH</b>",   showarrow=False,
+                            dict(x=0.92, y=0.52, text="<b>HIGH</b>",   showarrow=False,
                                  xref="paper", yref="paper",
                                  font=dict(color="#F87171", size=10)),
                         ],
