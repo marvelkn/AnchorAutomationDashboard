@@ -223,7 +223,7 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
                     )
                     iso.fit(X_s)
                     df['IF_ANOMALY_SCORE'] = (-iso.score_samples(X_s)).round(4)
-                    df['IF_IS_ANOMALY']    = (iso.fit_predict(X_s) == -1)
+                    df['IF_IS_ANOMALY']    = (iso.predict(X_s) == -1)
 
                     # ── LOFO Feature Contribution ──────────────────────────
                     # Leave-One-Feature-Out: for each feature, neutralize it
@@ -294,7 +294,17 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
             return 'STABLE ✅'
         df['CHURN_RISK'] = df['RISK_SCORE'].apply(_risk_tier)
 
+        # ── z_thresh override: any z-score breach upgrades STABLE → MEDIUM RISK ──
+        if z_thresh is not None and len(df) > 1:
+            zscore_breach = (
+                (df['ZSCORE_SV']     < z_thresh) |
+                (df['ZSCORE_FBI']    < z_thresh) |
+                (df['ZSCORE_GROWTH'] < z_thresh)
+            )
+            df.loc[zscore_breach & (df['CHURN_RISK'] == 'STABLE ✅'), 'CHURN_RISK'] = 'MEDIUM RISK 🟡'
+
     except Exception as e:
+        st.warning(f"⚠️ ML pipeline encountered an error and fell back to defaults: {e}")
         df['CLUSTER']    = 'UNKNOWN'
         df['CHURN_RISK'] = 'STABLE ✅'
         df['RISK_SCORE'] = 0.0
@@ -660,8 +670,8 @@ with tab0:
             ef1, ef2, ef3, ef4 = st.columns(4)
             with ef1:
                 if 'CLUSTER' in df_exp.columns:
-                    sel_ec = st.multiselect("Cluster", ['PREMIUM','REGULER','PASIF'],
-                                            default=['PREMIUM','REGULER','PASIF'], key="e_clust")
+                    _ec_opts = sorted(df_exp['CLUSTER'].dropna().unique().tolist())
+                    sel_ec = st.multiselect("Cluster", _ec_opts, default=_ec_opts, key="e_clust")
                     df_exp = df_exp[df_exp['CLUSTER'].isin(sel_ec)]
             with ef2:
                 if 'PM' in df_exp.columns:
@@ -759,12 +769,15 @@ with tab0:
                     # Attempt statistical forecast. Falls back to linear if
                     # insufficient data (<6 months) or if model fitting fails.
                     _remaining_months = max(0, 12 - len(merch_hist))
+                    # Always forecast at least 6 months so the chart is visible even
+                    # when all 12 months of current-year data are present.
+                    _forecast_periods = _remaining_months if _remaining_months > 0 else 6
                     _hw_result = _hw_forecast(
                         merch_hist.sort_values('TRX_MONTH')['TOTAL_SV'] if not merch_hist.empty else pd.Series([], dtype=float),
-                        periods_ahead=_remaining_months if _remaining_months > 0 else 6
+                        periods_ahead=_forecast_periods
                     )
-                    if _hw_result['success'] and _remaining_months > 0:
-                        proj_eoy          = ytd_actual + _hw_result['projected_eoy']
+                    if _hw_result['success']:
+                        proj_eoy          = ytd_actual + (_hw_result['projected_eoy'] if _remaining_months > 0 else 0)
                         _proj_method      = _hw_result['method']
                         _hw_forecast_vals = _hw_result['forecast']
                     else:
@@ -1579,7 +1592,7 @@ with tab3:
                 pm_cl = df_f.groupby(['PM','CLUSTER']).size().reset_index(name='COUNT')
                 fig_stk = px.bar(pm_cl, x='PM', y='COUNT', color='CLUSTER',
                                  barmode='stack', title="Cluster Distribution per Account Manager",
-                                 color_discrete_map=CLAMP)
+                                 color_discrete_map=color_lookup)
                 fig_stk.update_layout(height=380, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
                 st.plotly_chart(fig_stk, use_container_width=True, theme=None)
 
@@ -1663,6 +1676,36 @@ with tab4:
             st.markdown("")
 
             if total > 0:
+                # ── Risk Score Distribution ───────────────────────────────────────
+                if 'RISK_SCORE' in df_c4.columns:
+                    section_label("Risk Score Distribution (Portfolio Spread)")
+                    fig_rs = px.histogram(
+                        df_c4, x='RISK_SCORE', color='CHURN_RISK', nbins=20,
+                        barmode='overlay',
+                        color_discrete_map={
+                            'HIGH RISK ⚠️': '#C0392B',
+                            'MEDIUM RISK 🟡': '#F59E0B',
+                            'STABLE ✅': '#27AE60',
+                        },
+                        labels={'RISK_SCORE': 'Composite Risk Score (0–100)', 'count': 'Merchants'},
+                        title='Distribution of Composite Risk Scores Across Portfolio'
+                    )
+                    fig_rs.add_vline(x=30, line_dash='dash', line_color='#F59E0B',
+                                     annotation_text='Medium threshold (30)',
+                                     annotation_font_color='#F59E0B',
+                                     annotation_position='top left')
+                    fig_rs.add_vline(x=60, line_dash='dash', line_color='#C0392B',
+                                     annotation_text='High threshold (60)',
+                                     annotation_font_color='#C0392B',
+                                     annotation_position='top left')
+                    fig_rs.update_layout(height=300, showlegend=True,
+                                         margin=dict(l=48, r=16, t=50, b=52),
+                                         **_chart_base(),
+                                         xaxis={**_xaxis(), 'range': [0, 100]},
+                                         yaxis=_yaxis())
+                    st.plotly_chart(fig_rs, use_container_width=True, theme=None)
+                    st.markdown("")
+
                 # ── Gauge chart — churn rate speedometer ─────────────────────────
                 _pp4 = _p()
                 gauge_col, ch_right_kpi = st.columns([1, 1])
@@ -1774,7 +1817,7 @@ with tab4:
                 with ch_x:
                     fig_rc = px.pie(df_c4, names='CHURN_RISK',
                                     color='CHURN_RISK',
-                                    color_discrete_map={'HIGH RISK ⚠️':'#C0392B','STABLE ✅':'#27AE60'},
+                                    color_discrete_map={'HIGH RISK ⚠️':'#C0392B','MEDIUM RISK 🟡':'#F59E0B','STABLE ✅':'#27AE60'},
                                     hole=0.4, title="Churn Risk Breakdown")
                     fig_rc.update_layout(height=350, **_chart_base())
                     st.plotly_chart(fig_rc, use_container_width=True, theme=None)
@@ -1816,6 +1859,48 @@ with tab4:
                     z1.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_SV', "Volume Outlier Map", z_thresh_val), use_container_width=True, theme=None)
                     z2.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_FBI', "FBI Outlier Map", z_thresh_val), use_container_width=True, theme=None)
                     z3.plotly_chart(_draw_z_hist(df_c4, 'ZSCORE_GROWTH', "Growth Outlier Map", z_thresh_val), use_container_width=True, theme=None)
+
+                # ── Fleet-Wide Isolation Forest LOFO Summary ──────────────────
+                _if_lofo_cols = {
+                    'IF_CONTRIB_AVG_SV':      'Avg Settlement Volume',
+                    'IF_CONTRIB_AVG_FBI':      'Avg Fee-Based Income',
+                    'IF_CONTRIB_RASIO_ONUS':   'On-Us Ratio',
+                    'IF_CONTRIB_SV_GROWTH':    'Volume Growth Rate',
+                    'IF_CONTRIB_ACHIEVEMENT':  'Target Achievement %',
+                    'IF_CONTRIB_WEEKS_ACTIVE': 'Activity Weeks',
+                }
+                _if_flagged = df_c4[df_c4.get('IF_IS_ANOMALY', pd.Series(False, index=df_c4.index)) == True] \
+                    if 'IF_IS_ANOMALY' in df_c4.columns else pd.DataFrame()
+                if not _if_flagged.empty and all(c in _if_flagged.columns for c in _if_lofo_cols):
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    section_label("🤖 Isolation Forest — Fleet-Wide Anomaly Driver Analysis")
+                    st.caption(f"Average LOFO contribution across {len(_if_flagged)} Isolation Forest–flagged merchant(s). Higher bars = features most responsible for anomaly flags across the portfolio.")
+                    _fleet_lofo = _if_flagged[list(_if_lofo_cols.keys())].mean().rename(_if_lofo_cols)
+                    _fleet_lofo_df = _fleet_lofo.reset_index()
+                    _fleet_lofo_df.columns = ['Feature', 'Avg Contribution']
+                    _fleet_lofo_df = _fleet_lofo_df.sort_values('Avg Contribution', ascending=True)
+                    _fl_colors = ['#F87171' if v > 0 else '#34D399' for v in _fleet_lofo_df['Avg Contribution']]
+                    fig_fleet_lofo = go.Figure(go.Bar(
+                        x=_fleet_lofo_df['Avg Contribution'],
+                        y=_fleet_lofo_df['Feature'],
+                        orientation='h',
+                        marker_color=_fl_colors,
+                        marker_line_width=0,
+                        text=[f"{v:+.4f}" for v in _fleet_lofo_df['Avg Contribution']],
+                        textposition='outside',
+                        hovertemplate='<b>%{y}</b><br>Avg LOFO Delta: <b>%{x:+.4f}</b><extra></extra>',
+                    ))
+                    _pp4b = _p()
+                    fig_fleet_lofo.update_layout(
+                        title='Average Feature Contribution to Anomaly Score (Isolation Forest LOFO)',
+                        height=300,
+                        margin=dict(l=0, r=80, t=44, b=32),
+                        xaxis=dict(title='Avg Anomaly Score Delta', showgrid=False,
+                                   tickfont=dict(color=_pp4b['TEXT_SEC'])),
+                        yaxis=dict(showgrid=False, tickfont=dict(color=_pp4b['TEXT_PRI'])),
+                        **_chart_base(),
+                    )
+                    st.plotly_chart(fig_fleet_lofo, use_container_width=True, theme=None)
 
             # Show HIGH + MEDIUM merchants sorted by Risk Score descending
             df_at_risk = pd.concat([df_high, df_medium], ignore_index=True)
