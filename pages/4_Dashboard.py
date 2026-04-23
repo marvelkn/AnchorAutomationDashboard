@@ -698,7 +698,7 @@ with tab0:
                     textposition='outside',
                 ))
                 fig_gain.update_layout(height=260, margin=dict(l=150, r=110, t=10, b=40),
-                                       xaxis=dict(title='Volume Change (Jt Rp)', showgrid=False, **_xaxis()),
+                                       xaxis={**_xaxis(), 'title': 'Volume Change (Jt Rp)'},
                                        yaxis=dict(showgrid=False, automargin=True), **_chart_base())
                 st.plotly_chart(fig_gain, use_container_width=True, theme=None)
             with l_col:
@@ -712,7 +712,7 @@ with tab0:
                     textposition='outside',
                 ))
                 fig_loss.update_layout(height=260, margin=dict(l=150, r=110, t=10, b=40),
-                                       xaxis=dict(title='Volume Change (Jt Rp)', showgrid=False, **_xaxis()),
+                                       xaxis={**_xaxis(), 'title': 'Volume Change (Jt Rp)'},
                                        yaxis=dict(showgrid=False, automargin=True), **_chart_base())
                 st.plotly_chart(fig_loss, use_container_width=True, theme=None)
             with st.expander("📋 View Full Batch Comparison Table"):
@@ -828,6 +828,13 @@ with tab0:
             if df_ai_wk.empty:
                 st.info("ℹ️ No 2026 monitoring data found for the current filter.")
             else:
+                # Derive current week number (used by Deep Dive risk score calculation)
+                latest_wk_num = 0
+                for _w in reversed(W_COLS):
+                    if df_ai_wk[_w].fillna(0).sum() > 0:
+                        latest_wk_num = int(_w[1:])
+                        break
+
                 # --- Deep Dive & Projection ---
                 st.markdown("<br>", unsafe_allow_html=True)
                 section_label("🔍 Deep Dive & Projection (Specific Merchant)")
