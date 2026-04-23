@@ -326,7 +326,7 @@ def _hw_forecast(monthly_sv_series, periods_ahead=12):
     seasonal='add' with seasonal_periods=12 requires >= 24 data points for stable
     estimation. With fewer months, uses Holt's Double Smoothing (trend only).
     """
-    result = {'forecast': None, 'projected_eoy': None, 'method': 'Linear (fallback)', 'success': False}
+    result = {'forecast': None, 'projected_eoy': None, 'method': 'Estimated Run Rate', 'success': False}
     if not _HW_AVAILABLE:
         return result
     series = pd.to_numeric(monthly_sv_series, errors='coerce').fillna(0)
@@ -340,13 +340,13 @@ def _hw_forecast(monthly_sv_series, periods_ahead=12):
                 series.values, trend='add', seasonal='add',
                 seasonal_periods=12, initialization_method='estimated'
             )
-            method_label = 'Holt-Winters (trend + seasonal)'
+            method_label = 'AI Trend Forecast'
         else:
             model = HoltWinters(
                 series.values, trend='add', seasonal=None,
                 initialization_method='estimated'
             )
-            method_label = "Holt's Double Smoothing (trend only)"
+            method_label = 'AI Trend Forecast'
         fit = model.fit(optimized=True, remove_bias=True)
         forecast_values = np.maximum(fit.forecast(periods_ahead), 0)
         result.update({
@@ -571,7 +571,7 @@ with tab0:
                 fig_ov_ach.add_vline(x=100, line_dash='dash', line_color='#34D399',
                                      annotation_text='100% Target', annotation_font_color='#34D399',
                                      annotation_position='top right')
-                fig_ov_ach.update_layout(height=280, margin=dict(t=36, b=10, l=10, r=10),
+                fig_ov_ach.update_layout(height=280, margin=dict(t=36, b=52, l=60, r=10),
                                           showlegend=False, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
                 st.plotly_chart(fig_ov_ach, use_container_width=True, theme=None)
 
@@ -587,8 +587,9 @@ with tab0:
                     title='Merchants by Performance Tier',
                     color='Tier', color_discrete_map=_tier_colors,
                 )
-                fig_ov_tier.update_layout(height=280, margin=dict(t=36, b=10, l=10, r=10),
-                                           showlegend=False, **_chart_base(), xaxis=_xaxis(), yaxis=dict(showgrid=False))
+                fig_ov_tier.update_layout(height=280, margin=dict(t=36, b=10, l=80, r=10),
+                                           showlegend=False, **_chart_base(), xaxis=_xaxis(),
+                                           yaxis=dict(showgrid=False, automargin=True))
                 st.plotly_chart(fig_ov_tier, use_container_width=True, theme=None)
 
     # ── PM Coverage Cards (visual, not table) ─────────────────────────────────
@@ -600,22 +601,16 @@ with tab0:
         _assigned = len(df_target) - _unassigned
         _avg_per_pm = round(_assigned / max(_active_pms, 1), 1)
 
-        pm_summary_cols = st.columns(min(_active_pms + 1, 5))
-        with pm_summary_cols[0]:
-            st.metric("Active PMs", _active_pms)
-            st.metric("Avg Load", f"{_avg_per_pm} merchants")
-            if _unassigned > 0:
-                st.metric("Unassigned", _unassigned, delta=f"+{_unassigned}", delta_color="inverse")
-
+        # ── Row 1: Individual PM cards ────────────────────────────────────────
         if not _ml_kpi.empty and 'PM' in _ml_kpi.columns:
             _pm_list = sorted(df_target['PM'].dropna().unique().tolist())
             _pm_list = [pm for pm in _pm_list if pm.upper() != 'UNASSIGNED']
+            pm_card_cols = st.columns(max(len(_pm_list[:4]), 1))
             for i, _pm in enumerate(_pm_list[:4]):
                 _pm_merch = _ml_kpi[_ml_kpi['PM'] == _pm]
                 _pm_high  = int(_pm_merch['CHURN_RISK'].str.contains('HIGH', na=False).sum())
                 _pm_ach   = _pm_merch['ACHIEVEMENT_PCT'].mean() if 'ACHIEVEMENT_PCT' in _pm_merch.columns else 0
-                _col_idx  = (i + 1) % len(pm_summary_cols)
-                with pm_summary_cols[_col_idx]:
+                with pm_card_cols[i]:
                     _pm_color = "#F87171" if _pm_high > 0 else "#34D399"
                     st.markdown(
                         f"""<div style="padding:12px 14px;border-radius:12px;border:1px solid {_pm_color}40;
@@ -627,6 +622,18 @@ with tab0:
                             <div style="font-size:0.72rem;color:#888;margin-top:2px;">Avg achievement: {_pm_ach:.0f}%</div>
                         </div>""", unsafe_allow_html=True
                     )
+
+        # ── Row 2: Aggregate summary below the cards ──────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        agg_c1, agg_c2, agg_c3 = st.columns(3)
+        with agg_c1:
+            st.metric("Active Account Managers", _active_pms)
+        with agg_c2:
+            st.metric("Avg Merchant Load", f"{_avg_per_pm} merchants each")
+        with agg_c3:
+            st.metric("Unassigned Merchants", _unassigned,
+                      delta=f"+{_unassigned} need assignment" if _unassigned > 0 else None,
+                      delta_color="inverse" if _unassigned > 0 else "off")
 
         with st.expander("📋 View Full PM Assignment Table"):
             _tgt_display = df_target[['MERCHANT_GROUP', 'PM']].copy()
@@ -690,9 +697,9 @@ with tab0:
                     text=[f"Rp {v/1e6:,.0f}Jt ({r:.0f}%)" for v, r in zip(_top_gain['Delta SV'], _top_gain['Growth %'])],
                     textposition='outside',
                 ))
-                fig_gain.update_layout(height=220, margin=dict(l=0, r=80, t=10, b=10),
-                                       xaxis=dict(title='Volume Delta (Jt Rp)', showgrid=False),
-                                       yaxis=dict(showgrid=False), **_chart_base())
+                fig_gain.update_layout(height=260, margin=dict(l=150, r=110, t=10, b=40),
+                                       xaxis=dict(title='Volume Change (Jt Rp)', showgrid=False, **_xaxis()),
+                                       yaxis=dict(showgrid=False, automargin=True), **_chart_base())
                 st.plotly_chart(fig_gain, use_container_width=True, theme=None)
             with l_col:
                 section_label("🔴 Top 5 Losers")
@@ -704,9 +711,9 @@ with tab0:
                     text=[f"Rp {v/1e6:,.0f}Jt ({r:.0f}%)" for v, r in zip(_top_loss['Delta SV'], _top_loss['Growth %'])],
                     textposition='outside',
                 ))
-                fig_loss.update_layout(height=220, margin=dict(l=0, r=80, t=10, b=10),
-                                       xaxis=dict(title='Volume Delta (Jt Rp)', showgrid=False),
-                                       yaxis=dict(showgrid=False), **_chart_base())
+                fig_loss.update_layout(height=260, margin=dict(l=150, r=110, t=10, b=40),
+                                       xaxis=dict(title='Volume Change (Jt Rp)', showgrid=False, **_xaxis()),
+                                       yaxis=dict(showgrid=False, automargin=True), **_chart_base())
                 st.plotly_chart(fig_loss, use_container_width=True, theme=None)
             with st.expander("📋 View Full Batch Comparison Table"):
                 st.dataframe(merged[['MERCHANT_GROUP','Delta SV','Growth %']].sort_values('Delta SV', ascending=False), hide_index=True, use_container_width=True)
@@ -821,37 +828,6 @@ with tab0:
             if df_ai_wk.empty:
                 st.info("ℹ️ No 2026 monitoring data found for the current filter.")
             else:
-                # --- Silent Churn Anomaly Scanner ---
-                section_label("🚨 Fleet-Wide Sudden Drop Monitor (Silent Churn)")
-                st.markdown("Scans recent weekly data for merchants whose latest activity crashed below their own 4-week moving average.")
-                latest_wk_num = 0
-                for w in reversed(W_COLS):
-                    if df_ai_wk[w].fillna(0).sum() > 0:
-                        latest_wk_num = int(w[1:])
-                        break
-                if latest_wk_num < 5:
-                    st.info("Insufficient 2026 weeks logged to calculate a 4-week trailing average.")
-                else:
-                    wk_curr = f"W{latest_wk_num:02d}"
-                    wk_hist = [f"W{latest_wk_num-i:02d}" for i in range(1, 5)]
-                    slider_drop = st.slider("Drop Threshold Alert Trigger", 10, 80, 30, 5, format="%d%%", key="ai_drop_thresh")
-                    threshold_pct = -1 * (slider_drop / 100.0)
-                    df_scan = df_ai_wk[['MERCHANT_GROUP', 'DIMENSI', 'YTD'] + wk_hist + [wk_curr]].copy()
-                    df_scan['Trailing_4W_Avg'] = df_scan[wk_hist].mean(axis=1)
-                    df_scan['WoW_Variance'] = np.where(
-                        df_scan['Trailing_4W_Avg'] > 0,
-                        (df_scan[wk_curr] - df_scan['Trailing_4W_Avg']) / df_scan['Trailing_4W_Avg'], 0
-                    )
-                    anomalies = df_scan[(df_scan['WoW_Variance'] <= threshold_pct) & (df_scan['Trailing_4W_Avg'] > 0)].copy()
-                    anomalies = anomalies.sort_values('WoW_Variance', ascending=True)
-                    st.markdown(f"**Anomalies found for week ({wk_curr}):** `{len(anomalies)}` records dropped by `{slider_drop}%`+.")
-                    if not anomalies.empty:
-                        anom_disp = anomalies[['MERCHANT_GROUP', 'DIMENSI', 'Trailing_4W_Avg', wk_curr, 'WoW_Variance']].copy()
-                        anom_disp['WoW_Variance'] = (anom_disp['WoW_Variance']*100).round(1).astype(str) + "%"
-                        st.dataframe(anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['WoW_Variance']), use_container_width=True, hide_index=True)
-                    else:
-                        st.success(f"No massive {slider_drop}% drops detected. Portfolio is stable.")
-
                 # --- Deep Dive & Projection ---
                 st.markdown("<br>", unsafe_allow_html=True)
                 section_label("🔍 Deep Dive & Projection (Specific Merchant)")
@@ -883,7 +859,7 @@ with tab0:
                         _hw_forecast_vals = _hw_result['forecast']
                     else:
                         proj_eoy          = (ytd_actual / active_weeks_count * 52) if active_weeks_count > 0 else 0
-                        _proj_method      = 'Linear extrapolation (insufficient historical data)'
+                        _proj_method      = 'Estimated Run Rate'
                         _hw_forecast_vals = None
                     seasonality_str = "No historical seasonality data found."
                     season_df  = pd.DataFrame()
@@ -941,7 +917,7 @@ with tab0:
                             delta_color="normal" if rate_pct >= 100 else "inverse"
                         )
                         st.markdown("<br>", unsafe_allow_html=True)
-                        with st.expander("🧠 Risk Factor Contribution Analysis (Domain Heuristic)", expanded=True):
+                        with st.expander("🧠 What's Driving This Merchant's Risk?", expanded=True):
                             fi_scores = {}
                             if active_weeks_count > 0 and latest_wk_num > 0:
                                 inactivity_ratio = 1.0 - (active_weeks_count / latest_wk_num)
@@ -970,7 +946,7 @@ with tab0:
                                 **_chart_base(),
                             )
                             st.plotly_chart(fig_fi, use_container_width=True, theme=None)
-                            st.caption("Higher bars = stronger domain-expert contribution to this merchant's risk profile. Scores are computed from operational metrics, not a trained ML model.")
+                            st.caption("Each bar shows how much a specific business factor is contributing to this merchant's overall risk level. Longer bar = greater urgency to address that factor.")
 
                         # ── Isolation Forest Feature Contribution (Model-Based) ──
                         # Only shown when this merchant is flagged by Isolation Forest.
@@ -1901,6 +1877,12 @@ with tab4:
                                          **_chart_base(),
                                          xaxis={**_xaxis(), 'range': [0, 100]},
                                          yaxis=_yaxis())
+                    st.caption(
+                        "📊 **What is the Health Score?** A composite 0–100 score based on three business signals: "
+                        "transaction volume trend, fee income consistency, and how far the merchant is from their annual target. "
+                        "Merchants scoring **60+** need immediate outreach. **30–60** warrants a proactive check-in. "
+                        "**Below 30** means they are on track."
+                    )
                     st.plotly_chart(fig_rs, use_container_width=True, theme=None)
                     st.markdown("")
 
@@ -1916,7 +1898,7 @@ with tab4:
                         delta={"reference": 20, "relative": False,
                                "increasing": {"color": "#F87171"},
                                "decreasing": {"color": "#34D399"},
-                               "suffix": "% vs 20% bench",
+                               "suffix": "% vs 20% target",
                                "font": {"size": 13},
                                "valueformat": ".1f"},
                         # domain: arc uses top 68%, number+delta sit in the bottom 32%
@@ -1963,6 +1945,11 @@ with tab4:
                         ],
                     )
                     st.plotly_chart(fig_gauge, use_container_width=True, theme=None)
+                    st.caption(
+                        "📌 **How to read this:** The gauge shows what percentage of your merchant fleet is currently "
+                        "flagged as high-risk. The number below the gauge (+/− X%) is how far you are from the "
+                        "20% portfolio target — negative means fewer at-risk merchants (good), positive means more (needs action)."
+                    )
 
                 with ch_right_kpi:
                     risk_label = "🟢 FLEET HEALTHY" if rate < 20 else ("🟡 NEEDS ATTENTION" if rate < 45 else "🔴 CRITICAL — ACT NOW")
@@ -2149,5 +2136,48 @@ with tab4:
                 st.dataframe(df_rd.style.apply(style_risk_table, axis=1).format(fmt).hide(axis="index"), use_container_width=True)
                 st.download_button("⬇️ Export Merchant Action List", df_rd.to_csv(index=False, encoding='utf-8-sig'),
                                    "merchant_action_list.csv", "text/csv")
+
+        # ── Weekly Activity Pulse — Sudden Drop Monitor ───────────────────────
+        styled_divider()
+        section_label("🟠 Weekly Activity Pulse — Sudden Drop Monitor")
+        st.caption("Scans the most recent week of transaction data and flags any merchant whose volume suddenly crashed below their own 4-week rolling average. Use this to catch new problems the moment they appear — before they become structural health issues.")
+        if not has_mon_weekly:
+            st.info("⚠️ Weekly drop monitoring requires Monitoring Weekly data to be processed first.")
+        else:
+            _sc_wk = df_mon_weekly[df_mon_weekly['YEAR'] == '2026'].copy() if not df_mon_weekly.empty else pd.DataFrame()
+            _SC_W_COLS = sorted([c for c in _sc_wk.columns if c.startswith('W') and c[1:].isdigit()])
+            if _sc_wk.empty or not _SC_W_COLS:
+                st.info("ℹ️ No 2026 weekly data available yet.")
+            else:
+                _sc_latest_wk = 0
+                for _w in reversed(_SC_W_COLS):
+                    if _sc_wk[_w].fillna(0).sum() > 0:
+                        _sc_latest_wk = int(_w[1:])
+                        break
+                if _sc_latest_wk < 5:
+                    st.info("Not enough weeks logged yet to calculate a 4-week rolling average (need at least 5 weeks of data).")
+                else:
+                    _wk_curr = f"W{_sc_latest_wk:02d}"
+                    _wk_hist = [f"W{_sc_latest_wk-i:02d}" for i in range(1, 5)]
+                    _slider_drop = st.slider("Alert me when a merchant drops by more than:", 10, 80, 30, 5,
+                                             format="%d%%", key="t4_drop_thresh",
+                                             help="30% is a good starting point. Lower values will flag more merchants; higher values only catch severe drops.")
+                    _threshold_pct = -1 * (_slider_drop / 100.0)
+                    _df_scan = _sc_wk[['MERCHANT_GROUP', 'DIMENSI', 'YTD'] + _wk_hist + [_wk_curr]].copy()
+                    _df_scan['4-Week Avg'] = _df_scan[_wk_hist].mean(axis=1)
+                    _df_scan['This Week Change'] = np.where(
+                        _df_scan['4-Week Avg'] > 0,
+                        (_df_scan[_wk_curr] - _df_scan['4-Week Avg']) / _df_scan['4-Week Avg'], 0
+                    )
+                    _anomalies = _df_scan[(_df_scan['This Week Change'] <= _threshold_pct) & (_df_scan['4-Week Avg'] > 0)].copy()
+                    _anomalies = _anomalies.sort_values('This Week Change', ascending=True)
+                    if not _anomalies.empty:
+                        st.warning(f"⚠️ **{len(_anomalies)} merchant(s) dropped by {_slider_drop}%+ in {_wk_curr}** compared to their 4-week average.")
+                        _anom_disp = _anomalies[['MERCHANT_GROUP', 'DIMENSI', '4-Week Avg', _wk_curr, 'This Week Change']].copy()
+                        _anom_disp['This Week Change'] = (_anom_disp['This Week Change']*100).round(1).astype(str) + "%"
+                        st.dataframe(_anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['This Week Change']),
+                                     use_container_width=True, hide_index=True)
+                    else:
+                        st.success(f"✅ No merchants dropped by {_slider_drop}%+ this week ({_wk_curr}). Portfolio activity looks stable.")
 
 
