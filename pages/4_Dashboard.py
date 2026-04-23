@@ -606,23 +606,44 @@ with tab0:
         if not _ml_kpi.empty and 'PM' in _ml_kpi.columns:
             _pm_list = sorted(df_target['PM'].dropna().unique().tolist())
             _pm_list = [pm for pm in _pm_list if pm.upper() != 'UNASSIGNED']
-            pm_card_cols = st.columns(max(len(_pm_list[:4]), 1))
-            for i, _pm in enumerate(_pm_list[:4]):
+            _AM_PALETTE = ['#2F80ED', '#9B59B6', '#F39C12', '#1ABC9C', '#E67E22', '#16A085']
+            _pp_am = _p()
+            _am_cards_html = '<div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">'
+            for i, _pm in enumerate(_pm_list[:6]):
                 _pm_merch = _ml_kpi[_ml_kpi['PM'] == _pm]
+                _pm_count = len(_pm_merch)
                 _pm_high  = int(_pm_merch['CHURN_RISK'].str.contains('HIGH', na=False).sum())
-                _pm_ach   = _pm_merch['ACHIEVEMENT_PCT'].mean() if 'ACHIEVEMENT_PCT' in _pm_merch.columns else 0
-                with pm_card_cols[i]:
-                    _pm_color = "#F87171" if _pm_high > 0 else "#34D399"
-                    st.markdown(
-                        f"""<div style="padding:12px 14px;border-radius:12px;border:1px solid {_pm_color}40;
-                            background:{_pm_color}10;margin-bottom:8px;">
-                            <div style="font-size:0.8rem;font-weight:700;color:{_pm_color};">{_pm}</div>
-                            <div style="font-size:1.4rem;font-weight:800;">{len(_pm_merch)}</div>
-                            <div style="font-size:0.72rem;color:#888;">merchants</div>
-                            {'<div style="font-size:0.72rem;color:#F87171;margin-top:4px;">⚠️ ' + str(_pm_high) + ' need attention</div>' if _pm_high > 0 else '<div style="font-size:0.72rem;color:#34D399;margin-top:4px;">✅ All on track</div>'}
-                            <div style="font-size:0.72rem;color:#888;margin-top:2px;">Avg achievement: {_pm_ach:.0f}%</div>
-                        </div>""", unsafe_allow_html=True
-                    )
+                _pm_ach   = float(_pm_merch['ACHIEVEMENT_PCT'].mean()) if 'ACHIEVEMENT_PCT' in _pm_merch.columns else 0
+                c = _AM_PALETTE[i % len(_AM_PALETTE)]
+                ach_color = '#34D399' if _pm_ach >= 80 else ('#FBBF24' if _pm_ach >= 50 else '#F87171')
+                ach_bar_w = min(_pm_ach, 100)
+                status_chip = (
+                    f'<div style="display:inline-block;background:#F8717122;border:1px solid #F87171;'
+                    f'border-radius:20px;padding:2px 9px;font-size:0.68rem;color:#F87171;'
+                    f'font-weight:700;margin-top:6px;">⚠️ {_pm_high} High Risk</div>'
+                    if _pm_high > 0 else
+                    f'<div style="display:inline-block;background:#34D39922;border:1px solid #34D399;'
+                    f'border-radius:20px;padding:2px 9px;font-size:0.68rem;color:#34D399;'
+                    f'font-weight:700;margin-top:6px;">✅ All on track</div>'
+                )
+                _am_cards_html += (
+                    f'<div style="flex:1;min-width:150px;border-left:5px solid {c};'
+                    f'background:{c}14;border-radius:0 14px 14px 0;padding:16px 18px;">'
+                    f'<div style="font-size:0.65rem;font-weight:800;text-transform:uppercase;'
+                    f'letter-spacing:.09em;color:{c};">👤 {_pm}</div>'
+                    f'<div style="font-size:2.4rem;font-weight:900;color:{_pp_am["TEXT_PRI"]};'
+                    f'line-height:1;margin:6px 0 2px;">{_pm_count}</div>'
+                    f'<div style="font-size:0.78rem;color:{_pp_am["TEXT_SEC"]};margin-bottom:10px;">merchants</div>'
+                    f'<div style="font-size:0.69rem;color:{_pp_am["TEXT_SEC"]};margin-bottom:3px;">'
+                    f'Achievement: <span style="color:{ach_color};font-weight:700;">{_pm_ach:.0f}%</span></div>'
+                    f'<div style="height:4px;border-radius:2px;background:{_pp_am["BORDER"]};margin-bottom:8px;">'
+                    f'<div style="width:{ach_bar_w:.1f}%;height:100%;border-radius:2px;background:{ach_color};"></div>'
+                    f'</div>'
+                    f'{status_chip}'
+                    f'</div>'
+                )
+            _am_cards_html += '</div>'
+            st.markdown(_am_cards_html, unsafe_allow_html=True)
 
         # ── Row 2: Aggregate summary below the cards ──────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
