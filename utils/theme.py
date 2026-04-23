@@ -88,11 +88,23 @@ RED      = "#ff5252"
 AMBER    = "#ffc152"
 BLUE_ACC = "#4b7bec"
 
+# Tier colors — STYLING_GUIDE.md §1 Tier-Specific Colors
 CLUSTER_COLORS = {
-    "PREMIUM": "#22C55E",
-    "REGULER": "#3B82F6",
-    "PASIF":   "#EF4444",
+    "ELITE":   "#F1C40F",
+    "PREMIUM": "#27AE60",
+    "REGULER": "#2F80ED",
+    "PASIF":   "#EB5757",
+    "DORMANT": "#888888",
 }
+
+# Semantic status colors — STYLING_GUIDE.md Quick Reference
+SUCCESS    = "#34D399"   # emerald green
+WARNING    = "#FBBF24"   # amber
+DANGER     = "#F87171"   # red
+INFO       = "#2F80ED"   # blue
+
+# PM palette — for per-item left-accent cards (STYLING_GUIDE.md §1)
+PM_PALETTE = ['#2F80ED', '#9B59B6', '#F39C12', '#1ABC9C', '#E67E22', '#16A085']
 
 PAYMENT_COLORS = {
     "DEBIT ON US":   "#1B2F5E",
@@ -172,6 +184,12 @@ def _make_css(p: dict) -> str:
     --btn-teal:       #00cec9;
     --btn-purple:     #a29bfe;
     --btn-font-mono:  'JetBrains Mono', monospace;
+
+    /* Semantic status tokens — STYLING_GUIDE.md Quick Reference */
+    --color-success:  #34D399;
+    --color-warning:  #FBBF24;
+    --color-danger:   #F87171;
+    --color-info:     #2F80ED;
 }}
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -416,7 +434,7 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 }}
 
 .section-label {{
-    font-size: 0.78rem; font-weight: 700; letter-spacing: 1.5px;
+    font-size: 0.78rem; font-weight: 800; letter-spacing: 1.5px;
     text-transform: uppercase; color: var(--btn-text-pri);
     font-family: var(--btn-font-mono); margin: 24px 0 10px 0;
     padding-left: 10px; border-left: 3px solid var(--btn-gold);
@@ -952,6 +970,74 @@ def info_chip(label: str, kind: str = "neutral") -> str:
     icons = {"production": "🟢", "staging": "🟡", "neutral": "⚪"}
     icon = icons.get(kind, "⚪")
     return f'<span class="info-chip {kind}">{icon} {label}</span>'
+
+
+def status_chip_html(label: str, kind: str = "ok") -> str:
+    """
+    Inline pill chip — STYLING_GUIDE.md §3.
+    kind: 'ok' (green) | 'warn' (amber) | 'danger' (red)
+    """
+    color_map = {"ok": SUCCESS, "warn": WARNING, "danger": DANGER}
+    c = color_map.get(kind, SUCCESS)
+    return (
+        f'<div style="display:inline-block;background:{c}22;border:1px solid {c};'
+        f'border-radius:20px;padding:2px 9px;font-size:0.68rem;color:{c};'
+        f'font-weight:700;margin-top:6px;">{label}</div>'
+    )
+
+
+def left_accent_card(
+    icon: str, name: str, count, sub_label: str,
+    bar_label: str, bar_value: float, accent: str,
+    chip_html: str = "",
+) -> str:
+    """
+    Left-accent card HTML — STYLING_GUIDE.md §1.
+    Returns a single card string; wrap multiple cards in:
+      <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">…</div>
+    """
+    p         = _palette()
+    bar_color = SUCCESS if bar_value >= 80 else (WARNING if bar_value >= 50 else DANGER)
+    bar_w     = min(bar_value, 100)
+    return (
+        f'<div style="flex:1;min-width:150px;border-left:5px solid {accent};'
+        f'background:{accent}14;border-radius:0 14px 14px 0;padding:16px 18px;">'
+        f'<div style="font-size:0.65rem;font-weight:800;text-transform:uppercase;'
+        f'letter-spacing:.09em;color:{accent};">{icon} {name}</div>'
+        f'<div style="font-size:2.4rem;font-weight:900;color:{p["TEXT_PRI"]};'
+        f'line-height:1;margin:6px 0 2px;">{count}</div>'
+        f'<div style="font-size:0.78rem;color:{p["TEXT_SEC"]};margin-bottom:10px;">{sub_label}</div>'
+        f'<div style="font-size:0.69rem;color:{p["TEXT_SEC"]};margin-bottom:3px;">'
+        f'{bar_label}: <span style="color:{bar_color};font-weight:700;">{bar_value:.0f}%</span></div>'
+        f'<div style="height:4px;border-radius:2px;background:{p["BORDER"]};margin-bottom:8px;">'
+        f'<div style="width:{bar_w:.1f}%;height:100%;border-radius:2px;background:{bar_color};"></div>'
+        f'</div>'
+        f'{chip_html}'
+        f'</div>'
+    )
+
+
+def status_box(rate_pct: float, narrative: str) -> None:
+    """
+    Left-border AI insight / status box — STYLING_GUIDE.md §5.
+    Renders directly via st.markdown.
+    """
+    p     = _palette()
+    color = SUCCESS if rate_pct >= 100 else (WARNING if rate_pct >= 80 else DANGER)
+    icon  = "🟢" if rate_pct >= 100 else ("🟡" if rate_pct >= 80 else "🔴")
+    label = (
+        "ON TRACK" if rate_pct >= 100
+        else ("AT RISK" if rate_pct >= 80 else "CRITICAL — INTERVENTION REQUIRED")
+    )
+    st.markdown(
+        f'<div style="border-left:5px solid {color};background:{color}18;'
+        f'border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:14px;">'
+        f'<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;'
+        f'letter-spacing:.08em;color:{color};">{icon} STATUS: {label}</div>'
+        f'<div style="font-size:0.88rem;margin-top:8px;color:{p["TEXT_PRI"]};line-height:1.65;">'
+        f'{narrative}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def stale_data_banner(db_path: str = None, threshold_hours: int = 24):

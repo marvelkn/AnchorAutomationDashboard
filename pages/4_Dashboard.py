@@ -25,9 +25,11 @@ from utils.theme import (
     apply_theme, page_header, section_label, section_header, styled_divider,
     kpi_card, kpi_row, tab_desc, filter_pill,
     status_card, apply_plotly_theme, get_palette, stale_data_banner,
+    left_accent_card, status_chip_html, status_box,
     NAVY, GOLD, GOLD_DIM, BG, SURFACE, BORDER, TEXT_PRI, TEXT_SEC,
     GREEN, RED, AMBER, BLUE_ACC,
     CLUSTER_COLORS, PAYMENT_COLORS,
+    SUCCESS, WARNING, DANGER, INFO, PM_PALETTE,
 )
 from utils.cloud_db import build_engine
 from sqlalchemy import text
@@ -613,41 +615,23 @@ with tab0:
         if not _ml_kpi.empty and 'PM' in _ml_kpi.columns:
             _pm_list = sorted(df_target['PM'].dropna().unique().tolist())
             _pm_list = [pm for pm in _pm_list if pm.upper() != 'UNASSIGNED']
-            _AM_PALETTE = ['#2F80ED', '#9B59B6', '#F39C12', '#1ABC9C', '#E67E22', '#16A085']
-            _pp_am = _p()
             _am_cards_html = '<div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">'
             for i, _pm in enumerate(_pm_list[:6]):
                 _pm_merch = _ml_kpi[_ml_kpi['PM'] == _pm]
                 _pm_count = len(_pm_merch)
                 _pm_high  = int(_pm_merch['CHURN_RISK'].str.contains('HIGH', na=False).sum())
                 _pm_ach   = float(_pm_merch['ACHIEVEMENT_PCT'].mean()) if 'ACHIEVEMENT_PCT' in _pm_merch.columns else 0
-                c = _AM_PALETTE[i % len(_AM_PALETTE)]
-                ach_color = '#34D399' if _pm_ach >= 80 else ('#FBBF24' if _pm_ach >= 50 else '#F87171')
-                ach_bar_w = min(_pm_ach, 100)
-                status_chip = (
-                    f'<div style="display:inline-block;background:#F8717122;border:1px solid #F87171;'
-                    f'border-radius:20px;padding:2px 9px;font-size:0.68rem;color:#F87171;'
-                    f'font-weight:700;margin-top:6px;">⚠️ {_pm_high} High Risk</div>'
+                _chip = (
+                    status_chip_html(f"⚠️ {_pm_high} High Risk", "danger")
                     if _pm_high > 0 else
-                    f'<div style="display:inline-block;background:#34D39922;border:1px solid #34D399;'
-                    f'border-radius:20px;padding:2px 9px;font-size:0.68rem;color:#34D399;'
-                    f'font-weight:700;margin-top:6px;">✅ All on track</div>'
+                    status_chip_html("✅ All on track", "ok")
                 )
-                _am_cards_html += (
-                    f'<div style="flex:1;min-width:150px;border-left:5px solid {c};'
-                    f'background:{c}14;border-radius:0 14px 14px 0;padding:16px 18px;">'
-                    f'<div style="font-size:0.65rem;font-weight:800;text-transform:uppercase;'
-                    f'letter-spacing:.09em;color:{c};">👤 {_pm}</div>'
-                    f'<div style="font-size:2.4rem;font-weight:900;color:{_pp_am["TEXT_PRI"]};'
-                    f'line-height:1;margin:6px 0 2px;">{_pm_count}</div>'
-                    f'<div style="font-size:0.78rem;color:{_pp_am["TEXT_SEC"]};margin-bottom:10px;">merchants</div>'
-                    f'<div style="font-size:0.69rem;color:{_pp_am["TEXT_SEC"]};margin-bottom:3px;">'
-                    f'Achievement: <span style="color:{ach_color};font-weight:700;">{_pm_ach:.0f}%</span></div>'
-                    f'<div style="height:4px;border-radius:2px;background:{_pp_am["BORDER"]};margin-bottom:8px;">'
-                    f'<div style="width:{ach_bar_w:.1f}%;height:100%;border-radius:2px;background:{ach_color};"></div>'
-                    f'</div>'
-                    f'{status_chip}'
-                    f'</div>'
+                _am_cards_html += left_accent_card(
+                    icon="👤", name=_pm,
+                    count=_pm_count, sub_label="merchants",
+                    bar_label="Achievement", bar_value=_pm_ach,
+                    accent=PM_PALETTE[i % len(PM_PALETTE)],
+                    chip_html=_chip,
                 )
             _am_cards_html += '</div>'
             st.markdown(_am_cards_html, unsafe_allow_html=True)
@@ -1709,11 +1693,8 @@ with tab3:
             # Cluster counts
             cols = st.columns(len(all_clusters))
             
-            # Color mapper fallback
-            color_lookup = {
-                'ELITE': '#F1C40F', 'PREMIUM': '#27AE60', 'REGULER': '#2F80ED', 
-                'PASIF': '#EB5757', 'DORMANT': '#888888'
-            }
+            # Color mapper — sourced from CLUSTER_COLORS (STYLING_GUIDE.md §1)
+            color_lookup = CLUSTER_COLORS.copy()
             fallback_colors = ['#27AE60', '#2F80ED', '#EB5757', '#F39C12', '#9B59B6', '#34495E']
             
             # ── Segment metric grid with action recommendations ─────────────────
@@ -1745,9 +1726,7 @@ with tab3:
                 )
                 c = color_lookup.get(seg, '#888888')
                 warn_chip = (
-                    f'<div style="display:inline-block;background:#F8717122;border:1px solid #F87171;'
-                    f'border-radius:20px;padding:2px 9px;font-size:0.68rem;color:#F87171;'
-                    f'font-weight:700;margin-top:6px;">⚠️ {high_in_seg} High Risk</div>'
+                    status_chip_html(f"⚠️ {high_in_seg} High Risk", "danger")
                     if high_in_seg > 0 else ''
                 )
                 _cards_html += (
@@ -1793,11 +1772,11 @@ with tab3:
             if 'SILHOUETTE_SCORE' in df_ml.columns:
                 sil = float(df_ml['SILHOUETTE_SCORE'].iloc[0])
                 if sil > 0.5:
-                    sil_label, sil_color = "High ✅ — Groups are well-defined and distinct", "#34D399"
+                    sil_label, sil_color = "High ✅ — Groups are well-defined and distinct", SUCCESS
                 elif sil > 0.25:
-                    sil_label, sil_color = "Moderate — Groups are reasonable; consider adjusting granularity", "#FBBF24"
+                    sil_label, sil_color = "Moderate — Groups are reasonable; consider adjusting granularity", WARNING
                 else:
-                    sil_label, sil_color = "Low — Groups overlap; try a different grouping level", "#F87171"
+                    sil_label, sil_color = "Low — Groups overlap; try a different grouping level", DANGER
                 st.markdown(
                     f"""<div style="padding:10px 16px;border-radius:10px;border:1px solid {sil_color};
                         background:{sil_color}18;margin-bottom:12px;">
