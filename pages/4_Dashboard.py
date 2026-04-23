@@ -1665,18 +1665,63 @@ with tab3:
             total_merchants = len(df_f)
             _pp3 = _p()
 
-            tier_cols = st.columns(max(len(all_clusters), 1))
-            for idx, seg in enumerate(all_clusters):
-                n = len(df_f[df_f['CLUSTER'] == seg])
+            # ── Tier summary cards (HTML) + action table ────────────────────────
+            _cards_html = '<div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">'
+            _tbl_rows   = []
+            for seg in all_clusters:
+                n   = len(df_f[df_f['CLUSTER'] == seg])
                 pct = (n / total_merchants * 100) if total_merchants > 0 else 0
-                icon = SEGMENT_ICONS.get(seg, '🔹')
+                icon   = SEGMENT_ICONS.get(seg, '🔹')
                 action = SEGMENT_ACTIONS.get(seg, "Review this group with your PM team.")
-                high_in_seg = len(df_ml[(df_ml['CLUSTER'] == seg) & (df_ml['CHURN_RISK'] == 'HIGH RISK ⚠️')]) if not df_ml.empty and 'CHURN_RISK' in df_ml.columns else 0
-                with tier_cols[idx]:
-                    st.metric(label=f"{icon} {seg}", value=n, delta=f"{pct:.1f}% of fleet")
-                    if high_in_seg > 0:
-                        st.warning(f"⚠️ {high_in_seg} need attention")
-                    st.caption(f"💡 {action}")
+                high_in_seg = (
+                    len(df_ml[(df_ml['CLUSTER'] == seg) & (df_ml['CHURN_RISK'] == 'HIGH RISK ⚠️')])
+                    if not df_ml.empty and 'CHURN_RISK' in df_ml.columns else 0
+                )
+                c = color_lookup.get(seg, '#888888')
+                warn_chip = (
+                    f'<div style="display:inline-block;background:#F8717122;border:1px solid #F87171;'
+                    f'border-radius:20px;padding:2px 9px;font-size:0.68rem;color:#F87171;'
+                    f'font-weight:700;margin-top:6px;">⚠️ {high_in_seg} High Risk</div>'
+                    if high_in_seg > 0 else ''
+                )
+                _cards_html += (
+                    f'<div style="flex:1;min-width:150px;border-left:5px solid {c};'
+                    f'background:{c}14;border-radius:0 14px 14px 0;padding:16px 18px;">'
+                    f'<div style="font-size:0.65rem;font-weight:800;text-transform:uppercase;'
+                    f'letter-spacing:.09em;color:{c};">{icon} {seg}</div>'
+                    f'<div style="font-size:2.4rem;font-weight:900;color:{_pp3["TEXT_PRI"]};'
+                    f'line-height:1;margin:6px 0 2px;">{n}</div>'
+                    f'<div style="font-size:0.78rem;color:{_pp3["TEXT_SEC"]};margin-bottom:8px;">'
+                    f'{pct:.1f}% of fleet</div>'
+                    f'<div style="height:4px;border-radius:2px;background:{_pp3["BORDER"]};margin-bottom:8px;">'
+                    f'<div style="width:{min(pct,100):.1f}%;height:100%;border-radius:2px;background:{c};"></div>'
+                    f'</div>'
+                    f'{warn_chip}'
+                    f'<div style="font-size:0.74rem;color:{_pp3["TEXT_SEC"]};margin-top:8px;line-height:1.55;">'
+                    f'💡 {action}</div>'
+                    f'</div>'
+                )
+                _tbl_rows.append({
+                    'Tier':      f'{icon} {seg}',
+                    'Merchants': n,
+                    '% Fleet':   f'{pct:.1f}%',
+                    '⚠️ High Risk': high_in_seg if high_in_seg > 0 else '—',
+                    'Recommended Action': action,
+                })
+            _cards_html += '</div>'
+            st.markdown(_cards_html, unsafe_allow_html=True)
+
+            _tier_tbl = pd.DataFrame(_tbl_rows)
+            st.dataframe(
+                _tier_tbl, hide_index=True, use_container_width=True,
+                column_config={
+                    'Tier':               st.column_config.TextColumn('Tier',               width='small'),
+                    'Merchants':          st.column_config.NumberColumn('Merchants',         width='small'),
+                    '% Fleet':            st.column_config.TextColumn('Fleet %',            width='small'),
+                    '⚠️ High Risk':       st.column_config.TextColumn('⚠️ High Risk',       width='small'),
+                    'Recommended Action': st.column_config.TextColumn('Recommended Action'),
+                }
+            )
 
             # ── Grouping Confidence (business-friendly silhouette translation) ──
             if 'SILHOUETTE_SCORE' in df_ml.columns:
