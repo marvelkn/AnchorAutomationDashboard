@@ -686,35 +686,42 @@ with tab0:
             merged['Growth %']  = (merged['Delta SV'] / merged['TOTAL_SV_old'].replace(0, 1) * 100)
             styled_divider()
             g_col, l_col = st.columns(2)
-            _top_gain = merged.sort_values('Delta SV', ascending=False).head(5)
-            _top_loss = merged.sort_values('Delta SV', ascending=True).head(5)
+            _top_gain = merged.sort_values('Delta SV', ascending=False).head(5).copy()
+            _top_loss = merged.sort_values('Delta SV', ascending=True).head(5).copy()
+            def _trunc_name(n, limit=15):
+                s = str(n)
+                return (s[:limit] + '…') if len(s) > limit else s
+            _top_gain['_Label'] = _top_gain['MERCHANT_GROUP'].apply(_trunc_name)
+            _top_loss['_Label'] = _top_loss['MERCHANT_GROUP'].apply(_trunc_name)
             with g_col:
                 section_label("🟢 Top 5 Gainers")
                 fig_gain = go.Figure(go.Bar(
                     x=_top_gain['Delta SV'] / 1e6,
-                    y=_top_gain['MERCHANT_GROUP'],
+                    y=_top_gain['_Label'],
                     orientation='h',
                     marker_color='#27AE60',
                     text=[f"Rp {v/1e6:,.0f}Jt ({r:.0f}%)" for v, r in zip(_top_gain['Delta SV'], _top_gain['Growth %'])],
-                    textposition='outside',
+                    textposition='inside',
+                    insidetextanchor='middle',
                 ))
-                fig_gain.update_layout(height=260, margin=dict(l=150, r=110, t=10, b=40),
+                fig_gain.update_layout(height=260, margin=dict(l=10, r=20, t=10, b=40),
                                        xaxis={**_xaxis(), 'title': 'Volume Change (Jt Rp)'},
-                                       yaxis=dict(showgrid=False, automargin=True), **_chart_base())
+                                       yaxis=dict(showgrid=False, automargin=True, showticklabels=False), **_chart_base())
                 st.plotly_chart(fig_gain, use_container_width=True, theme=None)
             with l_col:
                 section_label("🔴 Top 5 Losers")
                 fig_loss = go.Figure(go.Bar(
                     x=_top_loss['Delta SV'] / 1e6,
-                    y=_top_loss['MERCHANT_GROUP'],
+                    y=_top_loss['_Label'],
                     orientation='h',
                     marker_color='#EB5757',
                     text=[f"Rp {v/1e6:,.0f}Jt ({r:.0f}%)" for v, r in zip(_top_loss['Delta SV'], _top_loss['Growth %'])],
-                    textposition='outside',
+                    textposition='inside',
+                    insidetextanchor='middle',
                 ))
-                fig_loss.update_layout(height=260, margin=dict(l=150, r=110, t=10, b=40),
+                fig_loss.update_layout(height=260, margin=dict(l=10, r=20, t=10, b=40),
                                        xaxis={**_xaxis(), 'title': 'Volume Change (Jt Rp)'},
-                                       yaxis=dict(showgrid=False, automargin=True), **_chart_base())
+                                       yaxis=dict(showgrid=False, automargin=True, showticklabels=False), **_chart_base())
                 st.plotly_chart(fig_loss, use_container_width=True, theme=None)
             with st.expander("📋 View Full Batch Comparison Table"):
                 st.dataframe(merged[['MERCHANT_GROUP','Delta SV','Growth %']].sort_values('Delta SV', ascending=False), hide_index=True, use_container_width=True)
@@ -840,7 +847,8 @@ with tab0:
                 st.markdown("<br>", unsafe_allow_html=True)
                 section_label("🔍 Deep Dive & Projection (Specific Merchant)")
                 all_merch_ai = sorted(df_ai_wk['MERCHANT_GROUP'].unique().tolist())
-                sel_merch = st.selectbox("Select Merchant Entity to Profile:", all_merch_ai, key="ai_sel_merch")
+                _ai_default_idx = all_merch_ai.index(sel_group) if sel_group != "ALL GROUPS" and sel_group in all_merch_ai else 0
+                sel_merch = st.selectbox("Select Merchant Entity to Profile:", all_merch_ai, index=_ai_default_idx, key="ai_sel_merch")
                 if sel_merch:
                     col_txt, col_graph = st.columns([1, 1], gap="large")
                     df_m_wk  = df_ai_wk[df_ai_wk['MERCHANT_GROUP'] == sel_merch]
