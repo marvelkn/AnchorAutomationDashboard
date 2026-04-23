@@ -154,6 +154,10 @@ def run_card_share_merge(df_csv, db_path, path_card, backup_dir):
     # Re-extract for Dashboard
     df_card = pd.read_excel(temp_excel_path, sheet_name="Realisasi")
     df_card['MERCHANT_GROUP']  = df_card['MERCHANT_GROUP'].astype(str).str.strip().str.upper()
+    if 'MERCHANT_ANCHOR' in df_card.columns:
+        df_card['MERCHANT_ANCHOR'] = df_card['MERCHANT_ANCHOR'].astype(str).str.strip().str.upper()
+    if 'MERCHANT_BRAND' in df_card.columns:
+        df_card['MERCHANT_BRAND']  = df_card['MERCHANT_BRAND'].astype(str).str.strip().str.upper()
     month_col = 'TRANSACTION_MONTH' if 'TRANSACTION_MONTH' in df_card.columns else 'TRX_MONTH'
     df_card['YEAR'] = df_card[month_col].astype(str).str[:4]
     df_card['YEAR'] = pd.to_numeric(df_card['YEAR'], errors='coerce')
