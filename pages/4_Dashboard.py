@@ -645,17 +645,45 @@ with tab0:
             _am_cards_html += '</div>'
             st.markdown(_am_cards_html, unsafe_allow_html=True)
 
-        # ── Row 2: Aggregate summary below the cards ──────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
-        agg_c1, agg_c2, agg_c3 = st.columns(3)
-        with agg_c1:
-            st.metric("Active Account Managers", _active_pms)
-        with agg_c2:
-            st.metric("Avg Merchant Load", f"{_avg_per_pm} merchants each")
-        with agg_c3:
-            st.metric("Unassigned Merchants", _unassigned,
-                      delta=f"+{_unassigned} need assignment" if _unassigned > 0 else None,
-                      delta_color="inverse" if _unassigned > 0 else "off")
+        # ── Row 2: Aggregate stat strip ───────────────────────────────────────
+        _pp_agg = _p()
+        _unasgn_color  = '#FBBF24' if _unassigned > 0 else '#34D399'
+        _unasgn_bg     = '#FBBF2414' if _unassigned > 0 else '#34D39914'
+        _unasgn_sub    = f'+{_unassigned} need assignment' if _unassigned > 0 else 'fully assigned ✓'
+        _divider_style = f'border-right:1px solid {_pp_agg["BORDER"]};'
+        st.markdown(
+            f"""<div style="display:flex;border:1px solid {_pp_agg['BORDER']};
+                border-radius:14px;overflow:hidden;margin:12px 0 18px;">
+              <div style="flex:1;text-align:center;padding:18px 12px;{_divider_style}">
+                <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
+                            letter-spacing:.08em;color:{_pp_agg['TEXT_SEC']};margin-bottom:6px;">
+                  👥 Active Account Managers</div>
+                <div style="font-size:2.2rem;font-weight:900;
+                            color:{_pp_agg['TEXT_PRI']};line-height:1;">{_active_pms}</div>
+                <div style="font-size:0.74rem;color:{_pp_agg['TEXT_SEC']};margin-top:4px;">
+                  PMs managing portfolio</div>
+              </div>
+              <div style="flex:1;text-align:center;padding:18px 12px;{_divider_style}">
+                <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
+                            letter-spacing:.08em;color:{_pp_agg['TEXT_SEC']};margin-bottom:6px;">
+                  ⚖️ Avg Merchant Load</div>
+                <div style="font-size:2.2rem;font-weight:900;
+                            color:{_pp_agg['TEXT_PRI']};line-height:1;">{_avg_per_pm}</div>
+                <div style="font-size:0.74rem;color:{_pp_agg['TEXT_SEC']};margin-top:4px;">
+                  merchants per AM</div>
+              </div>
+              <div style="flex:1;text-align:center;padding:18px 12px;background:{_unasgn_bg};">
+                <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
+                            letter-spacing:.08em;color:{_unasgn_color};margin-bottom:6px;">
+                  📋 Unassigned Merchants</div>
+                <div style="font-size:2.2rem;font-weight:900;
+                            color:{_unasgn_color};line-height:1;">{_unassigned}</div>
+                <div style="font-size:0.74rem;color:{_unasgn_color};margin-top:4px;font-weight:600;">
+                  {_unasgn_sub}</div>
+              </div>
+            </div>""",
+            unsafe_allow_html=True
+        )
 
         with st.expander("📋 View Full PM Assignment Table"):
             _tgt_display = df_target[['MERCHANT_GROUP', 'PM']].copy()
