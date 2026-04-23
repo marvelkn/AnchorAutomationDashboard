@@ -29,7 +29,7 @@ from utils.theme import (
     NAVY, GOLD, GOLD_DIM, BG, SURFACE, BORDER, TEXT_PRI, TEXT_SEC,
     GREEN, RED, AMBER, BLUE_ACC,
     CLUSTER_COLORS, PAYMENT_COLORS,
-    SUCCESS, WARNING, DANGER, INFO, PM_PALETTE,
+    SUCCESS, WARNING, DANGER, PM_PALETTE,
 )
 from utils.cloud_db import build_engine
 from sqlalchemy import text
