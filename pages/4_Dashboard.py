@@ -652,7 +652,8 @@ with tab0:
 
     # ── Batch Impact (merged from former Batch Impact tab) ────────────────────
     styled_divider()
-    section_header("📊", "Batch Impact Analysis", "Latest ingestion vs previous cycle")
+    section_label("📊 Batch Impact Analysis")
+    st.caption("Latest ingestion vs previous cycle")
 
     def _render_batch_impact(fetch_dates, df_getter):
         """Shared rendering logic for both Neon and SQLite batch sources."""
@@ -1056,7 +1057,7 @@ with tab0:
                             combined = pd.concat([hist_sv, fc_sv], ignore_index=True)
                             fig_hw = px.line(
                                 combined, x='Label', y='TOTAL_SV', color='Type',
-                                title=f"Holt-Winters Forecast — {sel_merch}",
+                                title=f"AI Volume Forecast — {sel_merch}",
                                 labels={'TOTAL_SV': 'Settlement Volume (Rp)', 'Label': 'Month'},
                                 color_discrete_map={
                                     'Historical': get_palette()['GOLD'],
@@ -1396,12 +1397,43 @@ with tab1:
                     'Delta': val_fmt_g, 'Growth %': lambda x: f"{x:,.0f}%"
                 }
                 
-                c1, c2 = st.columns(2)
-                with c1:
-                    section_label(f"🟢 Top 10 by {metric_sel} Growth")
+                section_label(f"🟢 Top 10 by {metric_sel} Growth")
+                fig_top10 = go.Figure(go.Bar(
+                    x=top_10['Growth %'],
+                    y=top_10['MERCHANT_GROUP'],
+                    orientation='h',
+                    marker_color='#27AE60',
+                    text=[f"{v:+.1f}%" for v in top_10['Growth %']],
+                    textposition='outside',
+                ))
+                fig_top10.update_layout(
+                    height=340, margin=dict(l=180, r=100, t=10, b=32),
+                    xaxis={**_xaxis(), 'title': 'Growth %'},
+                    yaxis=dict(showgrid=False, automargin=True),
+                    **_chart_base(),
+                )
+                st.plotly_chart(fig_top10, use_container_width=True, theme=None)
+                with st.expander("View Raw Data Table"):
                     st.dataframe(top_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), use_container_width=True)
-                with c2:
-                    section_label(f"🔴 Bottom 10 by {metric_sel} Growth")
+
+                st.markdown("")
+                section_label(f"🔴 Bottom 10 by {metric_sel} Growth")
+                fig_bot10 = go.Figure(go.Bar(
+                    x=bot_10['Growth %'],
+                    y=bot_10['MERCHANT_GROUP'],
+                    orientation='h',
+                    marker_color='#EB5757',
+                    text=[f"{v:+.1f}%" for v in bot_10['Growth %']],
+                    textposition='outside',
+                ))
+                fig_bot10.update_layout(
+                    height=340, margin=dict(l=180, r=100, t=10, b=32),
+                    xaxis={**_xaxis(), 'title': 'Growth %'},
+                    yaxis=dict(showgrid=False, automargin=True),
+                    **_chart_base(),
+                )
+                st.plotly_chart(fig_bot10, use_container_width=True, theme=None)
+                with st.expander("View Raw Data Table"):
                     st.dataframe(bot_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), use_container_width=True)
             except Exception as e:
                 st.error(f"Growth calculation failed: {e}")
@@ -1699,9 +1731,10 @@ with tab3:
             fig_r.update_layout(
                 barmode='group',
                 height=430,
+                margin=dict(l=190, r=60, t=50, b=60),
                 title="How each merchant tier scores across key business metrics",
                 xaxis=dict(title="Normalised Score (0–1)", range=[0, 1], **_xaxis()),
-                yaxis=dict(title="Metric", **_yaxis()),
+                yaxis=dict(title="", automargin=True, **_yaxis()),
                 legend=dict(orientation='h', y=-0.18),
                 **_chart_base(),
             )
@@ -1797,6 +1830,183 @@ with tab4:
                 </div>
             </div>""", unsafe_allow_html=True)
 
+            with st.expander("📊 Portfolio Health Overview", expanded=False):
+                if total > 0:
+                    # ── Risk Score Distribution ───────────────────────────────────────
+                    if 'RISK_SCORE' in df_c4.columns:
+                        section_label("Portfolio Health Distribution")
+                        _df_c4_disp = df_c4.copy()
+                        if 'CHURN_RISK' in _df_c4_disp.columns:
+                            _df_c4_disp['Health Status'] = _df_c4_disp['CHURN_RISK'].replace({
+                                'HIGH RISK ⚠️':   'Action Required',
+                                'MEDIUM RISK 🟡': 'Monitor Closely',
+                                'STABLE ✅':       'On Track',
+                            })
+                        else:
+                            _df_c4_disp['Health Status'] = 'Unknown'
+                        fig_rs = px.histogram(
+                            _df_c4_disp, x='RISK_SCORE', color='Health Status', nbins=20,
+                            barmode='overlay',
+                            color_discrete_map={
+                                'Action Required': '#C0392B',
+                                'Monitor Closely': '#F59E0B',
+                                'On Track':        '#27AE60',
+                            },
+                            labels={'RISK_SCORE': 'Health Score (0–100, higher = more attention needed)', 'count': 'Merchants'},
+                            title='Merchant Health Score Distribution Across Portfolio'
+                        )
+                        fig_rs.add_vline(x=30, line_dash='dash', line_color='#F59E0B',
+                                         annotation_text='Medium threshold (30)',
+                                         annotation_font_color='#F59E0B',
+                                         annotation_position='top left')
+                        fig_rs.add_vline(x=60, line_dash='dash', line_color='#C0392B',
+                                         annotation_text='High threshold (60)',
+                                         annotation_font_color='#C0392B',
+                                         annotation_position='top left')
+                        fig_rs.update_layout(height=300, showlegend=True,
+                                             margin=dict(l=48, r=16, t=50, b=52),
+                                             **_chart_base(),
+                                             xaxis={**_xaxis(), 'range': [0, 100]},
+                                             yaxis=_yaxis())
+                        st.caption(
+                            "📊 **What is the Health Score?** A composite 0–100 score based on three business signals: "
+                            "transaction volume trend, fee income consistency, and how far the merchant is from their annual target. "
+                            "Merchants scoring **60+** need immediate outreach. **30–60** warrants a proactive check-in. "
+                            "**Below 30** means they are on track."
+                        )
+                        st.plotly_chart(fig_rs, use_container_width=True, theme=None)
+                        st.markdown("")
+
+                    # ── Gauge chart — churn rate speedometer ─────────────────────────
+                    _pp4 = _p()
+                    gauge_col, ch_right_kpi = st.columns([1, 1])
+                    with gauge_col:
+                        bar_color = "#34D399" if rate < 20 else ("#FBBF24" if rate < 45 else "#F87171")
+                        fig_gauge = go.Figure(go.Indicator(
+                            mode="gauge+number+delta",
+                            value=rate,
+                            number={"suffix": "%", "font": {"size": 44, "color": _pp4["TEXT_PRI"]}},
+                            delta={"reference": 20, "relative": False,
+                                   "increasing": {"color": "#F87171"},
+                                   "decreasing": {"color": "#34D399"},
+                                   "suffix": "% vs 20% target",
+                                   "font": {"size": 13},
+                                   "valueformat": ".1f"},
+                            # domain: arc uses top 68%, number+delta sit in the bottom 32%
+                            domain={"x": [0, 1], "y": [0.32, 1]},
+                            gauge={
+                                "axis": {
+                                    "range": [0, 100],
+                                    "tickwidth": 1,
+                                    "tickcolor": _pp4["TEXT_SEC"],
+                                    "tickfont": {"color": _pp4["TEXT_SEC"], "size": 10},
+                                },
+                                "bar": {"color": bar_color, "thickness": 0.28},
+                                "bgcolor": "rgba(0,0,0,0)",
+                                "borderwidth": 0,
+                                "steps": [
+                                    {"range": [0, 20],  "color": "rgba(52,211,153,0.12)"},
+                                    {"range": [20, 45], "color": "rgba(251,191,36,0.12)"},
+                                    {"range": [45, 100],"color": "rgba(248,113,113,0.12)"},
+                                ],
+                                "threshold": {
+                                    "line": {"color": "#F87171", "width": 3},
+                                    "thickness": 0.8,
+                                    "value": 45,
+                                },
+                            },
+                            title={"text": "Portfolio Churn Rate", "font": {"size": 13, "color": _pp4["TEXT_SEC"]}},
+                        ))
+                        fig_gauge.update_layout(
+                            height=360,
+                            margin=dict(l=20, r=20, t=40, b=20),
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            font_color=_pp4["TEXT_PRI"],
+                            # Zone labels placed inside each colored zone on the arc
+                            annotations=[
+                                dict(x=0.15, y=0.44, text="<b>LOW</b>",    showarrow=False,
+                                     xref="paper", yref="paper",
+                                     font=dict(color="#34D399", size=10)),
+                                dict(x=0.34, y=0.60, text="<b>MED</b>",    showarrow=False,
+                                     xref="paper", yref="paper",
+                                     font=dict(color="#FBBF24", size=10)),
+                                dict(x=0.75, y=0.57, text="<b>HIGH</b>",   showarrow=False,
+                                     xref="paper", yref="paper",
+                                     font=dict(color="#F87171", size=10)),
+                            ],
+                        )
+                        st.plotly_chart(fig_gauge, use_container_width=True, theme=None)
+                        st.caption(
+                            "📌 **How to read this:** The gauge shows what percentage of your merchant fleet is currently "
+                            "flagged as high-risk. The number below the gauge (+/− X%) is how far you are from the "
+                            "20% portfolio target — negative means fewer at-risk merchants (good), positive means more (needs action)."
+                        )
+
+                    with ch_right_kpi:
+                        risk_label = "🟢 FLEET HEALTHY" if rate < 20 else ("🟡 NEEDS ATTENTION" if rate < 45 else "🔴 CRITICAL — ACT NOW")
+                        risk_color = "#34D399" if rate < 20 else ("#FBBF24" if rate < 45 else "#F87171")
+
+                        def churn_advisory(pct):
+                            if pct >= 75:
+                                return "🚨 **CRITICAL:** Immediate intervention required. Recommend emergency fee discounts, PM outreach blitz, and escalation to senior leadership."
+                            elif pct >= 45:
+                                return "⚠️ **HIGH RISK:** Portfolio is deteriorating. Recommend targeted retention offers, dedicated PM follow-ups for flagged merchants, and weekly monitoring cadence."
+                            elif pct >= 20:
+                                return "🟡 **ELEVATED:** Above benchmark. Recommend proactive check-ins with declining merchants and review of competitive positioning."
+                            else:
+                                return "✅ **STABLE:** Portfolio churn is within healthy benchmarks. Continue standard monitoring and quarterly business reviews."
+
+                        advisory = churn_advisory(rate)
+                        st.markdown(
+                            f"""<div style="margin-top:24px;padding:20px;border-radius:14px;
+                                border:2px solid {risk_color};background:{risk_color}18;text-align:center;">
+                                <div style="font-size:2.2rem;">{risk_label}</div>
+                                <div style="font-size:0.8rem;color:{_pp4['TEXT_SEC']};margin-top:10px;">
+                                {len(df_high)} of {total} merchants flagged as high-risk.<br>
+                                Benchmark target: &lt;20% portfolio churn.
+                                </div>
+                            </div>""", unsafe_allow_html=True
+                        )
+                        st.markdown(
+                            f"""<div style="margin-top:12px;padding:14px 16px;border-radius:10px;
+                                background:{_pp4['SURFACE2']};border:1px solid {_pp4['BORDER']};
+                                font-size:0.84rem;color:{_pp4['TEXT_PRI']};line-height:1.55;">
+                                <b>AI Recommendation:</b><br>{advisory}
+                            </div>""", unsafe_allow_html=True
+                        )
+
+                    # ── Chart Data Audit ──────────────────────────────────────────────
+                    with st.expander("🔬 Chart Data Audit", expanded=False):
+                        st.caption("Raw aggregates feeding the gauge and donut charts:")
+                        audit_data = {
+                            "Metric": ["High Risk Count", "Stable Count", "Total", "Churn Rate %"],
+                            "Value": [str(len(df_high)), str(len(df_safe)), str(total), f"{rate:.2f}%"],
+                        }
+                        st.dataframe(pd.DataFrame(audit_data), hide_index=True, use_container_width=True)
+                        if 'CHURN_RISK' in df_c4.columns:
+                            st.write("CHURN_RISK value_counts:")
+                            st.dataframe(df_c4['CHURN_RISK'].value_counts().reset_index(), hide_index=True)
+
+                    # ── Donut + PM bar ────────────────────────────────────────────────
+                    if 'RISK_SCORE' in df_c4.columns:
+                        ch_x, ch_y = st.columns(2)
+                        with ch_x:
+                            fig_rc = px.pie(_df_c4_disp, names='Health Status',
+                                            color='Health Status',
+                                            color_discrete_map={'Action Required':'#C0392B','Monitor Closely':'#F59E0B','On Track':'#27AE60'},
+                                            hole=0.4, title="Portfolio Health Breakdown")
+                            fig_rc.update_layout(height=350, **_chart_base())
+                            st.plotly_chart(fig_rc, use_container_width=True, theme=None)
+                        with ch_y:
+                            if 'PM' in df_high.columns and len(df_high) > 0:
+                                pm_churn = df_high.groupby('PM').size().reset_index(name='HIGH_RISK_COUNT')
+                                fig_pc = px.bar(pm_churn.sort_values('HIGH_RISK_COUNT', ascending=False),
+                                                x='PM', y='HIGH_RISK_COUNT',
+                                                color='HIGH_RISK_COUNT', color_continuous_scale='Reds',
+                                                title="High-Risk Merchants per PM")
+                                fig_pc.update_layout(height=350, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
+                                st.plotly_chart(fig_pc, use_container_width=True, theme=None)
+
             # ── Action Inbox ──────────────────────────────────────────────────
             _at_risk_inbox = pd.concat([df_high, df_medium], ignore_index=True)
             if not _at_risk_inbox.empty and 'RISK_SCORE' in _at_risk_inbox.columns:
@@ -1848,180 +2058,6 @@ with tab4:
             st.markdown("")
 
             if total > 0:
-                # ── Risk Score Distribution ───────────────────────────────────────
-                if 'RISK_SCORE' in df_c4.columns:
-                    section_label("Portfolio Health Distribution")
-                    _df_c4_disp = df_c4.copy()
-                    if 'CHURN_RISK' in _df_c4_disp.columns:
-                        _df_c4_disp['Health Status'] = _df_c4_disp['CHURN_RISK'].replace({
-                            'HIGH RISK ⚠️':   'Action Required',
-                            'MEDIUM RISK 🟡': 'Monitor Closely',
-                            'STABLE ✅':       'On Track',
-                        })
-                    else:
-                        _df_c4_disp['Health Status'] = 'Unknown'
-                    fig_rs = px.histogram(
-                        _df_c4_disp, x='RISK_SCORE', color='Health Status', nbins=20,
-                        barmode='overlay',
-                        color_discrete_map={
-                            'Action Required': '#C0392B',
-                            'Monitor Closely': '#F59E0B',
-                            'On Track':        '#27AE60',
-                        },
-                        labels={'RISK_SCORE': 'Health Score (0–100, higher = more attention needed)', 'count': 'Merchants'},
-                        title='Merchant Health Score Distribution Across Portfolio'
-                    )
-                    fig_rs.add_vline(x=30, line_dash='dash', line_color='#F59E0B',
-                                     annotation_text='Medium threshold (30)',
-                                     annotation_font_color='#F59E0B',
-                                     annotation_position='top left')
-                    fig_rs.add_vline(x=60, line_dash='dash', line_color='#C0392B',
-                                     annotation_text='High threshold (60)',
-                                     annotation_font_color='#C0392B',
-                                     annotation_position='top left')
-                    fig_rs.update_layout(height=300, showlegend=True,
-                                         margin=dict(l=48, r=16, t=50, b=52),
-                                         **_chart_base(),
-                                         xaxis={**_xaxis(), 'range': [0, 100]},
-                                         yaxis=_yaxis())
-                    st.caption(
-                        "📊 **What is the Health Score?** A composite 0–100 score based on three business signals: "
-                        "transaction volume trend, fee income consistency, and how far the merchant is from their annual target. "
-                        "Merchants scoring **60+** need immediate outreach. **30–60** warrants a proactive check-in. "
-                        "**Below 30** means they are on track."
-                    )
-                    st.plotly_chart(fig_rs, use_container_width=True, theme=None)
-                    st.markdown("")
-
-                # ── Gauge chart — churn rate speedometer ─────────────────────────
-                _pp4 = _p()
-                gauge_col, ch_right_kpi = st.columns([1, 1])
-                with gauge_col:
-                    bar_color = "#34D399" if rate < 20 else ("#FBBF24" if rate < 45 else "#F87171")
-                    fig_gauge = go.Figure(go.Indicator(
-                        mode="gauge+number+delta",
-                        value=rate,
-                        number={"suffix": "%", "font": {"size": 44, "color": _pp4["TEXT_PRI"]}},
-                        delta={"reference": 20, "relative": False,
-                               "increasing": {"color": "#F87171"},
-                               "decreasing": {"color": "#34D399"},
-                               "suffix": "% vs 20% target",
-                               "font": {"size": 13},
-                               "valueformat": ".1f"},
-                        # domain: arc uses top 68%, number+delta sit in the bottom 32%
-                        domain={"x": [0, 1], "y": [0.32, 1]},
-                        gauge={
-                            "axis": {
-                                "range": [0, 100],
-                                "tickwidth": 1,
-                                "tickcolor": _pp4["TEXT_SEC"],
-                                "tickfont": {"color": _pp4["TEXT_SEC"], "size": 10},
-                            },
-                            "bar": {"color": bar_color, "thickness": 0.28},
-                            "bgcolor": "rgba(0,0,0,0)",
-                            "borderwidth": 0,
-                            "steps": [
-                                {"range": [0, 20],  "color": "rgba(52,211,153,0.12)"},
-                                {"range": [20, 45], "color": "rgba(251,191,36,0.12)"},
-                                {"range": [45, 100],"color": "rgba(248,113,113,0.12)"},
-                            ],
-                            "threshold": {
-                                "line": {"color": "#F87171", "width": 3},
-                                "thickness": 0.8,
-                                "value": 45,
-                            },
-                        },
-                        title={"text": "Portfolio Churn Rate", "font": {"size": 13, "color": _pp4["TEXT_SEC"]}},
-                    ))
-                    fig_gauge.update_layout(
-                        height=360,
-                        margin=dict(l=20, r=20, t=40, b=20),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        font_color=_pp4["TEXT_PRI"],
-                        # Zone labels placed inside each colored zone on the arc
-                        annotations=[
-                            dict(x=0.15, y=0.44, text="<b>LOW</b>",    showarrow=False,
-                                 xref="paper", yref="paper",
-                                 font=dict(color="#34D399", size=10)),
-                            dict(x=0.34, y=0.60, text="<b>MED</b>",    showarrow=False,
-                                 xref="paper", yref="paper",
-                                 font=dict(color="#FBBF24", size=10)),
-                            dict(x=0.75, y=0.57, text="<b>HIGH</b>",   showarrow=False,
-                                 xref="paper", yref="paper",
-                                 font=dict(color="#F87171", size=10)),
-                        ],
-                    )
-                    st.plotly_chart(fig_gauge, use_container_width=True, theme=None)
-                    st.caption(
-                        "📌 **How to read this:** The gauge shows what percentage of your merchant fleet is currently "
-                        "flagged as high-risk. The number below the gauge (+/− X%) is how far you are from the "
-                        "20% portfolio target — negative means fewer at-risk merchants (good), positive means more (needs action)."
-                    )
-
-                with ch_right_kpi:
-                    risk_label = "🟢 FLEET HEALTHY" if rate < 20 else ("🟡 NEEDS ATTENTION" if rate < 45 else "🔴 CRITICAL — ACT NOW")
-                    risk_color = "#34D399" if rate < 20 else ("#FBBF24" if rate < 45 else "#F87171")
-                    
-                    # Dynamic risk advisory text
-                    def churn_advisory(pct):
-                        if pct >= 75:
-                            return "🚨 **CRITICAL:** Immediate intervention required. Recommend emergency fee discounts, PM outreach blitz, and escalation to senior leadership."
-                        elif pct >= 45:
-                            return "⚠️ **HIGH RISK:** Portfolio is deteriorating. Recommend targeted retention offers, dedicated PM follow-ups for flagged merchants, and weekly monitoring cadence."
-                        elif pct >= 20:
-                            return "🟡 **ELEVATED:** Above benchmark. Recommend proactive check-ins with declining merchants and review of competitive positioning."
-                        else:
-                            return "✅ **STABLE:** Portfolio churn is within healthy benchmarks. Continue standard monitoring and quarterly business reviews."
-                    
-                    advisory = churn_advisory(rate)
-                    st.markdown(
-                        f"""<div style="margin-top:24px;padding:20px;border-radius:14px;
-                            border:2px solid {risk_color};background:{risk_color}18;text-align:center;">
-                            <div style="font-size:2.2rem;">{risk_label}</div>
-                            <div style="font-size:0.8rem;color:{_pp4['TEXT_SEC']};margin-top:10px;">
-                            {len(df_high)} of {total} merchants flagged as high-risk.<br>
-                            Benchmark target: &lt;20% portfolio churn.
-                            </div>
-                        </div>""", unsafe_allow_html=True
-                    )
-                    st.markdown(
-                        f"""<div style="margin-top:12px;padding:14px 16px;border-radius:10px;
-                            background:{_pp4['SURFACE2']};border:1px solid {_pp4['BORDER']};
-                            font-size:0.84rem;color:{_pp4['TEXT_PRI']};line-height:1.55;">
-                            <b>AI Recommendation:</b><br>{advisory}
-                        </div>""", unsafe_allow_html=True
-                    )
-                    
-                # ── Chart Data Audit — full-width row, isolated from gauge/KPI columns ──
-                with st.expander("🔬 Chart Data Audit", expanded=False):
-                    st.caption("Raw aggregates feeding the gauge and donut charts:")
-                    audit_data = {
-                        "Metric": ["High Risk Count", "Stable Count", "Total", "Churn Rate %"],
-                        "Value": [str(len(df_high)), str(len(df_safe)), str(total), f"{rate:.2f}%"],
-                    }
-                    st.dataframe(pd.DataFrame(audit_data), hide_index=True, use_container_width=True)
-                    if 'CHURN_RISK' in df_c4.columns:
-                        st.write("CHURN_RISK value_counts:")
-                        st.dataframe(df_c4['CHURN_RISK'].value_counts().reset_index(), hide_index=True)
-
-                # ── Donut + PM bar as before ──────────────────────────────────────
-                ch_x, ch_y = st.columns(2)
-                with ch_x:
-                    fig_rc = px.pie(_df_c4_disp, names='Health Status',
-                                    color='Health Status',
-                                    color_discrete_map={'Action Required':'#C0392B','Monitor Closely':'#F59E0B','On Track':'#27AE60'},
-                                    hole=0.4, title="Portfolio Health Breakdown")
-                    fig_rc.update_layout(height=350, **_chart_base())
-                    st.plotly_chart(fig_rc, use_container_width=True, theme=None)
-                with ch_y:
-                    if 'PM' in df_high.columns and len(df_high) > 0:
-                        pm_churn = df_high.groupby('PM').size().reset_index(name='HIGH_RISK_COUNT')
-                        fig_pc = px.bar(pm_churn.sort_values('HIGH_RISK_COUNT', ascending=False),
-                                        x='PM', y='HIGH_RISK_COUNT',
-                                        color='HIGH_RISK_COUNT', color_continuous_scale='Reds',
-                                        title="High-Risk Merchants per PM")
-                        fig_pc.update_layout(height=350, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-                        st.plotly_chart(fig_pc, use_container_width=True, theme=None)
 
                 if 'ZSCORE_SV' in df_c4.columns:
                     st.markdown("<br>", unsafe_allow_html=True)
@@ -2078,17 +2114,18 @@ with tab4:
                         marker_color=_fl_colors,
                         marker_line_width=0,
                         text=[f"{v:+.4f}" for v in _fleet_lofo_df['Avg Contribution']],
-                        textposition='outside',
+                        textposition='auto',
+                        textfont=dict(size=11),
                         hovertemplate='<b>%{y}</b><br>Avg LOFO Delta: <b>%{x:+.4f}</b><extra></extra>',
                     ))
                     _pp4b = _p()
                     fig_fleet_lofo.update_layout(
                         title='Which Business Metric Is Driving the Most Alerts?',
-                        height=300,
-                        margin=dict(l=0, r=80, t=44, b=32),
+                        height=320,
+                        margin=dict(l=200, r=100, t=44, b=32),
                         xaxis=dict(title='Avg Anomaly Score Delta', showgrid=False,
                                    tickfont=dict(color=_pp4b['TEXT_SEC'])),
-                        yaxis=dict(showgrid=False, tickfont=dict(color=_pp4b['TEXT_PRI'])),
+                        yaxis=dict(showgrid=False, automargin=True, tickfont=dict(color=_pp4b['TEXT_PRI'])),
                         **_chart_base(),
                     )
                     st.plotly_chart(fig_fleet_lofo, use_container_width=True, theme=None)
