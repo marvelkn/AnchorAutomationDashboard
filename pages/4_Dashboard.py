@@ -507,17 +507,24 @@ elif sel_group == "ALL GROUPS" and not df_card.empty:
 with f_col2:
     sel_brand = st.selectbox("⚓ Merchant Brand (Anchor)", filtered_brands, key="sb_brand")
 
-if sel_group != "ALL GROUPS":
-    df_card      = df_card[df_card['MERCHANT_GROUP'] == sel_group]
-    df_card_hist = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_group]
-    if not df_mon.empty:        df_mon        = df_mon[df_mon['MERCHANT_GROUP'] == sel_group]
-    if not df_mon_weekly.empty: df_mon_weekly = df_mon_weekly[df_mon_weekly['MERCHANT_GROUP'] == sel_group]
-    if not df_target.empty:     df_target     = df_target[df_target['MERCHANT_GROUP'] == sel_group]
-    if sel_brand not in ["TOTAL GROUP", "TOTAL PORTFOLIO"]:
-        df_card      = df_card[df_card['MERCHANT_ANCHOR'] == sel_brand]
-        df_card_hist = df_card_hist[df_card_hist['MERCHANT_ANCHOR'] == sel_brand]
+# ── Scoped filtered DataFrames — ONLY for Card Share & Weekly Monitor ─────────
+# Macro tabs (Overview, Tiers, Health Alerts) always receive raw, unfiltered data.
+_filt_group = sel_group != "ALL GROUPS"
+_filt_brand = sel_brand not in ["TOTAL GROUP", "TOTAL PORTFOLIO"]
 
-st.caption(f"Showing results for: **{sel_group}** > **{sel_brand}**")
+df_card_filt      = df_card[df_card['MERCHANT_GROUP'] == sel_group].copy() if _filt_group else df_card.copy()
+df_card_hist_filt = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_group].copy() if _filt_group else df_card_hist.copy()
+if _filt_group and _filt_brand:
+    df_card_filt      = df_card_filt[df_card_filt['MERCHANT_ANCHOR'] == sel_brand]
+    df_card_hist_filt = df_card_hist_filt[df_card_hist_filt['MERCHANT_ANCHOR'] == sel_brand]
+
+# Weekly Monitor: df_mon_weekly.MERCHANT_GROUP stores brand names (= df_card.MERCHANT_ANCHOR)
+df_mon_weekly_filt = df_mon_weekly.copy()
+if _filt_group and not df_card.empty and not df_mon_weekly_filt.empty:
+    _group_brands = df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR'].unique()
+    df_mon_weekly_filt = df_mon_weekly_filt[df_mon_weekly_filt['MERCHANT_GROUP'].isin(_group_brands)]
+
+st.caption(f"🔎 Filter active for **Card Share** & **Weekly Monitor** only: **{sel_group}** > **{sel_brand}**")
 
 CLAMP = CLUSTER_COLORS
 
@@ -1146,23 +1153,23 @@ with tab0:
 with tab1:
     tab_desc("Monthly payment type breakdown — TRANSACTION / SALES VOLUME / FEE BASED INCOME. Data is sourced directly from the database and respects the sidebar Filters.")
 
-    # KPIs from DB (already filtered in sidebar)
-    if not df_card.empty:
-        avg_onus = df_card['RASIO_ONUS'].mean() if 'RASIO_ONUS' in df_card.columns else 0
+    # KPIs from DB (filtered by Merchant Group / Brand selection)
+    if not df_card_filt.empty:
+        avg_onus = df_card_filt['RASIO_ONUS'].mean() if 'RASIO_ONUS' in df_card_filt.columns else 0
         st.markdown(f"""<div class="stats-grid">
             <div class="stat-card amber">
                 <div class="stat-label">YTD Sales Volume</div>
-                <div class="stat-value">Rp {df_card['TOTAL_SV'].sum()/1e9:,.1f}M</div>
+                <div class="stat-value">Rp {df_card_filt['TOTAL_SV'].sum()/1e9:,.1f}M</div>
                 <div class="stat-meta">total sales</div>
             </div>
             <div class="stat-card green">
                 <div class="stat-label">YTD Fee-Based Income</div>
-                <div class="stat-value">Rp {df_card['TOTAL_FBI'].sum()/1e6:,.0f}Jt</div>
+                <div class="stat-value">Rp {df_card_filt['TOTAL_FBI'].sum()/1e6:,.0f}Jt</div>
                 <div class="stat-meta">fee income</div>
             </div>
             <div class="stat-card blue">
                 <div class="stat-label">YTD Transactions</div>
-                <div class="stat-value">{df_card['TOTAL_TRX'].sum()/1e6:,.2f}M</div>
+                <div class="stat-value">{df_card_filt['TOTAL_TRX'].sum()/1e6:,.2f}M</div>
                 <div class="stat-meta">total transactions</div>
             </div>
             <div class="stat-card purple">
@@ -1345,11 +1352,11 @@ with tab1:
 
 
     # Top Merchants overview from DB
-    if not df_card.empty:
+    if not df_card_filt.empty:
         section_label("🏆 Top Merchants Analytics (YTD)")
-        
+
         # Create a rich dataframe with calculated metrics
-        df_c = df_card.copy()
+        df_c = df_card_filt.copy()
         df_c['AVG_TRX_VAL'] = np.where(df_c['TOTAL_TRX'] > 0, df_c['TOTAL_SV'] / df_c['TOTAL_TRX'], 0)
         df_c['FBI_YIELD'] = np.where(df_c['TOTAL_SV'] > 0, (df_c['TOTAL_FBI'] / df_c['TOTAL_SV']) * 100, 0)
         
@@ -1517,11 +1524,11 @@ with tab2:
         
         with f_col1:
             avail_years_mon = []
-            if not df_mon_weekly.empty and 'YEAR' in df_mon_weekly.columns:
-                avail_years_mon = sorted(df_mon_weekly['YEAR'].unique().tolist(), reverse=True)
-            
+            if not df_mon_weekly_filt.empty and 'YEAR' in df_mon_weekly_filt.columns:
+                avail_years_mon = sorted(df_mon_weekly_filt['YEAR'].unique().tolist(), reverse=True)
+
             sel_yr_mon = st.selectbox("📅 Year", [str(y) for y in avail_years_mon] if avail_years_mon else ["No Data"], key="t2_year_mon")
-            df_mon_yr = df_mon_weekly[df_mon_weekly['YEAR'] == str(sel_yr_mon)] if (not df_mon_weekly.empty and 'YEAR' in df_mon_weekly.columns) else pd.DataFrame()
+            df_mon_yr = df_mon_weekly_filt[df_mon_weekly_filt['YEAR'] == str(sel_yr_mon)] if (not df_mon_weekly_filt.empty and 'YEAR' in df_mon_weekly_filt.columns) else pd.DataFrame()
         
         with f_col2:
             pm_names_mon = []
@@ -1593,9 +1600,19 @@ with tab2:
 
             all_merch_mon = sorted(df_filt_for_plot['MERCHANT_GROUP'].unique().tolist())
             _vol_rows = df_filt_for_plot[df_filt_for_plot['DIMENSI']=='VOL'] if 'VOL' in sel_dim else df_filt_for_plot
-            def_merch_mon = _vol_rows.sort_values('YTD', ascending=False)['MERCHANT_GROUP'].head(5).tolist()
 
-            sel_plot_merch = st.multiselect("🔍 Select Merchants to Plot", all_merch_mon, default=def_merch_mon, key="t2_plot_merch")
+            # Dynamic drill-down: label and options depend on the active Merchant Group filter
+            if sel_group == "ALL GROUPS":
+                _plot_label = "🔍 Select Merchants to Plot"
+                _plot_opts  = all_merch_mon
+            else:
+                _plot_label = "🔍 Select BRAND to Plot"
+                _plot_opts  = all_merch_mon  # pre-scoped to this group's brands via df_mon_weekly_filt
+
+            def_merch_mon = [m for m in _vol_rows.sort_values('YTD', ascending=False)['MERCHANT_GROUP'].head(5).tolist()
+                             if m in _plot_opts]
+
+            sel_plot_merch = st.multiselect(_plot_label, _plot_opts, default=def_merch_mon, key="t2_plot_merch")
 
             if sel_plot_merch:
                 df_plot_mon = df_filt_for_plot[df_filt_for_plot['MERCHANT_GROUP'].isin(sel_plot_merch)].copy()
