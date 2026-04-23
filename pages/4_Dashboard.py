@@ -520,11 +520,18 @@ if _filt_group and _filt_brand:
     df_card_filt      = df_card_filt[df_card_filt['MERCHANT_ANCHOR'] == sel_brand]
     df_card_hist_filt = df_card_hist_filt[df_card_hist_filt['MERCHANT_ANCHOR'] == sel_brand]
 
-# Weekly Monitor: df_mon_weekly.MERCHANT_GROUP stores brand names (= df_card.MERCHANT_ANCHOR)
+# Weekly Monitor: df_mon_weekly.MERCHANT_GROUP may store brand names (= df_card.MERCHANT_ANCHOR)
+# OR the parent group name directly — handle both naming conventions.
 df_mon_weekly_filt = df_mon_weekly.copy()
 if _filt_group and not df_card.empty and not df_mon_weekly_filt.empty:
-    _group_brands = df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR'].str.strip().str.upper().unique()
-    df_mon_weekly_filt = df_mon_weekly_filt[df_mon_weekly_filt['MERCHANT_GROUP'].isin(_group_brands)]
+    _group_brands = (
+        df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR']
+        .str.strip().str.upper().unique()
+    )
+    _mon_mg_upper = df_mon_weekly_filt['MERCHANT_GROUP'].str.strip().str.upper()
+    df_mon_weekly_filt = df_mon_weekly_filt[
+        _mon_mg_upper.isin(_group_brands) | (_mon_mg_upper == sel_group)
+    ]
 
 st.caption(f"🔎 Filter active for **Card Share** & **Weekly Monitor** only: **{sel_group}** > **{sel_brand}**")
 
