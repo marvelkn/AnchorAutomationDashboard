@@ -705,9 +705,10 @@ with tab0:
                     textposition='inside',
                     insidetextanchor='middle',
                 ))
-                fig_gain.update_layout(height=260, margin=dict(l=10, r=20, t=10, b=40),
+                fig_gain.update_layout(height=280, margin=dict(l=0, r=20, t=10, b=40),
                                        xaxis={**_xaxis(), 'title': 'Volume Change (Jt Rp)'},
-                                       yaxis=dict(showgrid=False, automargin=True, showticklabels=False), **_chart_base())
+                                       yaxis=dict(showgrid=False, automargin=True, showticklabels=True,
+                                                  tickfont=dict(size=11)), **_chart_base())
                 st.plotly_chart(fig_gain, use_container_width=True, theme=None)
             with l_col:
                 section_label("🔴 Top 5 Losers")
@@ -720,9 +721,10 @@ with tab0:
                     textposition='inside',
                     insidetextanchor='middle',
                 ))
-                fig_loss.update_layout(height=260, margin=dict(l=10, r=20, t=10, b=40),
+                fig_loss.update_layout(height=280, margin=dict(l=0, r=20, t=10, b=40),
                                        xaxis={**_xaxis(), 'title': 'Volume Change (Jt Rp)'},
-                                       yaxis=dict(showgrid=False, automargin=True, showticklabels=False), **_chart_base())
+                                       yaxis=dict(showgrid=False, automargin=True, showticklabels=True,
+                                                  tickfont=dict(size=11)), **_chart_base())
                 st.plotly_chart(fig_loss, use_container_width=True, theme=None)
             with st.expander("📋 View Full Batch Comparison Table"):
                 st.dataframe(merged[['MERCHANT_GROUP','Delta SV','Growth %']].sort_values('Delta SV', ascending=False), hide_index=True, use_container_width=True)
