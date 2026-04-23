@@ -10,6 +10,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from sklearn.ensemble import IsolationForest
 import os
+from datetime import datetime
 try:
     from statsmodels.tsa.holtwinters import ExponentialSmoothing as HoltWinters
     _HW_AVAILABLE = True
@@ -861,7 +862,10 @@ with tab0:
                     # ── Holt-Winters Forecast ─────────────────────────────────
                     # Attempt statistical forecast. Falls back to linear if
                     # insufficient data (<6 months) or if model fitting fails.
-                    _remaining_months = max(0, 12 - len(merch_hist))
+                    # Use calendar month to determine remaining months in the year —
+                    # len(merch_hist) is unreliable because PROCESSED_CARD_HISTORY
+                    # contains multi-year data, causing _remaining_months to floor at 0.
+                    _remaining_months = max(0, 12 - datetime.now().month)
                     # Always forecast at least 6 months so the chart is visible even
                     # when all 12 months of current-year data are present.
                     _forecast_periods = _remaining_months if _remaining_months > 0 else 6
