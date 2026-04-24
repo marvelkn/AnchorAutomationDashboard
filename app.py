@@ -11,7 +11,7 @@ from utils.theme import apply_theme, theme_toggle_sidebar, get_palette, _nav_css
 
 st.set_page_config(
     page_title="BTN Anchor Dashboard",
-    page_icon="🏦",
+    page_icon=os.path.join(BASE_DIR, "static", "btn_logo.png"),
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -38,21 +38,24 @@ p         = get_palette()
 
 # ── DB status helpers ──────────────────────────────────────────────────────────
 if neon_exists:
-    _db_clr, _db_dot, _db_lbl = p["BLUE_ACC"], "☁️", "Neon Connected"
+    _db_clr, _db_lbl = p["BLUE_ACC"], "Neon Connected"
     _db_sub = "Cloud Database Active"
 elif db_exists:
     _mtime   = datetime.fromtimestamp(os.path.getmtime(DB_PATH))
     _age_h   = (datetime.now().timestamp() - _mtime.timestamp()) / 3600
     _size_mb = os.path.getsize(DB_PATH) / (1024 * 1024)
     if _age_h < 24:
-        _db_clr, _db_dot, _db_lbl = p["GREEN"], "🟢", "Fresh"
+        _db_clr, _db_lbl = p["GREEN"], "Fresh"
     elif _age_h < 72:
-        _db_clr, _db_dot, _db_lbl = p["AMBER"], "🟡", "Aging"
+        _db_clr, _db_lbl = p["AMBER"], "Aging"
     else:
-        _db_clr, _db_dot, _db_lbl = p["RED"],   "🔴", "Stale"
+        _db_clr, _db_lbl = p["RED"],   "Stale"
     _db_sub = f"{_size_mb:.0f} MB · {_mtime.strftime('%d %b, %H:%M')}"
 else:
-    _db_clr, _db_dot, _db_lbl, _db_sub = p["RED"], "🔴", "Not Found", "Upload data to Neon or Staging"
+    _db_clr, _db_lbl, _db_sub = p["RED"], "Not Found", "Upload data to Neon or Staging"
+
+_db_dot = (f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
+           f'background:{_db_clr};margin-right:5px;vertical-align:middle;"></span>')
 
 # ── Navigation registry ────────────────────────────────────────────────────────
 # MUST run before st.page_link() — page_link looks up URL metadata from the

@@ -5,7 +5,7 @@ import openpyxl
 import os
 import sys
 
-st.set_page_config(page_title="PM Manager", page_icon="👥", layout="wide")
+st.set_page_config(page_title="PM Manager", page_icon=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "btn_logo.png"), layout="wide")
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _BASE not in sys.path:
@@ -17,7 +17,7 @@ apply_theme()
 DB_PATH    = os.path.join(_BASE, "database", "staging.db")
 EXCEL_PATH = os.path.join(_BASE, "data", "master", "master_monitoring.xlsx")
 
-page_header("👥", "PM Manager", "Manage Project Manager assignments and Merchant Group mappings")
+page_header("", "PM Manager", "Manage Project Manager assignments and Merchant Group mappings")
 
 neon_url    = os.getenv("DATABASE_URL")
 neon_exists = neon_url is not None
@@ -25,7 +25,7 @@ neon_exists = neon_url is not None
 # Guard: if DB is missing, show a clear message instead of crashing.
 if not neon_exists and not os.path.exists(DB_PATH):
     st.error(
-        "⚠️ **Database not found.** "
+        "**Database not found.** "
         "Please upload `staging.db` via the **Automated Pipeline** page first."
     )
     st.stop()
@@ -148,7 +148,7 @@ st.markdown(f"""<div class="stats-grid">
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── Section 1: Edit / Reassign Merchants ─────────────────────────────────────
-section_label("✏️ Edit / Reassign Merchants")
+section_label("Edit / Reassign Merchants")
 st.markdown(
     """<div class="tab-desc">
     Click any <b>Project Manager</b> cell to reassign a merchant.
@@ -177,7 +177,7 @@ edited_df = st.data_editor(
 has_changes = not edited_df.equals(current_data)
 
 if st.button(
-    "💾 Save Assignments",
+    "Save Assignments",
     type="primary",
     disabled=not has_changes,
     width="content",
@@ -210,7 +210,7 @@ if st.button(
                 conn.commit()
                 conn.close()
 
-            st.success(f"✅ Updated {len(changed_rows)} assignment(s) successfully!")
+            st.success(f"Updated {len(changed_rows)} assignment(s) successfully!")
             st.session_state.editor_key += 1
             st.rerun()
         except Exception as e:
@@ -221,7 +221,7 @@ elif not has_changes:
 st.divider()
 
 # ── Section 2: Add New Assignment ─────────────────────────────────────────────
-section_label("➕ Add New Assignment")
+section_label("Add New Assignment")
 with st.form("add_pm_form", clear_on_submit=True):
     new_merchant = st.text_input(
         "Merchant Group Name",
@@ -233,7 +233,7 @@ with st.form("add_pm_form", clear_on_submit=True):
         placeholder="e.g. BUDI SANTOSO",
         key="new_pm",
     )
-    add_submitted = st.form_submit_button("➕ Add Assignment", type="primary", width="stretch")
+    add_submitted = st.form_submit_button("Add Assignment", type="primary", width="stretch")
 
 if add_submitted:
     new_merchant = new_merchant.strip().upper()
@@ -261,7 +261,7 @@ if add_submitted:
                 conn.commit()
                 conn.close()
             update_excel_assignment(new_merchant, new_pm_name, is_new=True)
-            st.success(f"✅ Added **{new_merchant}** → **{new_pm_name}**")
+            st.success(f"Added **{new_merchant}** → **{new_pm_name}**")
             st.session_state.editor_key += 1
             st.rerun()
         except Exception as e:
@@ -270,7 +270,7 @@ if add_submitted:
 st.divider()
 
 # ── Section 3: Danger Zone ─────────────────────────────────────────────────────
-with st.expander("⚠️ Danger Zone: Remove PM", expanded=False):
+with st.expander("Danger Zone: Remove PM", expanded=False):
         _removable = [pm for pm in all_pms if pm != "UNASSIGNED"]
         if not _removable:
             st.info("No PMs available to remove.")
@@ -289,16 +289,16 @@ with st.expander("⚠️ Danger Zone: Remove PM", expanded=False):
             affected_preview = current_data[current_data["PM"] == pm_to_delete]
             if len(affected_preview) > 0:
                 st.warning(
-                    f"⚠️ This will reassign **{len(affected_preview)}** merchant(s) "
+                    f"This will reassign **{len(affected_preview)}** merchant(s) "
                     f"currently under **{pm_to_delete}** to **{reassign_to}**."
                 )
             else:
                 st.info(
-                    f"ℹ️ **{pm_to_delete}** has no merchants assigned. "
+                    f"**{pm_to_delete}** has no merchants assigned. "
                     "Removing will only delete them from the PM list."
                 )
             if st.button(
-                "⚠️ Confirm Removal & Reassign",
+                "Confirm Removal & Reassign",
                 type="primary",
                 key="btn_remove_pm",
                 width="stretch",
@@ -332,7 +332,7 @@ with st.expander("⚠️ Danger Zone: Remove PM", expanded=False):
                     for merch in affected_merchants:
                         update_excel_assignment(merch, reassign_to)
                     st.success(
-                        f"✅ Removed **{pm_to_delete}** and reassigned "
+                        f"Removed **{pm_to_delete}** and reassigned "
                         f"{len(affected_merchants)} merchant(s) to **{reassign_to}**."
                     )
                     st.session_state.editor_key += 1

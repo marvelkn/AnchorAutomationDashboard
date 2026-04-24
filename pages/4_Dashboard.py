@@ -42,12 +42,12 @@ st.set_page_config(
 )
 apply_theme()
 
-@st.dialog("📂 No Data Found", width="large")
+@st.dialog("No Data Found", width="large")
 def _show_no_data_dialog():
     st.markdown(
         """
         <div style="text-align:center;padding:16px 0 8px;">
-            <div style="font-size:3rem;margin-bottom:12px;">🗄️</div>
+            <div style="font-size:3rem;margin-bottom:12px;"></div>
             <div style="font-size:1.15rem;font-weight:700;margin-bottom:8px;">
                 The dashboard has no data to display.
             </div>
@@ -61,10 +61,10 @@ def _show_no_data_dialog():
     )
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🚀 Go to Automated Pipeline", use_container_width=True, type="primary"):
+        if st.button("Go to Automated Pipeline", use_container_width=True, type="primary"):
             st.switch_page("pages/00_Automated_Pipeline.py")
     with c2:
-        if st.button("⚙️ Go to Global Settings", use_container_width=True):
+        if st.button("Go to Global Settings", use_container_width=True):
             st.switch_page("pages/0_Master_Configuration.py")
 
 def _p():
@@ -292,9 +292,9 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
 
         # ── 6. Three-tier Churn Risk ──────────────────────────────────────────
         def _risk_tier(score):
-            if score >= 60: return 'HIGH RISK ⚠️'
-            if score >= 30: return 'MEDIUM RISK 🟡'
-            return 'STABLE ✅'
+            if score >= 60: return 'HIGH RISK'
+            if score >= 30: return 'MEDIUM RISK'
+            return 'STABLE'
         df['CHURN_RISK'] = df['RISK_SCORE'].apply(_risk_tier)
 
         # ── z_thresh override: any z-score breach upgrades STABLE → MEDIUM RISK ──
@@ -304,12 +304,12 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
                 (df['ZSCORE_FBI']    < z_thresh) |
                 (df['ZSCORE_GROWTH'] < z_thresh)
             )
-            df.loc[zscore_breach & (df['CHURN_RISK'] == 'STABLE ✅'), 'CHURN_RISK'] = 'MEDIUM RISK 🟡'
+            df.loc[zscore_breach & (df['CHURN_RISK'] == 'STABLE'), 'CHURN_RISK'] = 'MEDIUM RISK'
 
     except Exception as e:
-        st.warning(f"⚠️ ML pipeline encountered an error and fell back to defaults: {e}")
+        st.warning(f"ML pipeline encountered an error and fell back to defaults: {e}")
         df['CLUSTER']    = 'UNKNOWN'
-        df['CHURN_RISK'] = 'STABLE ✅'
+        df['CHURN_RISK'] = 'STABLE'
         df['RISK_SCORE'] = 0.0
         df['ZSCORE_SV']  = df['ZSCORE_FBI'] = df['ZSCORE_GROWTH'] = 0.0
 
@@ -392,7 +392,7 @@ if neon_url:
         st.stop()
 else:
     if not os.path.exists(PATH_DB):
-        st.warning("⚠️ Database not found. Process files in the Processing pages first.")
+        st.warning("Database not found. Process files in the Processing pages first.")
         st.stop()
 
     conn = sqlite3.connect(PATH_DB)
@@ -435,7 +435,7 @@ with header_col1:
 with header_col2:
     if _show_new_badge:
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🆕 NEW DATA", help=f"Last updated: {_last_update}. Click to clear.", type="primary"):
+        if st.button("NEW DATA", help=f"Last updated: {_last_update}. Click to clear.", type="primary"):
             try:
                 if neon_url:
                     with engine.begin() as _conn_m:
@@ -465,28 +465,31 @@ _high_risk_count = int(_ml_kpi['CHURN_RISK'].str.contains('HIGH', na=False).sum(
 _sv_fmt  = f"Rp {_ytd_sv/1e9:,.1f} M"  if _ytd_sv >= 1e9 else f"Rp {_ytd_sv/1e6:,.0f} Jt"
 _trx_fmt = f"{_ytd_trx/1e6:,.2f} M"    if _ytd_trx >= 1e6 else f"{_ytd_trx:,.0f}"
 
-_kc1, _kc2, _kc3, _kc4, _kc5 = st.columns([1, 1, 1, 1, 1])
-_kc1.metric("🏪 Merchants Tracked",    f"{_total_merchants:,}")
-_kc2.metric("💰 YTD Sales Volume",     _sv_fmt)
-_kc3.metric("🔄 YTD Transactions",     _trx_fmt)
-_kc4.metric("🎯 Avg On-Us Ratio",      f"{_avg_onus*100:.1f}%")
-_kc5.metric("⚠️ High Risk Merchants",  _high_risk_count,
-            delta=f"-{_high_risk_count}" if _high_risk_count > 0 else None,
-            delta_color="inverse")
+kpi_row([
+    kpi_card(f"{_total_merchants:,}", "Merchants Tracked"),
+    kpi_card(_sv_fmt,                 "YTD Sales Volume"),
+    kpi_card(_trx_fmt,                "YTD Transactions"),
+    kpi_card(f"{_avg_onus*100:.1f}%", "Avg On-Us Ratio"),
+    kpi_card(
+        str(_high_risk_count),
+        "High Risk Merchants",
+        kind="danger" if _high_risk_count > 0 else "success",
+    ),
+])
 
 # ── System Health (DB row counts only — no local file checks on cloud) ─────────
 _card_rows = len(df_card)   if has_card and not df_card.empty   else 0
 _mon_rows  = len(df_mon)    if has_mon  and not df_mon.empty    else 0
 _tgt_rows  = len(df_target) if has_tgt  and not df_target.empty else 0
 
-with st.expander("⚙️ System Health & Data Status", expanded=False):
+with st.expander("System Health & Data Status", expanded=False):
     sc1, sc2, sc3 = st.columns(3)
-    sc1.metric("📊 Card Share DB",
-               f"✅ {_card_rows:,} rows" if _card_rows > 0 else ("⚠️ Empty" if has_card else "❌ Missing"))
-    sc2.metric("📅 Monitoring DB",
-               f"✅ {_mon_rows:,} rows"  if _mon_rows  > 0 else ("⚠️ Empty" if has_mon  else "❌ Missing"))
-    sc3.metric("🎯 Target Data",
-               f"✅ {_tgt_rows:,} merchants" if _tgt_rows > 0 else "❌ Missing")
+    sc1.metric("Card Share DB",
+               f"{_card_rows:,} rows" if _card_rows > 0 else ("Empty" if has_card else "Missing"))
+    sc2.metric("Monitoring DB",
+               f"{_mon_rows:,} rows"  if _mon_rows  > 0 else ("Empty" if has_mon  else "Missing"))
+    sc3.metric("Target Data",
+               f"{_tgt_rows:,} merchants" if _tgt_rows > 0 else "Missing")
 
 styled_divider()
 
@@ -497,7 +500,7 @@ all_groups = ["ALL GROUPS"]
 if not df_card.empty:
     all_groups += sorted(df_card['MERCHANT_GROUP'].unique().tolist())
 with f_col1:
-    sel_group = st.selectbox("🏬 Merchant Group", all_groups, key="sb_group")
+    sel_group = st.selectbox("Merchant Group", all_groups, key="sb_group")
 
 filtered_brands = ["TOTAL GROUP"]
 if sel_group != "ALL GROUPS" and not df_card.empty:
@@ -507,7 +510,7 @@ elif sel_group == "ALL GROUPS" and not df_card.empty:
     filtered_brands = ["TOTAL PORTFOLIO"]
 
 with f_col2:
-    sel_brand = st.selectbox("⚓ Merchant Brand (Anchor)", filtered_brands, key="sb_brand")
+    sel_brand = st.selectbox("Merchant Brand (Anchor)", filtered_brands, key="sb_brand")
 
 # ── Scoped filtered DataFrames — ONLY for Card Share & Weekly Monitor ─────────
 # Macro tabs (Overview, Tiers, Health Alerts) always receive raw, unfiltered data.
@@ -533,17 +536,17 @@ if _filt_group and not df_card.empty and not df_mon_weekly_filt.empty:
         _mon_mg_upper.isin(_group_brands) | (_mon_mg_upper == sel_group)
     ]
 
-st.caption(f"🔎 Filter active for **Card Share** & **Weekly Monitor** only: **{sel_group}** > **{sel_brand}**")
+st.caption(f"Filter active for **Card Share** & **Weekly Monitor** only: **{sel_group}** > **{sel_brand}**")
 
 CLAMP = CLUSTER_COLORS
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
 tab0, tab1, tab2, tab3, tab4 = st.tabs([
-    "🏠  Overview",
-    "💰  Card Share",
-    "📅  Weekly Monitor",
-    "📊  Merchant Tiers",
-    "🔔  Health Alerts",
+    "Overview",
+    "Card Share",
+    "Weekly Monitor",
+    "Merchant Tiers",
+    "Health Alerts",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -554,17 +557,17 @@ with tab0:
 
     # ── High-risk banner ─────────────────────────────────────────────────────
     if _high_risk_count > 0:
-        st.warning(f"⚠️ **{_high_risk_count} merchant(s) need immediate attention.** See the **Health Alerts** tab for recommended actions.")
+        st.warning(f"**{_high_risk_count} merchant(s) need immediate attention.** See the **Health Alerts** tab for recommended actions.")
 
     # ── Fleet Health Zone (visual-first, 3-column) ────────────────────────────
     if not _ml_kpi.empty:
-        section_label("📡 Fleet Health Snapshot")
+        section_label("Fleet Health Snapshot")
         fh1, fh2, fh3 = st.columns(3)
 
         with fh1:
             _risk_counts = _ml_kpi['CHURN_RISK'].value_counts().reset_index()
             _risk_counts.columns = ['Status', 'Count']
-            _risk_color_map = {'HIGH RISK ⚠️': '#C0392B', 'MEDIUM RISK 🟡': '#F59E0B', 'STABLE ✅': '#27AE60'}
+            _risk_color_map = {'HIGH RISK': '#C0392B', 'MEDIUM RISK': '#F59E0B', 'STABLE': '#27AE60'}
             fig_ov_donut = px.pie(
                 _risk_counts, names='Status', values='Count', hole=0.55,
                 title='Portfolio Health Status',
@@ -612,7 +615,7 @@ with tab0:
     # ── PM Coverage Cards (visual, not table) ─────────────────────────────────
     if not df_target.empty and 'PM' in df_target.columns:
         styled_divider()
-        section_label("👤 Account Manager Coverage")
+        section_label("Account Manager Coverage")
         _active_pms = df_target['PM'].nunique()
         _unassigned = int((df_target['PM'].fillna('UNASSIGNED').str.upper() == 'UNASSIGNED').sum())
         _assigned = len(df_target) - _unassigned
@@ -629,12 +632,12 @@ with tab0:
                 _pm_high  = int(_pm_merch['CHURN_RISK'].str.contains('HIGH', na=False).sum())
                 _pm_ach   = float(_pm_merch['ACHIEVEMENT_PCT'].mean()) if 'ACHIEVEMENT_PCT' in _pm_merch.columns else 0
                 _chip = (
-                    status_chip_html(f"⚠️ {_pm_high} High Risk", "danger")
+                    status_chip_html(f"{_pm_high} High Risk", "danger")
                     if _pm_high > 0 else
-                    status_chip_html("✅ All on track", "ok")
+                    status_chip_html("All on track", "ok")
                 )
                 _am_cards_html += left_accent_card(
-                    icon="👤", name=_pm,
+                    icon="", name=_pm,
                     count=_pm_count, sub_label="merchants",
                     bar_label="Achievement", bar_value=_pm_ach,
                     accent=PM_PALETTE[i % len(PM_PALETTE)],
@@ -647,7 +650,7 @@ with tab0:
         _pp_agg = _p()
         _unasgn_color  = '#FBBF24' if _unassigned > 0 else '#34D399'
         _unasgn_bg     = '#FBBF2414' if _unassigned > 0 else '#34D39914'
-        _unasgn_sub    = f'+{_unassigned} need assignment' if _unassigned > 0 else 'fully assigned ✓'
+        _unasgn_sub    = f'+{_unassigned} need assignment' if _unassigned > 0 else 'fully assigned'
         _divider_style = f'border-right:1px solid {_pp_agg["BORDER"]};'
         st.markdown(
             f"""<div style="display:flex;border:1px solid {_pp_agg['BORDER']};
@@ -655,7 +658,7 @@ with tab0:
               <div style="flex:1;text-align:center;padding:18px 12px;{_divider_style}">
                 <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
                             letter-spacing:.08em;color:{_pp_agg['TEXT_SEC']};margin-bottom:6px;">
-                  👥 Active Account Managers</div>
+                  Active Account Managers</div>
                 <div style="font-size:2.2rem;font-weight:900;
                             color:{_pp_agg['TEXT_PRI']};line-height:1;">{_active_pms}</div>
                 <div style="font-size:0.74rem;color:{_pp_agg['TEXT_SEC']};margin-top:4px;">
@@ -664,7 +667,7 @@ with tab0:
               <div style="flex:1;text-align:center;padding:18px 12px;{_divider_style}">
                 <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
                             letter-spacing:.08em;color:{_pp_agg['TEXT_SEC']};margin-bottom:6px;">
-                  ⚖️ Avg Merchant Load</div>
+                  Avg Merchant Load</div>
                 <div style="font-size:2.2rem;font-weight:900;
                             color:{_pp_agg['TEXT_PRI']};line-height:1;">{_avg_per_pm}</div>
                 <div style="font-size:0.74rem;color:{_pp_agg['TEXT_SEC']};margin-top:4px;">
@@ -673,7 +676,7 @@ with tab0:
               <div style="flex:1;text-align:center;padding:18px 12px;background:{_unasgn_bg};">
                 <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
                             letter-spacing:.08em;color:{_unasgn_color};margin-bottom:6px;">
-                  📋 Unassigned Merchants</div>
+                  Unassigned Merchants</div>
                 <div style="font-size:2.2rem;font-weight:900;
                             color:{_unasgn_color};line-height:1;">{_unassigned}</div>
                 <div style="font-size:0.74rem;color:{_unasgn_color};margin-top:4px;font-weight:600;">
@@ -683,7 +686,7 @@ with tab0:
             unsafe_allow_html=True
         )
 
-        with st.expander("📋 View Full PM Assignment Table"):
+        with st.expander("View Full PM Assignment Table"):
             _tgt_display = df_target[['MERCHANT_GROUP', 'PM']].copy()
             st.dataframe(
                 _tgt_display,
@@ -700,7 +703,7 @@ with tab0:
 
     # ── Batch Impact (merged from former Batch Impact tab) ────────────────────
     styled_divider()
-    section_label("📊 Batch Impact Analysis")
+    section_label("Batch Impact Analysis")
     st.caption("Latest ingestion vs previous cycle")
 
     def _render_batch_impact(fetch_dates, df_getter):
@@ -742,7 +745,7 @@ with tab0:
             _top_gain['_Label'] = _top_gain['MERCHANT_GROUP'].apply(_trunc_name)
             _top_loss['_Label'] = _top_loss['MERCHANT_GROUP'].apply(_trunc_name)
             with g_col:
-                section_label("🟢 Top 5 Gainers")
+                section_label("Top 5 Gainers")
                 fig_gain = go.Figure(go.Bar(
                     x=_top_gain['Delta SV'] / 1e6,
                     y=_top_gain['_Label'],
@@ -758,7 +761,7 @@ with tab0:
                                                   tickfont=dict(size=11)), **_chart_base())
                 st.plotly_chart(fig_gain, use_container_width=True, theme=None)
             with l_col:
-                section_label("🔴 Top 5 Losers")
+                section_label("Top 5 Losers")
                 fig_loss = go.Figure(go.Bar(
                     x=_top_loss['Delta SV'] / 1e6,
                     y=_top_loss['_Label'],
@@ -773,7 +776,7 @@ with tab0:
                                        yaxis=dict(showgrid=False, automargin=True, showticklabels=True,
                                                   tickfont=dict(size=11)), **_chart_base())
                 st.plotly_chart(fig_loss, use_container_width=True, theme=None)
-            with st.expander("📋 View Full Batch Comparison Table"):
+            with st.expander("View Full Batch Comparison Table"):
                 st.dataframe(merged[['MERCHANT_GROUP','Delta SV','Growth %']].sort_values('Delta SV', ascending=False), hide_index=True, use_container_width=True)
         else:
             st.info(f"Only one batch found ({latest_date}). Comparison available after the next update.")
@@ -820,7 +823,7 @@ with tab0:
 
     # ── Merchant Explorer (formerly Merchant Detail tab) ─────────────────────
     styled_divider()
-    with st.expander("🔍 Merchant Explorer & Export", expanded=False):
+    with st.expander("Merchant Explorer & Export", expanded=False):
         st.caption("Fully interactive explorer. Apply any combination of filters, search, sort, and export to CSV.")
         if has_card and has_mon:
             df_exp = run_ml(df_card, df_mon, df_target)
@@ -830,9 +833,9 @@ with tab0:
             df_exp = df_mon.copy() if not df_mon.empty else pd.DataFrame()
 
         if df_exp.empty:
-            st.info("ℹ️ No merchants found to explore. Please populate the database first.")
+            st.info("No merchants found to explore. Please populate the database first.")
         else:
-            section_label("🎛️ Explorer Filters")
+            section_label("Explorer Filters")
             ef1, ef2, ef3, ef4 = st.columns(4)
             with ef1:
                 if 'CLUSTER' in df_exp.columns:
@@ -851,7 +854,7 @@ with tab0:
                     if sel_cr != 'All':
                         df_exp = df_exp[df_exp['CHURN_RISK'] == sel_cr]
             with ef4:
-                srch = st.text_input("🔎 Search merchant name", key="e_srch")
+                srch = st.text_input("Search merchant name", key="e_srch")
                 if srch:
                     df_exp = df_exp[df_exp['MERCHANT_GROUP'].str.contains(srch.upper(), na=False)]
 
@@ -872,19 +875,19 @@ with tab0:
             df_exp_s = df_exp[show_cols].sort_values(sort_e, ascending=(asc_e == 'Asc')).reset_index(drop=True) \
                        if sort_e else df_exp[show_cols].reset_index(drop=True)
             st.dataframe(df_exp_s, use_container_width=True, height=480)
-            st.download_button("⬇️ Export Filtered View as CSV",
+            st.download_button("Export Filtered View as CSV",
                                df_exp_s.to_csv(index=False, encoding='utf-8-sig'),
                                "merchant_explorer_export.csv", "text/csv", type="primary")
 
     # ── AI Insights (formerly AI Insights tab) ────────────────────────────────
-    with st.expander("🤖 AI Insights & Recommendations", expanded=False):
+    with st.expander("AI Insights & Recommendations", expanded=False):
         if not has_mon_weekly:
-            st.warning("⚠️ AI Insights require processed Monitoring Weekly data in the database.")
+            st.warning("AI Insights require processed Monitoring Weekly data in the database.")
         else:
             df_ai_wk = df_mon_weekly[df_mon_weekly['YEAR'] == '2026'].copy()
             W_COLS = sorted([c for c in df_ai_wk.columns if c.startswith('W') and c[1:].isdigit()])
             if df_ai_wk.empty:
-                st.info("ℹ️ No 2026 monitoring data found for the current filter.")
+                st.info("No 2026 monitoring data found for the current filter.")
             else:
                 # Derive current week number (used by Deep Dive risk score calculation)
                 latest_wk_num = 0
@@ -895,7 +898,7 @@ with tab0:
 
                 # --- Deep Dive & Projection ---
                 st.markdown("<br>", unsafe_allow_html=True)
-                section_label("🔍 Deep Dive & Projection (Specific Merchant)")
+                section_label("Deep Dive & Projection (Specific Merchant)")
                 all_merch_ai = sorted(df_ai_wk['MERCHANT_GROUP'].unique().tolist())
                 _ai_default_idx = all_merch_ai.index(sel_group) if sel_group != "ALL GROUPS" and sel_group in all_merch_ai else 0
                 sel_merch = st.selectbox("Select Merchant Entity to Profile:", all_merch_ai, index=_ai_default_idx, key="ai_sel_merch")
@@ -943,7 +946,7 @@ with tab0:
                             peak_name = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][int(peak_mo['MonthIdx'])-1]
                             seasonality_str = f"Historically shows a **{peak_mo['Multiplier']:.1f}x surge in {peak_name}** vs baseline."
                     with col_txt:
-                        section_label(f"🤖 AI Insight Summary: {sel_merch}")
+                        section_label(f"AI Insight Summary: {sel_merch}")
                         rate_pct   = (proj_eoy / fy_target * 100) if fy_target > 0 else 0
                         if fy_target == 0:
                             status_str = f"No FY Target is registered for {sel_merch}."
@@ -958,13 +961,14 @@ with tab0:
                             status_str = f"They are drastically underperforming mathematically. At their current velocity of {proj_eoy/52/1e6:,.1f} Jt per week, they will completely **fail their FY Target by {fall_short/1e9:,.1f} Billion Rp** (projected `{rate_pct:.0f}%` final achievement). **Intervention is required.**"
                         _pp6 = _p()
                         exec_color = "#34D399" if rate_pct >= 100 else ("#FBBF24" if rate_pct >= 80 else "#F87171")
-                        exec_icon  = "🟢" if rate_pct >= 100 else ("🟡" if rate_pct >= 80 else "🔴")
+                        exec_dot   = (f'<span style="display:inline-block;width:10px;height:10px;border-radius:50%;'
+                                      f'background:{exec_color};margin-right:6px;vertical-align:middle;"></span>')
                         exec_label = "ON TRACK" if rate_pct >= 100 else ("AT RISK" if rate_pct >= 80 else "CRITICAL — INTERVENTION REQUIRED")
                         st.markdown(
                             f"""<div style="border-left:5px solid {exec_color};background:{exec_color}18;
                                 border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:14px;">
                                 <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;
-                                            letter-spacing:.08em;color:{exec_color};">{exec_icon} STATUS: {exec_label}</div>
+                                            letter-spacing:.08em;color:{exec_color};">{exec_dot}STATUS: {exec_label}</div>
                                 <div style="font-size:0.88rem;margin-top:8px;color:{_pp6['TEXT_PRI']};line-height:1.65;">
                                     <b>{sel_merch}</b> has accumulated <code>Rp {ytd_actual/1e9:,.2f}B</code> YTD across
                                     <b>{active_weeks_count}</b> active weeks.<br>{status_str}
@@ -976,7 +980,7 @@ with tab0:
                                 f"""<div style="background:{_pp6['SURFACE2']};border:1px solid {_pp6['BORDER']};
                                     border-radius:10px;padding:12px 16px;font-size:0.84rem;
                                     color:{_pp6['TEXT_PRI']};margin-bottom:14px;">
-                                    <b>🌊 Seasonality Intelligence:</b> {seasonality_str}
+                                    <b>Seasonality Intelligence:</b> {seasonality_str}
                                 </div>""", unsafe_allow_html=True
                             )
                         st.metric(
@@ -986,7 +990,7 @@ with tab0:
                             delta_color="normal" if rate_pct >= 100 else "inverse"
                         )
                         st.markdown("<br>", unsafe_allow_html=True)
-                        with st.expander("🧠 What's Driving This Merchant's Risk?", expanded=True):
+                        with st.expander("What's Driving This Merchant's Risk?", expanded=True):
                             fi_scores = {}
                             if active_weeks_count > 0 and latest_wk_num > 0:
                                 inactivity_ratio = 1.0 - (active_weeks_count / latest_wk_num)
@@ -1038,7 +1042,7 @@ with tab0:
                             bool(_merch_ml['IF_IS_ANOMALY'].iloc[0])
                         )
                         if _is_if_anomaly and all(c in _merch_ml.columns for c in _lofo_col_map):
-                            with st.expander("🤖 Isolation Forest Feature Contribution (Model-Based)", expanded=True):
+                            with st.expander("Isolation Forest Feature Contribution (Model-Based)", expanded=True):
                                 _lofo_vals = {
                                     label: float(_merch_ml[col].iloc[0])
                                     for col, label in _lofo_col_map.items()
@@ -1071,8 +1075,8 @@ with tab0:
                                 )
                                 st.plotly_chart(fig_lofo, use_container_width=True, theme=None)
                                 st.caption(
-                                    "🔴 Red = feature drives the anomaly (neutralizing it lowers the score). "
-                                    "🟢 Green = feature reduces anomaly risk. "
+                                    "Red = feature drives the anomaly (neutralizing it lowers the score). "
+                                    "Green = feature reduces anomaly risk. "
                                     "LOFO: each feature is set to the portfolio mean and the Isolation Forest score delta is measured — no model re-fitting."
                                 )
                     with col_graph:
@@ -1192,7 +1196,7 @@ with tab1:
         df_monthly_agg = df_monthly_raw.groupby(['TRX_MONTH', 'YEAR'])[agg_cols].sum().reset_index()
         
         if df_monthly_agg.empty:
-            st.info("ℹ️ No monthly trend data found for the current filter.")
+            st.info("No monthly trend data found for the current filter.")
         else:
             MONTH_ABB = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
             def get_mo_lbl(row):
@@ -1209,18 +1213,18 @@ with tab1:
             
             col_yr, col_vm = st.columns([2,3])
             with col_yr:
-                sel_yr = st.selectbox("📅 Year", ['All'] + [str(y) for y in avail_years], key="t1_year")
+                sel_yr = st.selectbox("Year", ['All'] + [str(y) for y in avail_years], key="t1_year")
             with col_vm:
-                chart_type = st.radio("📊 Chart Style", ["Stacked Bar", "Line Trend", "Both"], horizontal=True, key="t1_chart")
+                chart_type = st.radio("Chart Style", ["Stacked Bar", "Line Trend", "Both"], horizontal=True, key="t1_chart")
 
             if sel_yr != 'All':
                 df_monthly_agg = df_monthly_agg[df_monthly_agg['YEAR'] == int(sel_yr)]
 
             # Core Payment Type Mapping
             SECTIONS = {
-                'TRANSACTION':      ('🔄', BLUE_ACC, ['TRX_DEBIT_ONUS','TRX_DEBIT_OFFUS','TRX_CREDIT_OFFUS','TRX_QRIS_ONUS','TRX_QRIS_OFFUS'], 'TOTAL_TRX'),
-                'SALES VOLUME':     ('💰', GREEN,    ['SV_DEBIT_ONUS','SV_DEBIT_OFFUS','SV_CREDIT_OFFUS','SV_QRIS_ONUS','SV_QRIS_OFFUS'],  'TOTAL_SV'),
-                'FEE BASED INCOME': ('📈', AMBER,    ['FBI_DEBIT_ONUS','FBI_DEBIT_OFFUS','FBI_CREDIT_OFFUS','FBI_QRIS_ONUS','FBI_QRIS_OFFUS'],'TOTAL_FBI'),
+                'TRANSACTION':      ('', BLUE_ACC, ['TRX_DEBIT_ONUS','TRX_DEBIT_OFFUS','TRX_CREDIT_OFFUS','TRX_QRIS_ONUS','TRX_QRIS_OFFUS'], 'TOTAL_TRX'),
+                'SALES VOLUME':     ('', GREEN,    ['SV_DEBIT_ONUS','SV_DEBIT_OFFUS','SV_CREDIT_OFFUS','SV_QRIS_ONUS','SV_QRIS_OFFUS'],  'TOTAL_SV'),
+                'FEE BASED INCOME': ('', AMBER,    ['FBI_DEBIT_ONUS','FBI_DEBIT_OFFUS','FBI_CREDIT_OFFUS','FBI_QRIS_ONUS','FBI_QRIS_OFFUS'],'TOTAL_FBI'),
             }
             
             TYPE_LABELS = {
@@ -1294,7 +1298,7 @@ with tab1:
                         )
                         st.plotly_chart(fig_l, use_container_width=True, theme=None)
                 with ch_right:
-                    section_label("🍩 Mix Composition (Selected Period)")
+                    section_label("Mix Composition (Selected Period)")
                     fig_pie = px.pie(
                         values=ytd_vals.drop('TOTAL'),
                         names=[clean_map[c] for c in valid_sub],
@@ -1306,7 +1310,7 @@ with tab1:
                     st.plotly_chart(fig_pie, use_container_width=True, theme=None)
 
                 # ── Monthly breakdown table in expander (drill-down) ────────────
-                with st.expander("📋 View Monthly Breakdown Table"):
+                with st.expander("View Monthly Breakdown Table"):
                     ytd_row = pd.DataFrame([['YTD (Selected)'] + ytd_vals.tolist()], columns=display.columns)
                     disp_full = pd.concat([display, ytd_row], ignore_index=True)
 
@@ -1337,14 +1341,14 @@ with tab1:
                 styled_divider()
     else:
         conn.close()
-        st.warning("⚠️ PROCESSED_CARD_MONTHLY table is missing. Re-run the Automated Pipeline.")
+        st.warning("PROCESSED_CARD_MONTHLY table is missing. Re-run the Automated Pipeline.")
 
     styled_divider()
 
 
     # Top Merchants overview from DB
     if not df_card_filt.empty:
-        section_label("🏆 Top Merchants Analytics (YTD)")
+        section_label("Top Merchants Analytics (YTD)")
 
         # Create a rich dataframe with calculated metrics
         df_c = df_card_filt.copy()
@@ -1384,9 +1388,9 @@ with tab1:
             use_container_width=True, height=min(38 * len(disp_top) + 40, 500)
         )
 
-        with st.expander("📋 Raw Card Share Data"):
+        with st.expander("Raw Card Share Data"):
             st.dataframe(df_c.reset_index(drop=True), use_container_width=True)
-            st.download_button("⬇️ Download CSV", df_c.to_csv(index=False, encoding='utf-8-sig'), "card_share_data.csv", "text/csv")
+            st.download_button("Download CSV", df_c.to_csv(index=False, encoding='utf-8-sig'), "card_share_data.csv", "text/csv")
 
         # ── GROWTH ANALYTICS (Realisasi) ──────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1406,8 +1410,8 @@ with tab1:
                 
                 gh1, gh2 = st.columns([3, 1])
                 with gh1:
-                    section_label("📈 Top & Bottom Merchant Growth (MoM YoY)")
-                    _freshness_txt = f"📅 Comparing **{col_curr}** vs **{col_prev}** (year-ago same month)"
+                    section_label("Top & Bottom Merchant Growth (MoM YoY)")
+                    _freshness_txt = f"Comparing **{col_curr}** vs **{col_prev}** (year-ago same month)"
                     if _last_update != 'Unknown':
                         _freshness_txt += f" | Last pipeline run: **{_last_update}**"
                     st.caption(_freshness_txt)
@@ -1458,7 +1462,7 @@ with tab1:
                     'Delta': val_fmt_g, 'Growth %': lambda x: f"{x:,.0f}%"
                 }
                 
-                section_label(f"🟢 Top 10 by {metric_sel} Growth")
+                section_label(f"Top 10 by {metric_sel} Growth")
                 fig_top10 = go.Figure(go.Bar(
                     x=top_10['Growth %'],
                     y=top_10['MERCHANT_GROUP'],
@@ -1478,7 +1482,7 @@ with tab1:
                     st.dataframe(top_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), use_container_width=True)
 
                 st.markdown("")
-                section_label(f"🔴 Bottom 10 by {metric_sel} Growth")
+                section_label(f"Bottom 10 by {metric_sel} Growth")
                 fig_bot10 = go.Figure(go.Bar(
                     x=bot_10['Growth %'],
                     y=bot_10['MERCHANT_GROUP'],
@@ -1508,7 +1512,7 @@ with tab2:
              "Filter by <b>PM</b> and <b>Metric</b> (TRX / VOL / FBI) to drill down.")
 
     if not has_mon_weekly:
-        st.warning("⚠️ Weekly Monitoring database table is missing. Please run the Automated Pipeline first.")
+        st.warning("Weekly Monitoring database table is missing. Please run the Automated Pipeline first.")
     else:
         # ── 1. Filters ───────────
         f_col1, f_col2, f_col3 = st.columns([1, 1, 1])
@@ -1518,18 +1522,18 @@ with tab2:
             if not df_mon_weekly_filt.empty and 'YEAR' in df_mon_weekly_filt.columns:
                 avail_years_mon = sorted(df_mon_weekly_filt['YEAR'].unique().tolist(), reverse=True)
 
-            sel_yr_mon = st.selectbox("📅 Year", [str(y) for y in avail_years_mon] if avail_years_mon else ["No Data"], key="t2_year_mon")
+            sel_yr_mon = st.selectbox("Year", [str(y) for y in avail_years_mon] if avail_years_mon else ["No Data"], key="t2_year_mon")
             df_mon_yr = df_mon_weekly_filt[df_mon_weekly_filt['YEAR'] == str(sel_yr_mon)] if (not df_mon_weekly_filt.empty and 'YEAR' in df_mon_weekly_filt.columns) else pd.DataFrame()
         
         with f_col2:
             pm_names_mon = []
             if not df_mon_yr.empty and 'PM' in df_mon_yr.columns:
                 pm_names_mon = sorted([p for p in df_mon_yr['PM'].dropna().unique() if str(p).strip().upper() not in ['NAN', 'NONE', 'UNKNOWN', 'UNASSIGNED']])
-            sel_pm_mon = st.selectbox("👤 Filter by PM", ["All PMs"] + pm_names_mon, key="t2_pm_mon")
+            sel_pm_mon = st.selectbox("Filter by PM", ["All PMs"] + pm_names_mon, key="t2_pm_mon")
         
         with f_col3:
             avail_ket_mon = sorted(df_mon_yr['DIMENSI'].dropna().unique()) if (not df_mon_yr.empty and 'DIMENSI' in df_mon_yr.columns) else []
-            sel_ket_mon = st.multiselect("📊 Metric (Dimensi)", avail_ket_mon, default=avail_ket_mon, key="t2_ket_mon")
+            sel_ket_mon = st.multiselect("Metric (Dimensi)", avail_ket_mon, default=avail_ket_mon, key="t2_ket_mon")
 
         # ── 2. Data Processing ───────────
         df_filt_mon = df_mon_yr.copy()
@@ -1541,7 +1545,7 @@ with tab2:
         W_COLS_DB = sorted([c for c in df_filt_mon.columns if c.startswith('W') and c[1:].isdigit()])
         
         if df_filt_mon.empty:
-            st.info("ℹ️ No monitoring data matches the current filters.")
+            st.info("No monitoring data matches the current filters.")
         else:
             grp_cols_mon = ['MERCHANT_GROUP', 'DIMENSI', 'PM', 'FY', 'YTD']
             avail_grp_mon = [c for c in grp_cols_mon if c in df_filt_mon.columns]
@@ -1578,7 +1582,7 @@ with tab2:
 
             # ── 3. Trend & Visuals (visuals-first) ───────────
             st.markdown("<br>", unsafe_allow_html=True)
-            section_label("📈 Weekly Aggregated Trend")
+            section_label("Weekly Aggregated Trend")
 
             _WEEKLY_PALETTE = [
                 "#2563EB","#DC2626","#16A34A","#D97706","#7C3AED",
@@ -1586,7 +1590,7 @@ with tab2:
             ]
 
             avail_dim = sorted(df_filt_mon['DIMENSI'].unique().tolist())
-            sel_dim = st.multiselect("📊 Filter Metrics (DIMENSI)", avail_dim, default=avail_dim, key="t2_dim_filter")
+            sel_dim = st.multiselect("Filter Metrics (DIMENSI)", avail_dim, default=avail_dim, key="t2_dim_filter")
             df_filt_for_plot = df_filt_mon[df_filt_mon['DIMENSI'].isin(sel_dim)] if sel_dim else df_filt_mon
 
             all_merch_mon = sorted(df_filt_for_plot['MERCHANT_GROUP'].unique().tolist())
@@ -1594,10 +1598,10 @@ with tab2:
 
             # Dynamic drill-down: label and options depend on the active Merchant Group filter
             if sel_group == "ALL GROUPS":
-                _plot_label = "🔍 Select Merchants to Plot"
+                _plot_label = "Select Merchants to Plot"
                 _plot_opts  = all_merch_mon
             else:
-                _plot_label = "🔍 Select BRAND to Plot"
+                _plot_label = "Select BRAND to Plot"
                 _plot_opts  = all_merch_mon  # pre-scoped to this group's brands via df_mon_weekly_filt
 
             def_merch_mon = [m for m in _vol_rows.sort_values('YTD', ascending=False)['MERCHANT_GROUP'].head(5).tolist()
@@ -1630,7 +1634,7 @@ with tab2:
 
                 # Heatmap
                 st.markdown("<br>", unsafe_allow_html=True)
-                section_label("🔥 Performance Heatmap")
+                section_label("Performance Heatmap")
                 heat_data_mon = df_plot_mon.set_index('LABEL')[W_COLS_DB].fillna(0).apply(pd.to_numeric, errors='coerce').fillna(0)
 
                 fig_heat_mon = px.imshow(
@@ -1650,10 +1654,10 @@ with tab2:
 
             # ── 4. Main Data Matrix (details below charts) ───────────
             st.markdown("<br>", unsafe_allow_html=True)
-            section_label(f"🗓️ Weekly Matrix — {sel_yr_mon}")
+            section_label(f"Weekly Matrix — {sel_yr_mon}")
             st.dataframe(df_filt_mon[avail_grp_mon + W_COLS_DB].fillna(0).reset_index(drop=True), use_container_width=True, height=400)
 
-            st.download_button("⬇️ Export Table",
+            st.download_button("Export Table",
                 df_filt_mon[avail_grp_mon + W_COLS_DB].to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig'),
                 f"monitoring_{sel_yr_mon}_export.csv", "text/csv")
 
@@ -1664,9 +1668,9 @@ with tab3:
     tab_desc("Merchant Segmentation Profiler — automatically groups your portfolio into performance tiers based on volume, growth, fee income, and target achievement. Identify which merchants to prioritize, nurture, or investigate.")
 
     if not (has_card and has_mon):
-        st.warning("⚠️ Merchant segmentation requires **both** Card Share and Monitoring data to be processed first.")
+        st.warning("Merchant segmentation requires **both** Card Share and Monitoring data to be processed first.")
     else:
-        with st.expander("⚙️ Advanced: Adjust Segmentation Granularity", expanded=False):
+        with st.expander("Advanced: Adjust Segmentation Granularity", expanded=False):
             k_val = st.slider("Number of Groups", min_value=3, max_value=5, value=3,
                               help="3 = broad view (fewer, larger groups). 5 = detailed view (more precise tiers). Start with 3 if you're unsure.")
         if 'k_val' not in dir():
@@ -1675,7 +1679,7 @@ with tab3:
             df_ml = run_ml(df_card, df_mon, df_target, k_clusters=k_val)
 
         if df_ml.empty:
-            st.info("ℹ️ No data available for Machine Learning analysis. Please ensure the database has been populated.")
+            st.info("No data available for Machine Learning analysis. Please ensure the database has been populated.")
         else:
             all_pm_ml = sorted(df_ml['PM'].dropna().unique().tolist()) if 'PM' in df_ml.columns else []
             all_clusters = sorted(df_ml['CLUSTER'].dropna().unique().tolist())
@@ -1683,9 +1687,9 @@ with tab3:
             # Controls
             mc1, mc2 = st.columns(2)
             with mc1:
-                sel_pm_ml = st.multiselect("👤 Filter by PM", all_pm_ml, default=all_pm_ml, key="t3_pm")
+                sel_pm_ml = st.multiselect("Filter by PM", all_pm_ml, default=all_pm_ml, key="t3_pm")
             with mc2:
-                sel_clust = st.multiselect("🏷️ Show Clusters", all_clusters, default=all_clusters, key=f"t3_clust_{k_val}")
+                sel_clust = st.multiselect("Show Clusters", all_clusters, default=all_clusters, key=f"t3_clust_{k_val}")
 
             df_f = df_ml[df_ml['CLUSTER'].isin(sel_clust)]
             if sel_pm_ml and 'PM' in df_f.columns:
@@ -1706,8 +1710,8 @@ with tab3:
             
             # ── Segment metric grid with action recommendations ─────────────────
             SEGMENT_ICONS = {
-                'ELITE': '👑', 'PREMIUM': '🌟', 'REGULER': '🔵',
-                'PASIF': '🔴', 'DORMANT': '⚫',
+                'ELITE': '', 'PREMIUM': '', 'REGULER': '',
+                'PASIF': '', 'DORMANT': '',
             }
             SEGMENT_ACTIONS = {
                 'ELITE':   "Top performers — target for loyalty program & upsell opportunities.",
@@ -1725,15 +1729,15 @@ with tab3:
             for seg in all_clusters:
                 n   = len(df_f[df_f['CLUSTER'] == seg])
                 pct = (n / total_merchants * 100) if total_merchants > 0 else 0
-                icon   = SEGMENT_ICONS.get(seg, '🔹')
+                icon   = SEGMENT_ICONS.get(seg, '')
                 action = SEGMENT_ACTIONS.get(seg, "Review this group with your PM team.")
                 high_in_seg = (
-                    len(df_ml[(df_ml['CLUSTER'] == seg) & (df_ml['CHURN_RISK'] == 'HIGH RISK ⚠️')])
+                    len(df_ml[(df_ml['CLUSTER'] == seg) & (df_ml['CHURN_RISK'] == 'HIGH RISK')])
                     if not df_ml.empty and 'CHURN_RISK' in df_ml.columns else 0
                 )
                 c = color_lookup.get(seg, '#888888')
                 warn_chip = (
-                    status_chip_html(f"⚠️ {high_in_seg} High Risk", "danger")
+                    status_chip_html(f"{high_in_seg} High Risk", "danger")
                     if high_in_seg > 0 else ''
                 )
                 _cards_html += (
@@ -1750,14 +1754,14 @@ with tab3:
                     f'</div>'
                     f'{warn_chip}'
                     f'<div style="font-size:0.74rem;color:{_pp3["TEXT_SEC"]};margin-top:8px;line-height:1.55;">'
-                    f'💡 {action}</div>'
+                    f'{action}</div>'
                     f'</div>'
                 )
                 _tbl_rows.append({
                     'Tier':      f'{icon} {seg}',
                     'Merchants': n,
                     '% Fleet':   f'{pct:.1f}%',
-                    '⚠️ High Risk': high_in_seg if high_in_seg > 0 else '—',
+                    'High Risk': high_in_seg if high_in_seg > 0 else '—',
                     'Recommended Action': action,
                 })
             _cards_html += '</div>'
@@ -1770,7 +1774,7 @@ with tab3:
                     'Tier':               st.column_config.TextColumn('Tier',               width='small'),
                     'Merchants':          st.column_config.NumberColumn('Merchants',         width='small'),
                     '% Fleet':            st.column_config.TextColumn('Fleet %',            width='small'),
-                    '⚠️ High Risk':       st.column_config.TextColumn('⚠️ High Risk',       width='small'),
+                    'High Risk':       st.column_config.TextColumn('High Risk',       width='small'),
                     'Recommended Action': st.column_config.TextColumn('Recommended Action'),
                 }
             )
@@ -1779,7 +1783,7 @@ with tab3:
             if 'SILHOUETTE_SCORE' in df_ml.columns:
                 sil = float(df_ml['SILHOUETTE_SCORE'].iloc[0])
                 if sil > 0.5:
-                    sil_label, sil_color = "High ✅ — Groups are well-defined and distinct", SUCCESS
+                    sil_label, sil_color = "High — Groups are well-defined and distinct", SUCCESS
                 elif sil > 0.25:
                     sil_label, sil_color = "Moderate — Groups are reasonable; consider adjusting granularity", WARNING
                 else:
@@ -1860,7 +1864,7 @@ with tab3:
                 fig_stk.update_layout(height=380, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
                 st.plotly_chart(fig_stk, use_container_width=True, theme=None)
 
-            with st.expander("📋 View ML Results Table"):
+            with st.expander("View ML Results Table"):
                 show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','RISK_SCORE',
                                          'AVG_SV','AVG_FBI','ACHIEVEMENT_PCT',
                                          'WEEKS_ACTIVE','ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH'] if c in df_f.columns]
@@ -1873,9 +1877,9 @@ with tab4:
     tab_desc("Proactive health monitoring for your merchant portfolio. Merchants needing attention are surfaced here based on volume trends, growth trajectory, and target achievement — so your team always knows where to focus.")
 
     if not (has_card and has_mon):
-        st.warning("⚠️ Health alerts require both Card Share and Monitoring data.")
+        st.warning("Health alerts require both Card Share and Monitoring data.")
     else:
-        with st.expander("⚙️ Advanced: Adjust Detection Sensitivity", expanded=False):
+        with st.expander("Advanced: Adjust Detection Sensitivity", expanded=False):
             z_col, _ = st.columns([1, 2])
             z_thresh_val = z_col.slider(
                 "Detection Sensitivity",
@@ -1888,14 +1892,14 @@ with tab4:
         df_churn_all = run_ml(df_card, df_mon, df_target, z_thresh=z_thresh_val)
         
         if df_churn_all.empty:
-            st.info("ℹ️ No data available for Churn and Risk analysis.")
+            st.info("No data available for Churn and Risk analysis.")
         else:
             all_pm_c = sorted(df_churn_all['PM'].dropna().unique().tolist()) if 'PM' in df_churn_all.columns else []
 
             # Controls — inline
             ch1, ch2 = st.columns([3,1])
             with ch1:
-                sel_pm_c = st.multiselect("👤 Filter by PM", all_pm_c, default=all_pm_c, key="t4_pm")
+                sel_pm_c = st.multiselect("Filter by PM", all_pm_c, default=all_pm_c, key="t4_pm")
             with ch2:
                 risk_view = st.radio("Show", ["All", "High Risk Only", "Stable Only"], key="t4_risk")
 
@@ -1911,9 +1915,9 @@ with tab4:
                 df_c4 = df_c4[~churn_mask]
                 filter_pill(f"Filter Active: Stable Only — {len(df_c4)} merchants shown")
 
-            df_high   = df_c4[df_c4['CHURN_RISK'] == 'HIGH RISK ⚠️']
-            df_medium = df_c4[df_c4['CHURN_RISK'] == 'MEDIUM RISK 🟡']
-            df_safe   = df_c4[df_c4['CHURN_RISK'] == 'STABLE ✅']
+            df_high   = df_c4[df_c4['CHURN_RISK'] == 'HIGH RISK']
+            df_medium = df_c4[df_c4['CHURN_RISK'] == 'MEDIUM RISK']
+            df_safe   = df_c4[df_c4['CHURN_RISK'] == 'STABLE']
             total     = len(df_c4)
 
             # KPI — rate based on HIGH + MEDIUM combined (overall at-risk)
@@ -1941,7 +1945,7 @@ with tab4:
                 </div>
             </div>""", unsafe_allow_html=True)
 
-            with st.expander("📊 Portfolio Health Overview", expanded=False):
+            with st.expander("Portfolio Health Overview", expanded=False):
                 if total > 0:
                     # ── Risk Score Distribution ───────────────────────────────────────
                     if 'RISK_SCORE' in df_c4.columns:
@@ -1949,9 +1953,9 @@ with tab4:
                         _df_c4_disp = df_c4.copy()
                         if 'CHURN_RISK' in _df_c4_disp.columns:
                             _df_c4_disp['Health Status'] = _df_c4_disp['CHURN_RISK'].replace({
-                                'HIGH RISK ⚠️':   'Action Required',
-                                'MEDIUM RISK 🟡': 'Monitor Closely',
-                                'STABLE ✅':       'On Track',
+                                'HIGH RISK':   'Action Required',
+                                'MEDIUM RISK': 'Monitor Closely',
+                                'STABLE':       'On Track',
                             })
                         else:
                             _df_c4_disp['Health Status'] = 'Unknown'
@@ -1980,7 +1984,7 @@ with tab4:
                                              xaxis={**_xaxis(), 'range': [0, 100]},
                                              yaxis=_yaxis())
                         st.caption(
-                            "📊 **What is the Health Score?** A composite 0–100 score based on three business signals: "
+                            "**What is the Health Score?** A composite 0–100 score based on three business signals: "
                             "transaction volume trend, fee income consistency, and how far the merchant is from their annual target. "
                             "Merchants scoring **60+** need immediate outreach. **30–60** warrants a proactive check-in. "
                             "**Below 30** means they are on track."
@@ -2048,24 +2052,24 @@ with tab4:
                         )
                         st.plotly_chart(fig_gauge, use_container_width=True, theme=None)
                         st.caption(
-                            "📌 **How to read this:** The gauge shows what percentage of your merchant fleet is currently "
+                            "**How to read this:** The gauge shows what percentage of your merchant fleet is currently "
                             "flagged as high-risk. The number below the gauge (+/− X%) is how far you are from the "
                             "20% portfolio target — negative means fewer at-risk merchants (good), positive means more (needs action)."
                         )
 
                     with ch_right_kpi:
-                        risk_label = "🟢 FLEET HEALTHY" if rate < 20 else ("🟡 NEEDS ATTENTION" if rate < 45 else "🔴 CRITICAL — ACT NOW")
+                        risk_label = "FLEET HEALTHY" if rate < 20 else ("NEEDS ATTENTION" if rate < 45 else "CRITICAL — ACT NOW")
                         risk_color = "#34D399" if rate < 20 else ("#FBBF24" if rate < 45 else "#F87171")
 
                         def churn_advisory(pct):
                             if pct >= 75:
-                                return "🚨 **CRITICAL:** Immediate intervention required. Recommend emergency fee discounts, PM outreach blitz, and escalation to senior leadership."
+                                return "**CRITICAL:** Immediate intervention required. Recommend emergency fee discounts, PM outreach blitz, and escalation to senior leadership."
                             elif pct >= 45:
-                                return "⚠️ **HIGH RISK:** Portfolio is deteriorating. Recommend targeted retention offers, dedicated PM follow-ups for flagged merchants, and weekly monitoring cadence."
+                                return "**HIGH RISK:** Portfolio is deteriorating. Recommend targeted retention offers, dedicated PM follow-ups for flagged merchants, and weekly monitoring cadence."
                             elif pct >= 20:
-                                return "🟡 **ELEVATED:** Above benchmark. Recommend proactive check-ins with declining merchants and review of competitive positioning."
+                                return "**ELEVATED:** Above benchmark. Recommend proactive check-ins with declining merchants and review of competitive positioning."
                             else:
-                                return "✅ **STABLE:** Portfolio churn is within healthy benchmarks. Continue standard monitoring and quarterly business reviews."
+                                return "**STABLE:** Portfolio churn is within healthy benchmarks. Continue standard monitoring and quarterly business reviews."
 
                         advisory = churn_advisory(rate)
                         st.markdown(
@@ -2087,7 +2091,7 @@ with tab4:
                         )
 
                     # ── Chart Data Audit ──────────────────────────────────────────────
-                    with st.expander("🔬 Chart Data Audit", expanded=False):
+                    with st.expander("Chart Data Audit", expanded=False):
                         st.caption("Raw aggregates feeding the gauge and donut charts:")
                         audit_data = {
                             "Metric": ["High Risk Count", "Stable Count", "Total", "Churn Rate %"],
@@ -2132,7 +2136,7 @@ with tab4:
                     _ach     = row.get('ACHIEVEMENT_PCT', 0)
                     _growth  = row.get('SV_GROWTH_RATE', 0)
                     _row_color = "#F87171" if _is_high else "#FBBF24"
-                    _icon      = "🔴" if _is_high else "🟡"
+                    _icon      = ""
                     if _is_high and _is_if:
                         _reason = "Flagged by 2 independent detection methods — highest confidence alert"
                         _action = "Escalate to PM immediately; schedule merchant call this week"
@@ -2149,7 +2153,7 @@ with tab4:
                         background:{_row_color}0d;margin-bottom:8px;border-radius:0 8px 8px 0;">
                         <div style="display:flex;justify-content:space-between;align-items:center;">
                             <div>
-                                <span style="font-size:0.85rem;font-weight:700;color:{_pp4_inbox['TEXT_PRI']};">{_icon} {row['MERCHANT_GROUP']}</span>
+                                <span style="font-size:0.85rem;font-weight:700;color:{_pp4_inbox['TEXT_PRI']};">{row['MERCHANT_GROUP']}</span>
                                 <span style="font-size:0.75rem;color:#888;margin-left:10px;">PM: {_pm_name}</span>
                             </div>
                         </div>
@@ -2160,7 +2164,7 @@ with tab4:
                     f"""<div style="border:1px solid {_pp4_inbox['BORDER']};border-radius:12px;
                         padding:16px;margin:16px 0;">
                         <div style="font-size:0.9rem;font-weight:700;margin-bottom:12px;
-                            color:{_pp4_inbox['TEXT_PRI']};">🔔 Action Inbox — {len(_at_risk_inbox)} merchants need attention</div>
+                            color:{_pp4_inbox['TEXT_PRI']};">Action Inbox — {len(_at_risk_inbox)} merchants need attention</div>
                         {inbox_rows}
                     </div>""",
                     unsafe_allow_html=True,
@@ -2172,14 +2176,14 @@ with tab4:
 
                 if 'ZSCORE_SV' in df_c4.columns:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    with st.expander("📊 Statistical Detail — Volume, Fee & Growth Outlier Analysis", expanded=False):
+                    with st.expander("Statistical Detail — Volume, Fee & Growth Outlier Analysis", expanded=False):
                         st.caption("These charts show the distribution of merchant performance metrics. Red-shaded merchants fall below the detection threshold set in Advanced Settings.")
                         z1, z2, z3 = st.columns(3)
 
                         def _draw_z_hist(df, col_name, title, threshold):
                             fig_z = px.histogram(df, x=col_name, color='CHURN_RISK',
                                                  nbins=25, barmode='overlay',
-                                                 color_discrete_map={'HIGH RISK ⚠️': RED, 'STABLE ✅': BLUE_ACC},
+                                                 color_discrete_map={'HIGH RISK': RED, 'STABLE': BLUE_ACC},
                                                  title=title)
                             fig_z.add_vline(x=threshold, line_dash='dash', line_color=RED,
                                             annotation_text=f"Threshold ({threshold})",
@@ -2211,7 +2215,7 @@ with tab4:
                     if 'IF_IS_ANOMALY' in df_c4.columns else pd.DataFrame()
                 if not _if_flagged.empty and all(c in _if_flagged.columns for c in _if_lofo_cols):
                     st.markdown("<br>", unsafe_allow_html=True)
-                    section_label("📉 What's Driving the Alerts? — Key Risk Factors Across Portfolio")
+                    section_label("What's Driving the Alerts? — Key Risk Factors Across Portfolio")
                     st.caption(f"Analyzing {len(_if_flagged)} flagged merchant(s). Higher bars = the metric most responsible for triggering alerts. Use this to guide where your team should focus.")
                     _fleet_lofo = _if_flagged[list(_if_lofo_cols.keys())].mean().rename(_if_lofo_cols)
                     _fleet_lofo_df = _fleet_lofo.reset_index()
@@ -2244,18 +2248,18 @@ with tab4:
             # Show HIGH + MEDIUM merchants sorted by Risk Score descending
             df_at_risk = pd.concat([df_high, df_medium], ignore_index=True)
             if len(df_at_risk) > 0:
-                section_label("📋 Merchant Detail — Action Required & Monitor Closely")
+                section_label("Merchant Detail — Action Required & Monitor Closely")
 
                 # ── Highest-confidence dual-flagged alert ─────────────────────
                 if 'IF_IS_ANOMALY' in df_at_risk.columns:
                     ensemble_hits = df_at_risk[
-                        (df_at_risk['CHURN_RISK'] == 'HIGH RISK ⚠️') &
+                        (df_at_risk['CHURN_RISK'] == 'HIGH RISK') &
                         (df_at_risk['IF_IS_ANOMALY'] == True)
                     ]
                     if len(ensemble_hits) > 0:
                         names = ', '.join(ensemble_hits['MERCHANT_GROUP'].tolist())
                         st.error(
-                            f"🚨 **HIGHEST PRIORITY — {len(ensemble_hits)} merchant(s) confirmed by 2 independent methods:** {names}\n\n"
+                            f"**HIGHEST PRIORITY — {len(ensemble_hits)} merchant(s) confirmed by 2 independent methods:** {names}\n\n"
                             f"These merchants are flagged by both trend analysis AND anomaly detection, giving the highest confidence that immediate action is needed. "
                             f"**Recommended: assign PM for direct outreach this week.**"
                         )
@@ -2271,12 +2275,12 @@ with tab4:
                     df_rd['ACHIEVEMENT_PCT'] = df_rd['ACHIEVEMENT_PCT'].round(1).astype(str)+'%'
                 if 'CHURN_RISK' in df_rd.columns:
                     df_rd['CHURN_RISK'] = df_rd['CHURN_RISK'].replace({
-                        'HIGH RISK ⚠️':   'Action Required ⚠️',
-                        'MEDIUM RISK 🟡': 'Monitor Closely 🟡',
-                        'STABLE ✅':       'On Track ✅',
+                        'HIGH RISK':   'Action Required',
+                        'MEDIUM RISK': 'Monitor Closely',
+                        'STABLE':       'On Track',
                     })
                 if 'IF_IS_ANOMALY' in df_rd.columns:
-                    df_rd['IF_IS_ANOMALY'] = df_rd['IF_IS_ANOMALY'].map({True: '⚡ Anomaly Detected', False: '✅ Normal'})
+                    df_rd['IF_IS_ANOMALY'] = df_rd['IF_IS_ANOMALY'].map({True: 'Anomaly Detected', False: 'Normal'})
 
                 def style_risk_table(row):
                     styles = [''] * len(row)
@@ -2289,20 +2293,20 @@ with tab4:
                 if 'RISK_SCORE' in df_rd.columns: fmt['RISK_SCORE'] = "{:.1f}"
                 if 'IF_ANOMALY_SCORE' in df_rd.columns: fmt['IF_ANOMALY_SCORE'] = "{:.4f}"
                 st.dataframe(df_rd.style.apply(style_risk_table, axis=1).format(fmt).hide(axis="index"), use_container_width=True)
-                st.download_button("⬇️ Export Merchant Action List", df_rd.to_csv(index=False, encoding='utf-8-sig'),
+                st.download_button("Export Merchant Action List", df_rd.to_csv(index=False, encoding='utf-8-sig'),
                                    "merchant_action_list.csv", "text/csv")
 
         # ── Weekly Activity Pulse — Sudden Drop Monitor ───────────────────────
         styled_divider()
-        section_label("🟠 Weekly Activity Pulse — Sudden Drop Monitor")
+        section_label("Weekly Activity Pulse — Sudden Drop Monitor")
         st.caption("Scans the most recent week of transaction data and flags any merchant whose volume suddenly crashed below their own 4-week rolling average. Use this to catch new problems the moment they appear — before they become structural health issues.")
         if not has_mon_weekly:
-            st.info("⚠️ Weekly drop monitoring requires Monitoring Weekly data to be processed first.")
+            st.info("Weekly drop monitoring requires Monitoring Weekly data to be processed first.")
         else:
             _sc_wk = df_mon_weekly[df_mon_weekly['YEAR'] == '2026'].copy() if not df_mon_weekly.empty else pd.DataFrame()
             _SC_W_COLS = sorted([c for c in _sc_wk.columns if c.startswith('W') and c[1:].isdigit()])
             if _sc_wk.empty or not _SC_W_COLS:
-                st.info("ℹ️ No 2026 weekly data available yet.")
+                st.info("No 2026 weekly data available yet.")
             else:
                 _sc_latest_wk = 0
                 for _w in reversed(_SC_W_COLS):
@@ -2327,12 +2331,12 @@ with tab4:
                     _anomalies = _df_scan[(_df_scan['This Week Change'] <= _threshold_pct) & (_df_scan['4-Week Avg'] > 0)].copy()
                     _anomalies = _anomalies.sort_values('This Week Change', ascending=True)
                     if not _anomalies.empty:
-                        st.warning(f"⚠️ **{len(_anomalies)} merchant(s) dropped by {_slider_drop}%+ in {_wk_curr}** compared to their 4-week average.")
+                        st.warning(f"**{len(_anomalies)} merchant(s) dropped by {_slider_drop}%+ in {_wk_curr}** compared to their 4-week average.")
                         _anom_disp = _anomalies[['MERCHANT_GROUP', 'DIMENSI', '4-Week Avg', _wk_curr, 'This Week Change']].copy()
                         _anom_disp['This Week Change'] = (_anom_disp['This Week Change']*100).round(1).astype(str) + "%"
                         st.dataframe(_anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['This Week Change']),
                                      use_container_width=True, hide_index=True)
                     else:
-                        st.success(f"✅ No merchants dropped by {_slider_drop}%+ this week ({_wk_curr}). Portfolio activity looks stable.")
+                        st.success(f"No merchants dropped by {_slider_drop}%+ this week ({_wk_curr}). Portfolio activity looks stable.")
 
 

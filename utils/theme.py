@@ -801,7 +801,7 @@ def theme_toggle_sidebar():
     mode = st.session_state.get("theme_mode", "dark")
     is_dark_mode = (mode == "dark")
     new_val = st.sidebar.toggle(
-        "🌙 Dark Mode",
+        "Dark Mode",
         value=is_dark_mode,
         key="theme_switch",
     )
@@ -888,7 +888,7 @@ def tab_desc(text: str):
 
 
 def filter_pill(text: str):
-    st.markdown(f'<div class="filter-pill">🔹 {text}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="filter-pill">{text}</div>', unsafe_allow_html=True)
 
 
 def status_card(icon: str, label: str, value: str, kind: str = "ok") -> str:
@@ -943,7 +943,7 @@ def pipeline_stepper(steps: list, current_step: int):
     for i, (icon, label) in enumerate(steps):
         if i < current_step:
             state = "complete"
-            circle_content = "✓"
+            circle_content = "&#10003;"
         elif i == current_step:
             state = "active"
             circle_content = icon
@@ -967,9 +967,11 @@ def info_chip(label: str, kind: str = "neutral") -> str:
     Return HTML for a small pill chip.
     kind: 'production' | 'staging' | 'neutral'
     """
-    icons = {"production": "🟢", "staging": "🟡", "neutral": "⚪"}
-    icon = icons.get(kind, "⚪")
-    return f'<span class="info-chip {kind}">{icon} {label}</span>'
+    dot_color = {"production": "#34D399", "staging": "#FBBF24", "neutral": "#8890b0"}
+    color = dot_color.get(kind, "#8890b0")
+    dot = (f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
+           f'background:{color};margin-right:5px;vertical-align:middle;"></span>')
+    return f'<span class="info-chip {kind}">{dot}{label}</span>'
 
 
 def status_chip_html(label: str, kind: str = "ok") -> str:
@@ -1024,16 +1026,17 @@ def status_box(rate_pct: float, narrative: str) -> None:
     """
     p     = _palette()
     color = SUCCESS if rate_pct >= 100 else (WARNING if rate_pct >= 80 else DANGER)
-    icon  = "🟢" if rate_pct >= 100 else ("🟡" if rate_pct >= 80 else "🔴")
     label = (
         "ON TRACK" if rate_pct >= 100
         else ("AT RISK" if rate_pct >= 80 else "CRITICAL — INTERVENTION REQUIRED")
     )
+    dot = (f'<span style="display:inline-block;width:10px;height:10px;border-radius:50%;'
+           f'background:{color};margin-right:6px;vertical-align:middle;"></span>')
     st.markdown(
         f'<div style="border-left:5px solid {color};background:{color}18;'
         f'border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:14px;">'
         f'<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;'
-        f'letter-spacing:.08em;color:{color};">{icon} STATUS: {label}</div>'
+        f'letter-spacing:.08em;color:{color};">{dot}STATUS: {label}</div>'
         f'<div style="font-size:0.88rem;margin-top:8px;color:{p["TEXT_PRI"]};line-height:1.65;">'
         f'{narrative}</div></div>',
         unsafe_allow_html=True,
@@ -1066,12 +1069,12 @@ def stale_data_banner(db_path: str = None, threshold_hours: int = 24):
         st.markdown(
             f"""
 <div class="stale-banner">
-  <span style="font-size:1.3rem;">⚠️</span>
+  <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#FBBF24;flex-shrink:0;margin-top:2px;"></span>
   <div>
     <strong>You are viewing cached data</strong> — last updated {age_str}.<br>
     <span style="color:{p['TEXT_SEC']};font-size:0.82rem;">
       For the most current analytics, upload a new <code>staging.db</code> in
-      <b>🚀 Automated Pipeline</b> or refresh the Master Excel files in <b>⚙️ Global Settings</b>.
+      <b>Automated Pipeline</b> or refresh the Master Excel files in <b>Global Settings</b>.
     </span>
   </div>
 </div>""",

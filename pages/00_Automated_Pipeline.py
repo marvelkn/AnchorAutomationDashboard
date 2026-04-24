@@ -34,7 +34,7 @@ from utils.governance import (
 
 cloud_mode_enabled = bool(os.getenv("DATABASE_URL"))
 
-st.set_page_config(page_title="Automated Pipeline — BTN Anchor", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="Automated Pipeline — BTN Anchor", page_icon=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "btn_logo.png"), layout="wide")
 apply_theme()
 
 BASE_DIR      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -66,7 +66,7 @@ if cloud_mode_enabled:
 # ── Cloud (Neon): single clean page — no local SQLite / Excel pipeline UI ─────
 if cloud_mode_enabled:
     page_header(
-        "🚀",
+        "",
         "Automated pipeline — cloud",
         "Load staging data into Neon (PostgreSQL)",
     )
@@ -102,7 +102,7 @@ if cloud_mode_enabled:
         engine = None
 
     # ── 2-TAB LAYOUT: Ingest Data | Audit Log ────────────────────────────────
-    cloud_tab_ingest, cloud_tab_audit = st.tabs(["📥  Ingest Data", "📋  Audit Log"])
+    cloud_tab_ingest, cloud_tab_audit = st.tabs(["Ingest Data", "Audit Log"])
 
     with cloud_tab_ingest:
         section_label("A — Full SQLite database")
@@ -252,7 +252,7 @@ if cloud_mode_enabled:
         st.info(
             "Use these tools to clean your **Neon (PostgreSQL)** database. Fixes data anomalies like duplicates or historical spikes."
         )
-        with st.expander("🧼 Scrub / de-duplicate Neon Cloud Database", expanded=False):
+        with st.expander("Scrub / de-duplicate Neon Cloud Database", expanded=False):
             st.markdown(
                 "Removes duplicates in Neon tables (PROCESSED_CARD_MONTHLY, etc.) and applies the Yoshinoya normalization fix."
             )
@@ -268,12 +268,12 @@ if cloud_mode_enabled:
                         from repair_data import scrub_neon_database
                         target_schema = (neon_schema_ingest or "public").strip() or "public"
                         results = scrub_neon_database(engine, schema=target_schema)
-                        st.success("✅ Cloud scrub complete!")
+                        st.success("Cloud scrub complete!")
                         st.json(results)
                     except Exception as e:
                         st.error(f"Cloud scrub failed: {e}")
 
-        with st.expander("🔴 Danger Zone: Reset Neon Cloud Database", expanded=False):
+        with st.expander("Danger Zone: Reset Neon Cloud Database", expanded=False):
             st.warning(
                 "This will permanently **PURGE ALL DATA** from business, raw, and audit tables in your Neon production database."
             )
@@ -293,7 +293,7 @@ if cloud_mode_enabled:
                         from repair_data import reset_neon_database
                         target_schema = (neon_schema_ingest or "public").strip() or "public"
                         results = reset_neon_database(engine, schema=target_schema)
-                        st.success("🔥 Neon database reset successfully!")
+                        st.success("Neon database reset successfully!")
                         st.json(results)
                     except Exception as e:
                         st.error(f"Reset failed: {e}")
@@ -335,7 +335,7 @@ def _init_gov_state():
 
 
 page_header(
-    "🚀",
+    "",
     "Automated ETL Pipeline",
     "Local: staging.db + Excel masters + end-to-end analytics (Windows)",
 )
@@ -352,16 +352,16 @@ _init_gov_state()
 
 # ── Pipeline Step Definitions ─────────────────────────────────────────────────
 PIPELINE_STEPS = [
-    ("📥", "Upload\nDatabase"),
-    ("🛠️", "Process\nAnchor MIDs"),
-    ("💳", "Card Share\nAnalytics"),
-    ("📅", "Weekly\nMonitoring"),
-    ("✅", "Complete"),
+    ("1", "Upload\nDatabase"),
+    ("2", "Process\nAnchor MIDs"),
+    ("3", "Card Share\nAnalytics"),
+    ("4", "Weekly\nMonitoring"),
+    ("5", "Complete"),
 ]
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-@st.dialog("🧪 Quarantine Resolution Required", width="large")
+@st.dialog("Quarantine Resolution Required", width="large")
 def governance_quarantine_dialog():
     delta = st.session_state.get("gov_delta", {})
     new_anchors = delta.get("new_anchors", [])
@@ -463,7 +463,7 @@ with col1:
             conn_m.commit()
             conn_m.close()
             
-            st.success(f"✅ `staging.db` replaced! Size: {len(uploaded_db.getvalue()) // (1024*1024)} MB")
+            st.success(f"`staging.db` replaced! Size: {len(uploaded_db.getvalue()) // (1024*1024)} MB")
         else:
             # Incremental ingestion logic will go here
             temp_path = os.path.join(DB_UPLOAD_DIR, "temp_upload.db")
@@ -471,11 +471,11 @@ with col1:
                 f.write(uploaded_db.getvalue())
             
             # Placeholder for merge function
-            st.info("🔄 Running Incremental Merge (Adding new rows only)...")
+            st.info("Running Incremental Merge (Adding new rows only)...")
             from utils.db_merger import merge_incremental_data
             rows_added = merge_incremental_data(temp_path, PATH_LOCAL_DB)
             os.remove(temp_path)
-            st.success(f"✅ Incremental update complete! Added {rows_added} new records.")
+            st.success(f"Incremental update complete! Added {rows_added} new records.")
 
         # 3. ADVANCE STEPPER
         st.session_state["pipeline_step"] = 0
@@ -486,12 +486,12 @@ with col1:
         st.rerun()
     elif os.path.exists(PATH_LOCAL_DB):
         sz = os.path.getsize(PATH_LOCAL_DB) // (1024 * 1024)
-        st.success(f"✅ Existing `staging.db` found locally ({sz} MB).")
+        st.success(f"Existing `staging.db` found locally ({sz} MB).")
     
     else:
-        st.warning("⚠️ No database found. Please upload `staging.db`.")
+        st.warning("No database found. Please upload `staging.db`.")
 
-    if os.path.exists(PATH_LOCAL_DB) and st.button("🔍 Re-run Governance Delta Check", width="stretch"):
+    if os.path.exists(PATH_LOCAL_DB) and st.button("Re-run Governance Delta Check", width="stretch"):
         st.session_state["gov_signature"] = _compute_db_signature(PATH_LOCAL_DB)
         st.session_state["gov_delta"] = _detect_governance_delta(PATH_LOCAL_DB, PATH_MON)
         has_delta = bool(st.session_state["gov_delta"]["new_anchors"] or st.session_state["gov_delta"]["new_pms"])
@@ -511,17 +511,17 @@ with col1:
             col_b1.write(f"**Version {b['version']}** ({b['timestamp']})")
             if col_b2.button(f"Restore", key=f"restore_{b['version']}"):
                 if restore_backup(b['path'], PATH_LOCAL_DB):
-                    st.success(f"✅ Restored Version {b['version']} successfully!")
+                    st.success(f"Restored Version {b['version']} successfully!")
                     st.rerun()
                 else:
                     st.error("Failed to restore backup.")
 
     # ── RESET SECTION (New) ──
     st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
-    with st.expander("🗑️ Dangerous Zone: Reset Pipeline"):
+    with st.expander("Dangerous Zone: Reset Pipeline"):
         st.warning("This will completely delete the current `staging.db` and all versioned backups.")
         confirm_reset = st.checkbox("I confirm that I want to delete all transaction data.")
-        if st.button("🔴 RESET & DELETE ALL DATABASE DATA", type="primary", disabled=not confirm_reset, width="stretch"):
+        if st.button("RESET & DELETE ALL DATABASE DATA", type="primary", disabled=not confirm_reset, width="stretch"):
             try:
                 # Delete main DB
                 if os.path.exists(PATH_LOCAL_DB):
@@ -532,7 +532,7 @@ with col1:
                     shutil.rmtree(PATH_BACKUP_DIR)
                     os.makedirs(PATH_BACKUP_DIR)
                 
-                st.success("🔥 Data wiped successfully! Redirecting...")
+                st.success("Data wiped successfully! Redirecting...")
                 st.session_state["pipeline_step"] = -1
                 st.rerun()
             except Exception as e:
@@ -540,9 +540,9 @@ with col1:
 
     # ── MAINTENANCE SECTION (New) ──
     st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
-    with st.expander("🛠️ Maintenance & Data Integrity"):
+    with st.expander("Maintenance & Data Integrity"):
         st.info("Use this if you notice data anomalies or duplicate entries in the dashboard.")
-        if st.button("🧼 Scrub/De-duplicate Master Data", width="stretch"):
+        if st.button("Scrub/De-duplicate Master Data", width="stretch"):
             with st.spinner("Cleaning database and Excel files..."):
                 try:
                     from repair_data import scrub_database, scrub_excel_card_share, scrub_excel_monitoring
@@ -551,7 +551,7 @@ with col1:
                     scrub_excel_card_share(PATH_CARD)
                     scrub_excel_monitoring(PATH_MON)
                     
-                    st.success("✅ Data scrubbing complete! duplicates removed from Excel and database tables. The Yoshinoya 202503 spike has been normalized.")
+                    st.success("Data scrubbing complete! Duplicates removed from Excel and database tables. The Yoshinoya 202503 spike has been normalized.")
                 except Exception as e:
                     st.error(f"Scrub failed: {e}")
 
@@ -596,7 +596,7 @@ gov_delta = st.session_state.get("gov_delta", {})
 # Build the checklist HTML
 rows_html = "".join([
     f'<div class="prereq-row">'
-    f'<span class="prereq-icon">{"✅" if ok else "❌"}</span>'
+    f'<span class="prereq-icon">{"&#10003;" if ok else "&#10007;"}</span>'
     f'<span style="{"font-weight:600;" if ok else "opacity:0.7;"}">{label}</span>'
     f'</div>'
     for label, ok in prereqs
@@ -608,22 +608,22 @@ st.markdown(
 
 if not all_ready:
     st.error(
-        "❌ **Pipeline Locked**: One or more prerequisites are missing. "
-        "Upload `staging.db` here and configure Master Excels in **⚙️ Global Settings**."
+        "**Pipeline Locked**: One or more prerequisites are missing. "
+        "Upload `staging.db` here and configure Master Excels in **Global Settings**."
     )
 else:
-    st.success("✅ All prerequisites verified. Ready to execute.")
+    st.success("All prerequisites verified. Ready to execute.")
 
 if gov_blocked:
     st.error(
-        f"🛑 Governance Gate Active: {len(gov_delta.get('new_anchors', []))} new Anchor(s) "
+        f"Governance Gate Active: {len(gov_delta.get('new_anchors', []))} new Anchor(s) "
         f"and {len(gov_delta.get('new_pms', []))} new PM(s) need review."
     )
     if st.button("Open Quarantine Resolution Wizard", type="primary", width="stretch"):
         governance_quarantine_dialog()
 else:
     if st.session_state.get("gov_status") == "resolved":
-        st.info("🟢 Governance check passed for current database snapshot.")
+        st.info("Governance check passed for current database snapshot.")
 
 # ── SECTION 4: Execute Pipeline ───────────────────────────────────────────────
 section_label("4. Execute Automation")
@@ -653,7 +653,7 @@ def execute_pipeline_fragment():
                 else:
                     st.warning("Pipeline is blocked by Governance Gate. Resolve Quarantine first.")
             if st.button(
-                "▶️ RUN END-TO-END ANALYTICS PIPELINE",
+                "RUN END-TO-END ANALYTICS PIPELINE",
                 type="primary",
                 width="stretch",
                 disabled=disable_run
@@ -686,13 +686,13 @@ def execute_pipeline_fragment():
         )
             
     elif current_status == "error":
-        st.error(f"❌ **Pipeline Failed:** {status_data.get('error', 'Unknown Error')}")
+        st.error(f"**Pipeline Failed:** {status_data.get('error', 'Unknown Error')}")
         if st.button("Acknowledge & Reset"):
             reset_pipeline_status()
             st.rerun()
             
     elif current_status == "complete":
-        st.success("🎉 **Pipeline Orchestration Complete!** Your analytics backend is fully synced.")
+        st.success("**Pipeline Orchestration Complete!** Your analytics backend is fully synced.")
         step_results = status_data.get("results", {})
         
         p_bg    = "#1A2538"
@@ -702,10 +702,10 @@ def execute_pipeline_fragment():
         p_green = "#34D399"
 
         summary_rows = [
-            ("🛠️ Anchor MIDs", f"{step_results.get('mid',{}).get('new', '—')} new classified"),
-            ("💳 Card Share records", f"{step_results.get('card',{}).get('rows', '—')} rows"),
-            ("📅 Monitoring rows", f"{step_results.get('monitoring',{}).get('rows', '—')} rows"),
-            ("🕐 Completed at", status_data.get("start_time", datetime.now().strftime("%d %b %Y %H:%M:%S"))),
+            ("Anchor MIDs", f"{step_results.get('mid',{}).get('new', '—')} new classified"),
+            ("Card Share records", f"{step_results.get('card',{}).get('rows', '—')} rows"),
+            ("Monitoring rows", f"{step_results.get('monitoring',{}).get('rows', '—')} rows"),
+            ("Completed at", status_data.get("start_time", datetime.now().strftime("%d %b %Y %H:%M:%S"))),
         ]
         
         rows_html = "".join([
@@ -722,7 +722,7 @@ def execute_pipeline_fragment():
                            border-left:4px solid {p_green};border-radius:12px;
                            padding:18px 20px;margin:16px 0;">
               <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:.07em;
-                          color:{p_txt2};margin-bottom:10px;">📋 Pipeline Execution Summary</div>
+                          color:{p_txt2};margin-bottom:10px;">Pipeline Execution Summary</div>
               {rows_html}
             </div>''',
             unsafe_allow_html=True,
@@ -730,11 +730,11 @@ def execute_pipeline_fragment():
 
         colA, colB = st.columns(2)
         with colA:
-            if st.button("🔄 Reset Pipeline Status", width="stretch"):
+            if st.button("Reset Pipeline Status", width="stretch"):
                 reset_pipeline_status()
                 st.rerun()
         with colB:
             if os.path.exists(PATH_LOCAL_DB):
-                st.page_link("pages/4_Dashboard.py", label="**Go to Dashboard 📊**", icon="📈")
+                st.page_link("pages/4_Dashboard.py", label="**Go to Dashboard**")
 
 execute_pipeline_fragment()

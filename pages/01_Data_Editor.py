@@ -12,9 +12,9 @@ if _BASE not in sys.path:
 
 from utils.theme import apply_theme, page_header, section_label, GOLD
 
-st.set_page_config(page_title="Data Editor — BTN Anchor", page_icon="✏️", layout="wide")
+st.set_page_config(page_title="Data Editor — BTN Anchor", page_icon=os.path.join(_BASE, "static", "btn_logo.png"), layout="wide")
 apply_theme()
-page_header("✏️", "Master Records Editor", "Safely View, Edit, Add, or Delete Master Classifications & Data")
+page_header("", "Master Records Editor", "Safely View, Edit, Add, or Delete Master Classifications & Data")
 
 st.markdown(
     """<div class="tab-desc">
@@ -71,7 +71,7 @@ config_map = {
 conf = config_map[dataset_choice]
 
 if not os.path.exists(conf["path"]):
-    st.error(f"❌ Master file not found at: {conf['path']}")
+    st.error(f"Master file not found at: {conf['path']}")
     st.stop()
 
 # ── Cached data loader ────────────────────────────────────────────────────────
@@ -85,16 +85,16 @@ def load_data(path, sheet):
 df_master = load_data(conf["path"], conf["sheet"]).copy()
 
 # ── 2-TAB LAYOUT ─────────────────────────────────────────────────────────────
-tab_edit, tab_bulk = st.tabs(["✏️  Edit Records", "⚡  Bulk Operations"])
+tab_edit, tab_bulk = st.tabs(["Edit Records", "Bulk Operations"])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 1 — EDIT RECORDS
 # ─────────────────────────────────────────────────────────────────────────────
 with tab_edit:
     if dataset_choice == "ALL_MID (Anchor Classifier)":
-        st.info("💡 **Pro-Tip**: If you change a Segment to `RETAIL`, saving will auto-assign `MERCHANT RETAIL` for Brand & Group if left empty.")
+        st.info("**Pro-Tip**: If you change a Segment to `RETAIL`, saving will auto-assign `MERCHANT RETAIL` for Brand & Group if left empty.")
 
-    st.caption("🔍 Click any column header to search/filter  ·  ☑ Click checkbox header to Select All  ·  ❌ Press 'Delete' to remove selected rows")
+    st.caption("Click any column header to search/filter  ·  Click checkbox header to Select All  ·  Press 'Delete' to remove selected rows")
 
     # Build column configs — lock non-editable columns
     col_configs = {}
@@ -104,7 +104,7 @@ with tab_edit:
         if not is_editable:
             col_configs[col] = st.column_config.Column(
                 disabled=True,
-                help="🔒 Formula/financial column — read only."
+                help="Formula/financial column — read only."
             )
 
     # ── Editor + right-panel metrics ─────────────────────────────────────────
@@ -157,14 +157,14 @@ with tab_edit:
         st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
         commit_clicked = st.button(
-            "💾 Commit Changes",
+            "Commit Changes",
             type="primary",
             width="stretch",
             disabled=not _has_changes,
             key="btn_commit",
         )
         discard_clicked = st.button(
-            "↩️ Discard",
+            "Discard",
             width="stretch",
             disabled=not _has_changes,
             key="btn_discard",
@@ -177,7 +177,7 @@ with tab_edit:
     if not _has_changes:
         st.info("No modifications detected yet. Start editing in the table to propose updates.")
     else:
-        st.warning("⚠️ **Unsaved Changes Detected!** Review your data grid before committing.")
+        st.warning("**Unsaved Changes Detected!** Review your data grid before committing.")
 
     # ── Commit logic ──────────────────────────────────────────────────────────
     if commit_clicked and _has_changes:
@@ -227,12 +227,12 @@ with tab_edit:
                     sync_df.to_sql(conf["table_name"], conn, if_exists='replace', index=False)
                     conn.close()
 
-                status_save.update(label="✅ Commit Successful! Master updated safely.", state="complete")
+                status_save.update(label="Commit Successful! Master updated safely.", state="complete")
 
             except Exception as e:
-                status_save.update(label=f"❌ Save failed: {str(e)}", state="error")
+                status_save.update(label=f"Save failed: {str(e)}", state="error")
 
-        st.success("✅ Changes permanently saved. The grid will reset on next load.")
+        st.success("Changes permanently saved. The grid will reset on next load.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -274,7 +274,7 @@ with tab_bulk:
                 else:
                     df_master.loc[mask, target_col] = new_val
                     load_data.clear()
-                    st.success(f"✅ Staged bulk update on {matched_count} rows. Switch to **Edit Records** tab to review and commit.")
+                    st.success(f"Staged bulk update on {matched_count} rows. Switch to **Edit Records** tab to review and commit.")
                     st.rerun()
             except Exception as e:
                 st.error(f"Bulk operation failed: {e}")

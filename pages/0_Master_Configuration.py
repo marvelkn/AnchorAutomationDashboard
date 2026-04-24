@@ -18,10 +18,10 @@ from utils.theme import (
 )
 from utils.backup_manager import rotate_backups, get_available_backups, restore_backup
 
-st.set_page_config(page_title="Global Settings — BTN Anchor", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="Global Settings — BTN Anchor", page_icon=os.path.join(BASE_DIR, "static", "btn_logo.png"), layout="wide")
 apply_theme()
 
-page_header("⚙️", "Global Settings", "Upload and manage your Master Reference Files")
+page_header("", "Global Settings", "Upload and manage your Master Reference Files")
 
 # ── Cloud mode detection ───────────────────────────────────────────────────────
 cloud_mode = bool(os.getenv("DATABASE_URL"))
@@ -45,7 +45,7 @@ if cloud_mode:
         ensure_master_files_table(_engine)
         _engine_ok = True
     except Exception as _eng_err:
-        st.error(f"⚠️ Could not connect to Neon: {_eng_err}")
+        st.error(f"Could not connect to Neon: {_eng_err}")
         _engine_ok = False
         _engine = None
 
@@ -53,7 +53,7 @@ if cloud_mode:
         """<div style="background:rgba(38,222,129,.08);border:1px solid rgba(38,222,129,.25);
         border-left:3px solid #26de81;border-radius:6px;padding:12px 16px;
         font-size:0.85rem;color:#26de81;margin-bottom:22px;font-family:'Roboto',sans-serif;">
-        ☁️ <b>Cloud Mode Active</b> — Master files are persisted in <b>Neon (PostgreSQL)</b> and
+        <b>Cloud Mode Active</b> — Master files are persisted in <b>Neon (PostgreSQL)</b> and
         survive app restarts. Uploaded files are also cached locally for pipeline compatibility.
         </div>""",
         unsafe_allow_html=True,
@@ -65,7 +65,7 @@ else:
         """<div style="background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.25);
         border-left:3px solid #f5a623;border-radius:6px;padding:12px 16px;
         font-size:0.85rem;color:#f5a623;margin-bottom:22px;font-family:'Roboto',sans-serif;">
-        📌 These master files are saved permanently on the server and used automatically by all
+        These master files are saved permanently on the server and used automatically by all
         processing modules. After your first upload, the system auto-updates them — you never need to
         re-upload unless the reference data changes.
         </div>""",
@@ -130,13 +130,13 @@ def _last_modified(path: str, file_key: str) -> str | None:
 def _sync_status_label(path: str, file_key: str) -> str:
     if cloud_mode and _engine_ok:
         if _neon_info(file_key):
-            return "☁️ Synced to Neon"
+            return "Synced to Neon"
         if os.path.exists(path):
-            return "💾 Local only"
-        return "❌ Not configured"
+            return "Local only"
+        return "Not configured"
     if os.path.exists(path):
-        return "✅ Configured"
-    return "❌ Not configured"
+        return "Configured"
+    return "Not configured"
 
 
 def get_download_bytes(path: str, file_key: str) -> bytes | None:
@@ -161,28 +161,28 @@ def save_master(uploaded_file, dest_path: str, prefix: str, file_key: str, orig_
     if cloud_mode and _engine_ok:
         ok = save_master_to_db(_engine, file_key, orig_filename, content)
         if not ok:
-            st.warning(f"⚠️ Local save succeeded but Neon upload failed for `{orig_filename}`.")
+            st.warning(f"Local save succeeded but Neon upload failed for `{orig_filename}`.")
     return True
 
 
 # ── MASTER FILE DEFINITIONS ───────────────────────────────────────────────────
 MASTERS = [
     dict(
-        title="ALL MID Master",     icon="🧹",
+        title="ALL MID Master",     icon="",
         path=PATH_MID,              file_key="master_mid",
         prefix="master_mid",        orig_filename="master_mid.xlsx",
         uploader_label="Upload ALL_MID_UPDATED.xlsx",
         uploader_key="up_mid",      backup_prefix="master_mid",
     ),
     dict(
-        title="Card Share Master",  icon="💳",
+        title="Card Share Master",  icon="",
         path=PATH_CARD,             file_key="master_card",
         prefix="master_card",       orig_filename="master_card_share.xlsx",
         uploader_label="Upload CARD_SHARE_MERCHANT_ANCHOR.xlsx",
         uploader_key="up_card",     backup_prefix="master_card",
     ),
     dict(
-        title="Monitoring Master",  icon="📅",
+        title="Monitoring Master",  icon="",
         path=PATH_MON,              file_key="master_mon",
         prefix="master_mon",        orig_filename="master_monitoring.xlsx",
         uploader_label="Upload Monitoring Weekly Anchor.xlsx",
@@ -193,7 +193,7 @@ MASTERS = [
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB LAYOUT
 # ══════════════════════════════════════════════════════════════════════════════
-tab_files, tab_history = st.tabs(["📁  Master Files", "🕒  Version History"])
+tab_files, tab_history = st.tabs(["Master Files", "Version History"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -232,7 +232,7 @@ with tab_files:
             dl_bytes = get_download_bytes(m["path"], m["file_key"])
             if dl_bytes:
                 st.download_button(
-                    f"⬇️ {m['title']}",
+                    f"Download {m['title']}",
                     data=dl_bytes,
                     file_name=m["orig_filename"],
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -241,7 +241,7 @@ with tab_files:
                 )
             else:
                 st.button(
-                    f"⬇️ {m['title']} (not available)",
+                    f"Download {m['title']} (not available)",
                     disabled=True,
                     width="stretch",
                     key=f"dl_disabled_{m['uploader_key']}",
@@ -251,7 +251,7 @@ with tab_files:
     for m in MASTERS:
         success_key = f"_saved_{m['file_key']}"
         if st.session_state.pop(success_key, False):
-            st.success(f"✅ **{m['orig_filename']}** uploaded and saved successfully!")
+            st.success(f"**{m['orig_filename']}** uploaded and saved successfully!")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -264,8 +264,8 @@ with tab_files:
             with col:
                 configured = is_configured(m["path"], m["file_key"])
                 st.markdown(
-                    f"**{m['icon']} {m['title']}**  \n"
-                    f"{'✅ Currently configured' if configured else '❌ Not yet uploaded'}",
+                    f"**{m['title']}**  \n"
+                    f"{'Currently configured' if configured else 'Not yet uploaded'}",
                 )
                 uploaded[m["file_key"]] = st.file_uploader(
                     m["uploader_label"],
@@ -274,7 +274,7 @@ with tab_files:
                 )
 
         submitted = st.form_submit_button(
-            "💾 Save All Changes",
+            "Save All Changes",
             type="primary",
             width="stretch",
         )
@@ -301,8 +301,7 @@ with tab_files:
     with qa1:
         st.page_link(
             "pages/00_Automated_Pipeline.py",
-            label="**🚀 Go to Automated Pipeline**",
-            icon="🚀",
+            label="**Go to Automated Pipeline**",
             help="Navigate to the ETL pipeline to run the end-to-end data refresh.",
         )
     with qa2:
@@ -311,8 +310,7 @@ with tab_files:
         if db_exists or has_neon:
             st.page_link(
                 "pages/4_Dashboard.py",
-                label="**📊 View Analytics Dashboard**",
-                icon="📈",
+                label="**View Analytics Dashboard**",
                 help="Jump straight to the analytics and ML insights dashboard.",
             )
 
@@ -363,7 +361,7 @@ with tab_history:
         for b in all_backups:
             rc1, rc2 = st.columns([4, 1])
             rc1.markdown(f"**{b['icon']} {b['file']}** — Version {b['version']}  \n{b['timestamp']}")
-            if rc2.button("↩️ Restore", key=b["restore_key"], width="stretch"):
+            if rc2.button("Restore", key=b["restore_key"], width="stretch"):
                 with st.spinner(f"Restoring {b['file']} v{b['version']}…"):
                     restored = restore_backup(b["path"], b["dest_path"])
                 if restored:
