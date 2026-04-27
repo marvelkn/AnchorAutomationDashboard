@@ -536,7 +536,7 @@ if _filt_group and not df_card.empty and not df_mon_weekly_filt.empty:
         _mon_mg_upper.isin(_group_brands) | (_mon_mg_upper == sel_group)
     ]
 
-st.caption(f"Filter active for **Card Share** & **Weekly Monitor** only: **{sel_group}** > **{sel_brand}**")
+st.caption(f"Filter active for **Card Share** tab only: **{sel_group}** > **{sel_brand}**. The Weekly Monitor trend chart has its own independent group selector.")
 
 CLAMP = CLUSTER_COLORS
 
@@ -1609,36 +1609,58 @@ with tab2:
                 "#0891B2","#BE185D","#65A30D","#EA580C","#4338CA",
             ]
 
-            avail_dim = sorted(df_filt_mon['DIMENSI'].unique().tolist())
-            sel_dim = st.multiselect("Filter Metrics (DIMENSI)", avail_dim, default=avail_dim, key="t2_dim_filter")
-            df_filt_for_plot = df_filt_mon[df_filt_mon['DIMENSI'].isin(sel_dim)] if sel_dim else df_filt_mon
+            # ── Independent chart pipeline — NOT driven by global Merchant Group filter ──
+            # Base: df_mon_weekly (full, unscoped) → year + PM applied (shared with KPI section).
+            _df_chart = (
+                df_mon_weekly[df_mon_weekly['YEAR'] == str(sel_yr_mon)].copy()
+                if not df_mon_weekly.empty and 'YEAR' in df_mon_weekly.columns
+                else pd.DataFrame()
+            )
+            if sel_pm_mon != "All PMs" and not _df_chart.empty:
+                _df_chart = _df_chart[_df_chart['PM'] == sel_pm_mon]
 
-            all_merch_mon = sorted(df_filt_for_plot['MERCHANT_GROUP'].unique().tolist())
-            _vol_rows = df_filt_for_plot[df_filt_for_plot['DIMENSI']=='VOL'] if 'VOL' in sel_dim else df_filt_for_plot
+            # Local group selector
+            _chart_grp_opts = (["ALL GROUPS"] + sorted(df_card['MERCHANT_GROUP'].unique().tolist())
+                               if not df_card.empty else ["ALL GROUPS"])
+            _chart_c1, _chart_c2 = st.columns([1, 2])
+            with _chart_c1:
+                _sel_chart_grp = st.selectbox("Select Group", _chart_grp_opts, key="t2_chart_grp")
+            with _chart_c2:
+                _avail_dim_c = sorted(_df_chart['DIMENSI'].dropna().unique().tolist()) if not _df_chart.empty else []
+                _sel_dim_c   = st.multiselect("Filter Metrics (DIMENSI)", _avail_dim_c,
+                                              default=_avail_dim_c, key="t2_dim_filter")
 
-            # Dynamic label: "Select Brand to Plot" when drilling into a specific group,
-            # "Select Merchants to Plot" for the all-groups view.
-            # _plot_opts comes from all_merch_mon which is already scoped by df_mon_weekly_filt
-            # (brand-level rows when they exist, group-level otherwise) — always consistent.
-            _plot_label = "Select Brand to Plot" if sel_group != "ALL GROUPS" else "Select Merchants to Plot"
-            _plot_opts  = all_merch_mon
+            # Apply local group filter (brand-level rows + group-aggregate row)
+            if _sel_chart_grp != "ALL GROUPS" and not df_card.empty and not _df_chart.empty:
+                _chart_brands = (df_card[df_card['MERCHANT_GROUP'] == _sel_chart_grp]['MERCHANT_ANCHOR']
+                                 .str.strip().str.upper().unique())
+                _chart_mg_up  = _df_chart['MERCHANT_GROUP'].str.strip().str.upper()
+                _df_chart = _df_chart[
+                    _chart_mg_up.isin(_chart_brands) | (_chart_mg_up == _sel_chart_grp.strip().upper())
+                ]
 
-            def_merch_mon = [m for m in _vol_rows.sort_values('YTD', ascending=False)['MERCHANT_GROUP'].head(5).tolist()
-                             if m in _plot_opts]
+            _df_chart_plot = (_df_chart[_df_chart['DIMENSI'].isin(_sel_dim_c)].copy()
+                              if _sel_dim_c else _df_chart.copy())
 
-            sel_plot_merch = st.multiselect(_plot_label, _plot_opts, default=def_merch_mon, key="t2_plot_merch")
+            _all_merch_c  = sorted(_df_chart_plot['MERCHANT_GROUP'].unique().tolist()) if not _df_chart_plot.empty else []
+            _plot_label   = "Select Brand to Plot" if _sel_chart_grp != "ALL GROUPS" else "Select Merchants to Plot"
+            _vol_c        = (_df_chart_plot[_df_chart_plot['DIMENSI'] == 'VOL']
+                             if 'VOL' in _sel_dim_c and not _df_chart_plot.empty else _df_chart_plot)
+            _def_merch_c  = ([m for m in _vol_c.sort_values('YTD', ascending=False)['MERCHANT_GROUP'].head(5).tolist()
+                              if m in _all_merch_c] if not _vol_c.empty else [])
+            sel_plot_merch = st.multiselect(_plot_label, _all_merch_c, default=_def_merch_c, key="t2_plot_merch")
+
+            _W_CHART = sorted([c for c in _df_chart_plot.columns if c.startswith('W') and c[1:].isdigit()])
 
             if sel_plot_merch:
-                # Case-insensitive match: _plot_opts is sourced from monitoring data via
-                # all_merch_mon so options always match what's in df_filt_for_plot.
-                _sel_upper  = {b.strip().upper() for b in sel_plot_merch}
-                _mon_mg_up  = df_filt_for_plot['MERCHANT_GROUP'].str.strip().str.upper()
-                df_plot_mon = df_filt_for_plot[_mon_mg_up.isin(_sel_upper)].copy()
+                _sel_up     = {b.strip().upper() for b in sel_plot_merch}
+                _mg_up      = _df_chart_plot['MERCHANT_GROUP'].str.strip().str.upper()
+                df_plot_mon = _df_chart_plot[_mg_up.isin(_sel_up)].copy()
                 # Truncate long merchant names so labels don't crash the chart
                 def _abbrev(name, n=16):
                     return name if len(name) <= n else name[:n].rstrip() + '…'
                 df_plot_mon['LABEL'] = df_plot_mon['MERCHANT_GROUP'].apply(_abbrev) + ' (' + df_plot_mon['DIMENSI'] + ')'
-                df_long_mon = df_plot_mon.melt(id_vars='LABEL', value_vars=W_COLS_DB, var_name='Week', value_name='Value')
+                df_long_mon = df_plot_mon.melt(id_vars='LABEL', value_vars=_W_CHART, var_name='Week', value_name='Value')
                 df_long_mon = df_long_mon.sort_values(['LABEL', 'Week'])
 
                 fig_trend_mon = px.line(
@@ -1658,7 +1680,7 @@ with tab2:
                 # Heatmap
                 st.markdown("<br>", unsafe_allow_html=True)
                 section_label("Performance Heatmap")
-                heat_data_mon = df_plot_mon.set_index('LABEL')[W_COLS_DB].fillna(0).apply(pd.to_numeric, errors='coerce').fillna(0)
+                heat_data_mon = df_plot_mon.set_index('LABEL')[_W_CHART].fillna(0).apply(pd.to_numeric, errors='coerce').fillna(0)
 
                 fig_heat_mon = px.imshow(
                     heat_data_mon,
