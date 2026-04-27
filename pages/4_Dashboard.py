@@ -1622,7 +1622,16 @@ with tab2:
                 _plot_opts  = all_merch_mon
             else:
                 _plot_label = "Select BRAND to Plot"
-                _plot_opts  = all_merch_mon  # pre-scoped to this group's brands via df_mon_weekly_filt
+                # Source options from df_card hierarchy so child brands are shown, not the
+                # parent group name that appears when monitoring rows are stored at group level.
+                if not df_card.empty:
+                    _hier_brands = sorted(
+                        df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR']
+                        .dropna().str.strip().str.upper().unique().tolist()
+                    )
+                    _plot_opts = _hier_brands if _hier_brands else all_merch_mon
+                else:
+                    _plot_opts = all_merch_mon
 
             def_merch_mon = [m for m in _vol_rows.sort_values('YTD', ascending=False)['MERCHANT_GROUP'].head(5).tolist()
                              if m in _plot_opts]
@@ -1630,7 +1639,15 @@ with tab2:
             sel_plot_merch = st.multiselect(_plot_label, _plot_opts, default=def_merch_mon, key="t2_plot_merch")
 
             if sel_plot_merch:
-                df_plot_mon = df_filt_for_plot[df_filt_for_plot['MERCHANT_GROUP'].isin(sel_plot_merch)].copy()
+                # Case-insensitive match: _plot_opts may be uppercase from df_card hierarchy
+                # while monitoring data MERCHANT_GROUP may use mixed casing.
+                _sel_upper = {b.strip().upper() for b in sel_plot_merch}
+                _mon_mg_up = df_filt_for_plot['MERCHANT_GROUP'].str.strip().str.upper()
+                df_plot_mon = df_filt_for_plot[_mon_mg_up.isin(_sel_upper)].copy()
+                # Fallback: if monitoring stores at group level (no brand rows found), use all
+                # group-scoped data so the chart is not empty.
+                if df_plot_mon.empty and sel_group != "ALL GROUPS":
+                    df_plot_mon = df_filt_for_plot.copy()
                 # Truncate long merchant names so labels don't crash the chart
                 def _abbrev(name, n=16):
                     return name if len(name) <= n else name[:n].rstrip() + '…'
