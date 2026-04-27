@@ -50,25 +50,25 @@ if cloud_mode:
         _engine = None
 
     st.markdown(
-        """<div style="background:rgba(38,222,129,.08);border:1px solid rgba(38,222,129,.25);
-        border-left:3px solid #26de81;border-radius:6px;padding:12px 16px;
-        font-size:0.85rem;color:#26de81;margin-bottom:22px;font-family:'Roboto',sans-serif;">
-        <b>Cloud Mode Active</b> — Master files are persisted in <b>Neon (PostgreSQL)</b> and
-        survive app restarts. Uploaded files are also cached locally for pipeline compatibility.
-        </div>""",
+        f'<div style="background:{GREEN}14;border:1px solid {GREEN}40;'
+        f'border-left:5px solid {GREEN};border-radius:0 14px 14px 0;padding:12px 16px;'
+        f'font-size:0.85rem;color:{GREEN};margin-bottom:22px;">'
+        f'<b>Cloud Mode Active</b> — Master files are persisted in <b>Neon (PostgreSQL)</b> and '
+        f'survive app restarts. Uploaded files are also cached locally for pipeline compatibility.'
+        f'</div>',
         unsafe_allow_html=True,
     )
 else:
     _engine = None
     _engine_ok = False
     st.markdown(
-        """<div style="background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.25);
-        border-left:3px solid #f5a623;border-radius:6px;padding:12px 16px;
-        font-size:0.85rem;color:#f5a623;margin-bottom:22px;font-family:'Roboto',sans-serif;">
-        These master files are saved permanently on the server and used automatically by all
-        processing modules. After your first upload, the system auto-updates them — you never need to
-        re-upload unless the reference data changes.
-        </div>""",
+        f'<div style="background:{GOLD}14;border:1px solid {GOLD}40;'
+        f'border-left:5px solid {GOLD};border-radius:0 14px 14px 0;padding:12px 16px;'
+        f'font-size:0.85rem;color:{GOLD};margin-bottom:22px;">'
+        f'These master files are saved permanently on the server and used automatically by all '
+        f'processing modules. After your first upload, the system auto-updates them — you never need to '
+        f're-upload unless the reference data changes.'
+        f'</div>',
         unsafe_allow_html=True,
     )
 

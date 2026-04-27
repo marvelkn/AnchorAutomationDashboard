@@ -14,7 +14,7 @@ if _BASE not in sys.path:
     sys.path.insert(0, _BASE)
 
 from utils.theme import (
-    apply_theme, page_header, section_label, pipeline_stepper,
+    apply_theme, page_header, section_label, pipeline_stepper, get_palette,
 )
 from utils.db_connector import fetch_data_from_db, get_db_date_bounds
 from utils.backup_manager import rotate_backups, get_available_backups, restore_backup
@@ -695,11 +695,12 @@ def execute_pipeline_fragment():
         st.success("**Pipeline Orchestration Complete!** Your analytics backend is fully synced.")
         step_results = status_data.get("results", {})
         
-        p_bg    = "#1A2538"
-        p_bdr   = "#2B4470"
-        p_txt2  = "#A3B5CC"
-        p_gold  = "#F0BE48"
-        p_green = "#34D399"
+        _pp     = get_palette()
+        p_bg    = _pp['SURFACE']
+        p_bdr   = _pp['BORDER']
+        p_txt2  = _pp['TEXT_SEC']
+        p_gold  = _pp['GOLD']
+        p_green = _pp['GREEN']
 
         summary_rows = [
             ("Anchor MIDs", f"{step_results.get('mid',{}).get('new', '—')} new classified"),

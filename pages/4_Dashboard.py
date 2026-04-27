@@ -713,7 +713,7 @@ with tab0:
             return
         latest_date = fetch_dates.iloc[0, 0]
         prev_date   = fetch_dates.iloc[1, 0] if len(fetch_dates) > 1 else None
-        st.markdown(f"**Ingestion Batch:** `{latest_date}`")
+        filter_pill(f"Ingestion Batch: {latest_date}")
         df_latest = df_getter(latest_date)
         sum_latest_sv  = df_latest['TOTAL_SV'].sum()
         sum_latest_trx = df_latest['TOTAL_TRX'].sum()
@@ -726,8 +726,20 @@ with tab0:
             delta_trx = sum_latest_trx - sum_prev_trx
             pct_trx   = (delta_trx / sum_prev_trx * 100) if sum_prev_trx > 0 else 0
             bi1, bi2 = st.columns(2)
-            bi1.metric("Ingested Sales Volume",  f"Rp {sum_latest_sv/1e9:,.2f}B",  f"{delta_sv/1e6:,.1f}M ({pct_sv:+.1f}%)")
-            bi2.metric("Ingested Transactions",  f"{sum_latest_trx:,.0f}",          f"{delta_trx:,.0f} ({pct_trx:+.1f}%)")
+            _sv_kind  = "green" if delta_sv  >= 0 else "red"
+            _trx_kind = "green" if delta_trx >= 0 else "red"
+            bi1.markdown(
+                f'<div class="stat-card {_sv_kind}">'
+                f'<div class="stat-label">INGESTED SALES VOLUME</div>'
+                f'<div class="stat-value">Rp {sum_latest_sv/1e9:,.2f}B</div>'
+                f'<div class="stat-meta">{delta_sv/1e6:,.1f}M ({pct_sv:+.1f}%)</div>'
+                f'</div>', unsafe_allow_html=True)
+            bi2.markdown(
+                f'<div class="stat-card {_trx_kind}">'
+                f'<div class="stat-label">INGESTED TRANSACTIONS</div>'
+                f'<div class="stat-value">{sum_latest_trx:,.0f}</div>'
+                f'<div class="stat-meta">{delta_trx:,.0f} ({pct_trx:+.1f}%)</div>'
+                f'</div>', unsafe_allow_html=True)
             merged = pd.merge(
                 df_latest.groupby('MERCHANT_GROUP').sum().reset_index(),
                 df_prev.groupby('MERCHANT_GROUP').sum().reset_index(),
@@ -780,8 +792,13 @@ with tab0:
                 st.dataframe(merged[['MERCHANT_GROUP','Delta SV','Growth %']].sort_values('Delta SV', ascending=False), hide_index=True, use_container_width=True)
         else:
             st.info(f"Only one batch found ({latest_date}). Comparison available after the next update.")
-            st.metric("Ingested Sales Volume", f"Rp {sum_latest_sv/1e9:,.2f}B")
-            st.metric("Ingested Transactions", f"{sum_latest_trx:,.0f}")
+            st.markdown(
+                f'<div style="display:flex;gap:12px;margin-top:12px;">'
+                f'<div class="stat-card blue"><div class="stat-label">INGESTED SALES VOLUME</div>'
+                f'<div class="stat-value">Rp {sum_latest_sv/1e9:,.2f}B</div></div>'
+                f'<div class="stat-card blue"><div class="stat-label">INGESTED TRANSACTIONS</div>'
+                f'<div class="stat-value">{sum_latest_trx:,.0f}</div></div>'
+                f'</div>', unsafe_allow_html=True)
 
     if neon_url:
         try:
@@ -983,11 +1000,14 @@ with tab0:
                                     <b>Seasonality Intelligence:</b> {seasonality_str}
                                 </div>""", unsafe_allow_html=True
                             )
-                        st.metric(
-                            label=f"Projected Year-End Run Rate ({_proj_method})",
-                            value=f"Rp {proj_eoy/1e9:,.2f} B",
-                            delta=f"{rate_pct:.1f}% of Target",
-                            delta_color="normal" if rate_pct >= 100 else "inverse"
+                        _proj_kind = "success" if rate_pct >= 100 else ("accent" if rate_pct >= 80 else "danger")
+                        st.markdown(
+                            kpi_card(
+                                f"Rp {proj_eoy/1e9:,.2f} B",
+                                f"Projected Year-End Run Rate ({_proj_method}) — {rate_pct:.1f}% of Target",
+                                kind=_proj_kind,
+                            ),
+                            unsafe_allow_html=True,
                         )
                         st.markdown("<br>", unsafe_allow_html=True)
                         with st.expander("What's Driving This Merchant's Risk?", expanded=True):
@@ -2149,24 +2169,24 @@ with tab4:
                     else:
                         _reason = f"Growth trend declining (MoM: {_growth*100:.1f}%)"
                         _action = "Monitor weekly; check for competitive pressure"
-                    inbox_rows += f"""<div style="padding:12px 16px;border-left:4px solid {_row_color};
-                        background:{_row_color}0d;margin-bottom:8px;border-radius:0 8px 8px 0;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <div>
-                                <span style="font-size:0.85rem;font-weight:700;color:{_pp4_inbox['TEXT_PRI']};">{row['MERCHANT_GROUP']}</span>
-                                <span style="font-size:0.75rem;color:#888;margin-left:10px;">PM: {_pm_name}</span>
-                            </div>
-                        </div>
-                        <div style="font-size:0.78rem;color:{_pp4_inbox['TEXT_SEC']};margin-top:4px;">{_reason}</div>
-                        <div style="font-size:0.78rem;color:{_row_color};margin-top:3px;font-weight:600;">→ {_action}</div>
-                    </div>"""
+                    inbox_rows += (
+                        f'<div style="padding:12px 16px;border-left:5px solid {_row_color};'
+                        f'background:{_row_color}14;margin-bottom:8px;border-radius:0 14px 14px 0;">'
+                        f'<div>'
+                        f'<span style="font-size:0.65rem;font-weight:800;text-transform:uppercase;'
+                        f'letter-spacing:.09em;color:{_row_color};">{_icon} {row["MERCHANT_GROUP"]}</span>'
+                        f'<span style="font-size:0.69rem;color:{_pp4_inbox["TEXT_SEC"]};margin-left:10px;">PM: {_pm_name}</span>'
+                        f'</div>'
+                        f'<div style="font-size:0.78rem;color:{_pp4_inbox["TEXT_SEC"]};margin-top:6px;">{_reason}</div>'
+                        f'<div style="font-size:0.78rem;color:{_row_color};margin-top:3px;font-weight:700;">→ {_action}</div>'
+                        f'</div>'
+                    )
+                section_label(f"Action Inbox — {len(_at_risk_inbox)} merchants need attention")
                 st.markdown(
-                    f"""<div style="border:1px solid {_pp4_inbox['BORDER']};border-radius:12px;
-                        padding:16px;margin:16px 0;">
-                        <div style="font-size:0.9rem;font-weight:700;margin-bottom:12px;
-                            color:{_pp4_inbox['TEXT_PRI']};">Action Inbox — {len(_at_risk_inbox)} merchants need attention</div>
-                        {inbox_rows}
-                    </div>""",
+                    f'<div style="border:1px solid {_pp4_inbox["BORDER"]};border-radius:14px;'
+                    f'padding:16px;margin:8px 0 16px;">'
+                    f'{inbox_rows}'
+                    f'</div>',
                     unsafe_allow_html=True,
                 )
 
