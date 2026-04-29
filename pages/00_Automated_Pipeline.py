@@ -813,7 +813,7 @@ def execute_pipeline_fragment():
         
         rows_html = "".join([
             f'<div style="display:flex;justify-content:space-between;padding:7px 0;'
-            f'border-bottom:1px solid {p_bdr};font-size:0.86rem;">'
+            f'border-bottom:1px solid {p_bdr};font-size:var(--fs-sm);">'
             f'<span style="color:{p_txt2};">{k}</span>'
             f'<span style="font-weight:700;color:{p_gold};">{v}</span>'
             f'</div>'
@@ -824,7 +824,7 @@ def execute_pipeline_fragment():
             f'''<div style="background:{p_bg};border:1px solid {p_bdr};
                            border-left:4px solid {p_green};border-radius:12px;
                            padding:18px 20px;margin:16px 0;">
-              <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:.07em;
+              <div style="font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.07em;
                           color:{p_txt2};margin-bottom:10px;">Pipeline Execution Summary</div>
               {rows_html}
             </div>''',

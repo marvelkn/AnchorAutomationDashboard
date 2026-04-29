@@ -624,17 +624,25 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .stat-card.purple::before {{ background: var(--btn-purple); }}
 .stat-card.red::before    {{ background: var(--btn-red); }}
 .stat-label {{
-    font-size: 10px; color: var(--btn-text3); text-transform: uppercase;
-    letter-spacing: 1.5px; font-weight: 600; font-family: var(--btn-font-mono); margin-bottom: 8px;
+    font-size: var(--fs-2xs); color: var(--btn-text3); text-transform: uppercase;
+    letter-spacing: 1.5px; font-weight: var(--fw-semibold);
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin-bottom: 8px;
 }}
-.stat-value {{ font-size: 22px; font-family: var(--btn-font-mono); font-weight: 700; color: var(--btn-text-pri); }}
-.stat-meta  {{ font-size: 10px; color: var(--btn-text3); margin-top: 4px; font-family: var(--btn-font-mono); }}
+.stat-value {{
+    font-size: var(--fs-xl); font-weight: var(--fw-bold); color: var(--btn-text-pri);
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}}
+.stat-meta {{
+    font-size: var(--fs-2xs); color: var(--btn-text3); margin-top: 4px;
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}}
 
 /* ── Card container ── */
 .card {{ background: var(--btn-surface); border: 1px solid var(--btn-border); border-radius: 20px; box-shadow: 0 5px 20px rgba(0,0,0,0.05); overflow: hidden; margin-bottom: 16px; }}
 .card-header {{ padding: 16px 24px; border-bottom: 1px solid var(--btn-border); display: flex; align-items: center; gap: 10px; }}
-.card-title  {{ font-size: 14px; font-weight: 700; color: var(--btn-text-pri); font-family: 'Roboto', sans-serif; }}
-.card-subtitle {{ font-size: 11px; color: var(--btn-text3); margin-top: 2px; font-family: var(--btn-font-mono); }}
+.card-title  {{ font-size: var(--fs-base); font-weight: var(--fw-bold); color: var(--btn-text-pri); font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
+.card-subtitle {{ font-size: var(--fs-xs); color: var(--btn-text3); margin-top: 2px; font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
 .card-body   {{ padding: 20px 24px; }}
 .card-actions {{ margin-left: auto; display: flex; gap: 6px; }}
 
@@ -647,8 +655,8 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .badge-gray  {{ background: var(--btn-bg4); color: var(--btn-text3); }}
 
 /* ── Section title / sub ── */
-.section-title {{ font-size: 15px; font-weight: 700; color: var(--btn-text-pri); margin-bottom: 4px; font-family: 'Roboto', sans-serif; }}
-.section-sub   {{ font-size: 11px; color: var(--btn-text3); margin-bottom: 16px; font-family: var(--btn-font-mono); }}
+.section-title {{ font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--btn-text-pri); margin-bottom: 4px; font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
+.section-sub   {{ font-size: var(--fs-xs); color: var(--btn-text3); margin-bottom: 16px; font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
 
 /* ── Table value helpers ── */
 td.num-val  {{ color: var(--btn-blue); text-align: right; font-family: var(--btn-font-mono); }}
@@ -872,12 +880,13 @@ section[data-testid="stSidebarUserContent"] {{ padding-top: 0 !important; }}
 /* ── DB info card ── */
 .db-info {{
     background: {SURFACE2}; border-radius: 10px; padding: 10px 14px;
-    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: var(--fs-xs);
     border-left: 3px solid {NAV_ACTIVE};
 }}
-.db-info .db-label {{ color: {TEXT_SEC}; margin-bottom: 3px; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }}
-.db-info .db-status {{ font-size: 11px; font-weight: 700; line-height: 1.3; }}
-.db-info .db-meta {{ color: {TEXT_SEC}; font-size: 9px; margin-top: 2px; }}
+.db-info .db-label {{ color: {TEXT_SEC}; margin-bottom: 3px; font-size: var(--fs-2xs); letter-spacing: 1px; text-transform: uppercase; }}
+.db-info .db-status {{ font-size: var(--fs-xs); font-weight: var(--fw-bold); line-height: 1.3; }}
+.db-info .db-meta {{ color: {TEXT_SEC}; font-size: var(--fs-2xs); margin-top: 2px; }}
 </style>
 """
 
@@ -952,7 +961,7 @@ def section_header(icon: str, title: str, subtitle: str = "", accent_color: str 
     txt   = p["TEXT_PRI"]
     txt2  = p["TEXT_SEC"]
     sub_html = (
-        f'<div style="font-size:0.8rem;color:{txt2};margin-top:3px;">{subtitle}</div>'
+        f'<div style="font-size:var(--fs-sm);color:{txt2};margin-top:3px;">{subtitle}</div>'
         if subtitle else ""
     )
     html = (
@@ -961,9 +970,9 @@ def section_header(icon: str, title: str, subtitle: str = "", accent_color: str 
         f'background:linear-gradient(135deg,{surf} 0%,{surf2} 100%);'
         f'border-radius:12px;border-left:4px solid {color};'
         'box-shadow:0 2px 10px rgba(0,0,0,.15);">'
-        f'<span style="font-size:1.8rem;line-height:1;">{icon}</span>'
+        f'<span style="font-size:var(--fs-kpi);line-height:1;">{icon}</span>'
         '<div>'
-        f'<div style="font-size:1.05rem;font-weight:800;color:{txt};letter-spacing:-0.01em;font-family:Roboto,sans-serif;">{title}</div>'
+        f'<div style="font-size:var(--fs-lg);font-weight:var(--fw-black);color:{txt};letter-spacing:-0.01em;font-family:\'Roboto\',-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;">{title}</div>'
         f'{sub_html}'
         '</div>'
         '</div>'
@@ -1094,8 +1103,8 @@ def status_chip_html(label: str, kind: str = "ok") -> str:
     c = color_map.get(kind, SUCCESS)
     return (
         f'<div style="display:inline-block;background:{c}22;border:1px solid {c};'
-        f'border-radius:20px;padding:2px 9px;font-size:0.68rem;color:{c};'
-        f'font-weight:700;margin-top:6px;">{label}</div>'
+        f'border-radius:20px;padding:2px 9px;font-size:var(--fs-2xs);color:{c};'
+        f'font-weight:var(--fw-bold);margin-top:6px;">{label}</div>'
     )
 
 
@@ -1115,13 +1124,11 @@ def left_accent_card(
     return (
         f'<div style="flex:1;min-width:150px;border-left:5px solid {accent};'
         f'background:{accent}14;border-radius:0 14px 14px 0;padding:16px 18px;">'
-        f'<div style="font-size:0.65rem;font-weight:800;text-transform:uppercase;'
-        f'letter-spacing:.09em;color:{accent};">{icon} {name}</div>'
-        f'<div style="font-size:2.4rem;font-weight:900;color:{p["TEXT_PRI"]};'
-        f'line-height:1;margin:6px 0 2px;">{count}</div>'
-        f'<div style="font-size:0.78rem;color:{p["TEXT_SEC"]};margin-bottom:10px;">{sub_label}</div>'
-        f'<div style="font-size:0.69rem;color:{p["TEXT_SEC"]};margin-bottom:3px;">'
-        f'{bar_label}: <span style="color:{bar_color};font-weight:700;">{bar_value:.0f}%</span></div>'
+        f'<div class="kpi-label" style="color:{accent};">{icon} {name}</div>'
+        f'<div class="kpi-value" style="font-size:var(--fs-kpi);margin:6px 0 2px;">{count}</div>'
+        f'<div class="kpi-meta" style="margin-bottom:10px;">{sub_label}</div>'
+        f'<div class="kpi-meta" style="margin-bottom:3px;">'
+        f'{bar_label}: <span style="color:{bar_color};font-weight:var(--fw-bold);">{bar_value:.0f}%</span></div>'
         f'<div style="height:4px;border-radius:2px;background:{p["BORDER"]};margin-bottom:8px;">'
         f'<div style="width:{bar_w:.1f}%;height:100%;border-radius:2px;background:{bar_color};"></div>'
         f'</div>'
@@ -1146,9 +1153,8 @@ def status_box(rate_pct: float, narrative: str) -> None:
     st.markdown(
         f'<div style="border-left:5px solid {color};background:{color}18;'
         f'border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:14px;">'
-        f'<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;'
-        f'letter-spacing:.08em;color:{color};">{dot}STATUS: {label}</div>'
-        f'<div style="font-size:0.88rem;margin-top:8px;color:{p["TEXT_PRI"]};line-height:1.65;">'
+        f'<div class="kpi-label" style="color:{color};">{dot}STATUS: {label}</div>'
+        f'<div style="font-size:var(--fs-sm);margin-top:8px;color:{p["TEXT_PRI"]};line-height:1.65;">'
         f'{narrative}</div></div>',
         unsafe_allow_html=True,
     )
@@ -1183,7 +1189,7 @@ def stale_data_banner(db_path: str = None, threshold_hours: int = 24):
   <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#FBBF24;flex-shrink:0;margin-top:2px;"></span>
   <div>
     <strong>You are viewing cached data</strong> — last updated {age_str}.<br>
-    <span style="color:{p['TEXT_SEC']};font-size:0.82rem;">
+    <span style="color:{p['TEXT_SEC']};font-size:var(--fs-sm);">
       For the most current analytics, upload a new <code>staging.db</code> in
       <b>Automated Pipeline</b> or refresh the Master Excel files in <b>Global Settings</b>.
     </span>

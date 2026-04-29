@@ -213,7 +213,7 @@ with tab_files:
         status_txt = "READY" if configured else "MISSING"
         cards_html += f"""<div class="stat-card {variant}">
             <div class="stat-label">{m['icon']} {m['title']}</div>
-            <div class="stat-value" style="font-size:1rem;font-weight:700;">{status_txt}</div>
+            <div class="stat-value" style="font-size:var(--fs-md);font-weight:var(--fw-bold);">{status_txt}</div>
             <div class="stat-meta">{size_str} · {sync_lbl}</div>
             <div class="stat-meta">{mod_str}</div>
         </div>"""

@@ -47,11 +47,11 @@ def _show_no_data_dialog():
     st.markdown(
         """
         <div style="text-align:center;padding:16px 0 8px;">
-            <div style="font-size:3rem;margin-bottom:12px;"></div>
-            <div style="font-size:1.15rem;font-weight:700;margin-bottom:8px;">
+            <div style="font-size:var(--fs-kpi);margin-bottom:12px;"></div>
+            <div style="font-size:var(--fs-lg);font-weight:var(--fw-bold);margin-bottom:8px;">
                 The dashboard has no data to display.
             </div>
-            <div style="font-size:0.92rem;color:#4D4D4D;line-height:1.6;max-width:480px;margin:0 auto 24px;">
+            <div style="font-size:var(--fs-base);color:var(--btn-text-sec);line-height:1.6;max-width:480px;margin:0 auto 24px;">
                 The database is empty or was recently reset. Run the automated pipeline
                 to ingest Card Share &amp; Monitoring data before opening the dashboard.
             </div>
@@ -967,9 +967,9 @@ with tab0:
                         st.markdown(
                             f"""<div style="border-left:5px solid {exec_color};background:{exec_color}18;
                                 border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:14px;">
-                                <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;
+                                <div style="font-size:var(--fs-2xs);font-weight:var(--fw-bold);text-transform:uppercase;
                                             letter-spacing:.08em;color:{exec_color};">{exec_dot}STATUS: {exec_label}</div>
-                                <div style="font-size:0.88rem;margin-top:8px;color:{_pp6['TEXT_PRI']};line-height:1.65;">
+                                <div style="font-size:var(--fs-sm);margin-top:8px;color:{_pp6['TEXT_PRI']};line-height:1.65;">
                                     <b>{sel_merch}</b> has accumulated <code>Rp {ytd_actual/1e9:,.2f}B</code> YTD across
                                     <b>{active_weeks_count}</b> active weeks.<br>{status_str}
                                 </div>
@@ -978,7 +978,7 @@ with tab0:
                         if seasonality_str != "No historical seasonality data found.":
                             st.markdown(
                                 f"""<div style="background:{_pp6['SURFACE2']};border:1px solid {_pp6['BORDER']};
-                                    border-radius:10px;padding:12px 16px;font-size:0.84rem;
+                                    border-radius:10px;padding:12px 16px;font-size:var(--fs-sm);
                                     color:{_pp6['TEXT_PRI']};margin-bottom:14px;">
                                     <b>Seasonality Intelligence:</b> {seasonality_str}
                                 </div>""", unsafe_allow_html=True
@@ -1766,18 +1766,14 @@ with tab3:
                 _cards_html += (
                     f'<div style="flex:1;min-width:150px;border-left:5px solid {c};'
                     f'background:{c}14;border-radius:0 14px 14px 0;padding:16px 18px;">'
-                    f'<div style="font-size:0.65rem;font-weight:800;text-transform:uppercase;'
-                    f'letter-spacing:.09em;color:{c};">{icon} {seg}</div>'
-                    f'<div style="font-size:2.4rem;font-weight:900;color:{_pp3["TEXT_PRI"]};'
-                    f'line-height:1;margin:6px 0 2px;">{n}</div>'
-                    f'<div style="font-size:0.78rem;color:{_pp3["TEXT_SEC"]};margin-bottom:8px;">'
-                    f'{pct:.1f}% of fleet</div>'
+                    f'<div class="kpi-label" style="color:{c};">{icon} {seg}</div>'
+                    f'<div class="kpi-value" style="margin:6px 0 2px;">{n}</div>'
+                    f'<div class="kpi-meta" style="margin-bottom:8px;">{pct:.1f}% of fleet</div>'
                     f'<div style="height:4px;border-radius:2px;background:{_pp3["BORDER"]};margin-bottom:8px;">'
                     f'<div style="width:{min(pct,100):.1f}%;height:100%;border-radius:2px;background:{c};"></div>'
                     f'</div>'
                     f'{warn_chip}'
-                    f'<div style="font-size:0.74rem;color:{_pp3["TEXT_SEC"]};margin-top:8px;line-height:1.55;">'
-                    f'{action}</div>'
+                    f'<div class="kpi-meta" style="margin-top:8px;line-height:1.55;">{action}</div>'
                     f'</div>'
                 )
                 _tbl_rows.append({
@@ -1815,7 +1811,7 @@ with tab3:
                     f"""<div style="padding:10px 16px;border-radius:10px;border:1px solid {sil_color};
                         background:{sil_color}18;margin-bottom:12px;">
                         <b>Grouping Confidence:</b>
-                        <span style="color:{sil_color};font-weight:bold;font-size:1.05rem;margin-left:8px;">{sil_label}</span>
+                        <span style="color:{sil_color};font-weight:var(--fw-bold);font-size:var(--fs-md);margin-left:8px;">{sil_label}</span>
                     </div>""",
                     unsafe_allow_html=True
                 )
@@ -2098,8 +2094,8 @@ with tab4:
                         st.markdown(
                             f"""<div style="margin-top:24px;padding:20px;border-radius:14px;
                                 border:2px solid {risk_color};background:{risk_color}18;text-align:center;">
-                                <div style="font-size:2.2rem;">{risk_label}</div>
-                                <div style="font-size:0.8rem;color:{_pp4['TEXT_SEC']};margin-top:10px;">
+                                <div style="font-size:var(--fs-kpi);">{risk_label}</div>
+                                <div style="font-size:var(--fs-sm);color:{_pp4['TEXT_SEC']};margin-top:10px;">
                                 {len(df_high)} of {total} merchants flagged as high-risk.<br>
                                 Benchmark target: &lt;20% portfolio churn.
                                 </div>
@@ -2108,7 +2104,7 @@ with tab4:
                         st.markdown(
                             f"""<div style="margin-top:12px;padding:14px 16px;border-radius:10px;
                                 background:{_pp4['SURFACE2']};border:1px solid {_pp4['BORDER']};
-                                font-size:0.84rem;color:{_pp4['TEXT_PRI']};line-height:1.55;">
+                                font-size:var(--fs-sm);color:{_pp4['TEXT_PRI']};line-height:1.55;">
                                 <b>AI Recommendation:</b><br>{advisory}
                             </div>""", unsafe_allow_html=True
                         )
@@ -2176,12 +2172,11 @@ with tab4:
                         f'<div style="padding:12px 16px;border-left:5px solid {_row_color};'
                         f'background:{_row_color}14;margin-bottom:8px;border-radius:0 14px 14px 0;">'
                         f'<div>'
-                        f'<span style="font-size:0.65rem;font-weight:800;text-transform:uppercase;'
-                        f'letter-spacing:.09em;color:{_row_color};">{_icon} {row["MERCHANT_GROUP"]}</span>'
-                        f'<span style="font-size:0.69rem;color:{_pp4_inbox["TEXT_SEC"]};margin-left:10px;">PM: {_pm_name}</span>'
+                        f'<span class="kpi-label" style="color:{_row_color};">{_icon} {row["MERCHANT_GROUP"]}</span>'
+                        f'<span class="kpi-meta" style="margin-left:10px;">PM: {_pm_name}</span>'
                         f'</div>'
-                        f'<div style="font-size:0.78rem;color:{_pp4_inbox["TEXT_SEC"]};margin-top:6px;">{_reason}</div>'
-                        f'<div style="font-size:0.78rem;color:{_row_color};margin-top:3px;font-weight:700;">→ {_action}</div>'
+                        f'<div class="kpi-meta" style="margin-top:6px;">{_reason}</div>'
+                        f'<div class="kpi-meta" style="margin-top:3px;font-weight:var(--fw-bold);color:{_row_color};">→ {_action}</div>'
                         f'</div>'
                     )
                 section_label(f"Action Inbox — {len(_at_risk_inbox)} merchants need attention")
