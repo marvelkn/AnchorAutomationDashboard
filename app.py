@@ -100,7 +100,11 @@ with st.sidebar:
     if os.path.exists(LOGO_PATH):
         with open(LOGO_PATH, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode()
-        brand_icon_html = f'<img src="data:image/png;base64,{img_b64}" style="display:block;width:58px;height:auto;">'
+        brand_icon_html = (
+            f'<a href="/" style="display:block;text-decoration:none;" title="Go to Dashboard">'
+            f'<img src="data:image/png;base64,{img_b64}" style="display:block;width:58px;height:auto;">'
+            f'</a>'
+        )
     else:
         brand_icon_html = '<div class="logo-mark">BTN // ANCHOR</div>'
 
