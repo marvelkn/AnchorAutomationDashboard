@@ -434,7 +434,6 @@ with header_col1:
     st.markdown("## BTN Anchor Merchant Decision Intelligence Platform")
 with header_col2:
     if _show_new_badge:
-        st.markdown("<br>", unsafe_allow_html=True)
         if st.button("NEW DATA", help=f"Last updated: {_last_update}. Click to clear.", type="primary"):
             try:
                 if neon_url:
@@ -647,40 +646,25 @@ with tab0:
             st.markdown(_am_cards_html, unsafe_allow_html=True)
 
         # ── Row 2: Aggregate stat strip ───────────────────────────────────────
-        _pp_agg = _p()
-        _unasgn_color  = '#FBBF24' if _unassigned > 0 else '#34D399'
-        _unasgn_bg     = '#FBBF2414' if _unassigned > 0 else '#34D39914'
-        _unasgn_sub    = f'+{_unassigned} need assignment' if _unassigned > 0 else 'fully assigned'
-        _divider_style = f'border-right:1px solid {_pp_agg["BORDER"]};'
+        _unasgn_color = '#FBBF24' if _unassigned > 0 else '#34D399'
+        _unasgn_bg    = '#FBBF2414' if _unassigned > 0 else '#34D39914'
+        _unasgn_sub   = f'+{_unassigned} need assignment' if _unassigned > 0 else 'fully assigned'
         st.markdown(
-            f"""<div style="display:flex;border:1px solid {_pp_agg['BORDER']};
-                border-radius:14px;overflow:hidden;margin:12px 0 18px;">
-              <div style="flex:1;text-align:center;padding:18px 12px;{_divider_style}">
-                <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
-                            letter-spacing:.08em;color:{_pp_agg['TEXT_SEC']};margin-bottom:6px;">
-                  Active Account Managers</div>
-                <div style="font-size:2.2rem;font-weight:900;
-                            color:{_pp_agg['TEXT_PRI']};line-height:1;">{_active_pms}</div>
-                <div style="font-size:0.74rem;color:{_pp_agg['TEXT_SEC']};margin-top:4px;">
-                  PMs managing portfolio</div>
+            f"""<div class="agg-strip">
+              <div class="agg-strip-item">
+                <div class="kpi-label">Active Account Managers</div>
+                <div class="kpi-value">{_active_pms}</div>
+                <div class="kpi-meta">PMs managing portfolio</div>
               </div>
-              <div style="flex:1;text-align:center;padding:18px 12px;{_divider_style}">
-                <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
-                            letter-spacing:.08em;color:{_pp_agg['TEXT_SEC']};margin-bottom:6px;">
-                  Avg Merchant Load</div>
-                <div style="font-size:2.2rem;font-weight:900;
-                            color:{_pp_agg['TEXT_PRI']};line-height:1;">{_avg_per_pm}</div>
-                <div style="font-size:0.74rem;color:{_pp_agg['TEXT_SEC']};margin-top:4px;">
-                  merchants per AM</div>
+              <div class="agg-strip-item">
+                <div class="kpi-label">Avg Merchant Load</div>
+                <div class="kpi-value">{_avg_per_pm}</div>
+                <div class="kpi-meta">merchants per AM</div>
               </div>
-              <div style="flex:1;text-align:center;padding:18px 12px;background:{_unasgn_bg};">
-                <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
-                            letter-spacing:.08em;color:{_unasgn_color};margin-bottom:6px;">
-                  Unassigned Merchants</div>
-                <div style="font-size:2.2rem;font-weight:900;
-                            color:{_unasgn_color};line-height:1;">{_unassigned}</div>
-                <div style="font-size:0.74rem;color:{_unasgn_color};margin-top:4px;font-weight:600;">
-                  {_unasgn_sub}</div>
+              <div class="agg-strip-item" style="background:{_unasgn_bg};">
+                <div class="kpi-label" style="color:{_unasgn_color};">Unassigned Merchants</div>
+                <div class="kpi-value" style="color:{_unasgn_color};">{_unassigned}</div>
+                <div class="kpi-meta" style="color:{_unasgn_color};font-weight:var(--fw-semibold);">{_unasgn_sub}</div>
               </div>
             </div>""",
             unsafe_allow_html=True
@@ -914,7 +898,6 @@ with tab0:
                         break
 
                 # --- Deep Dive & Projection ---
-                st.markdown("<br>", unsafe_allow_html=True)
                 section_label("Deep Dive & Projection (Specific Merchant)")
                 all_merch_ai = sorted(df_ai_wk['MERCHANT_GROUP'].unique().tolist())
                 _ai_default_idx = all_merch_ai.index(sel_group) if sel_group != "ALL GROUPS" and sel_group in all_merch_ai else 0
@@ -1009,7 +992,6 @@ with tab0:
                             ),
                             unsafe_allow_html=True,
                         )
-                        st.markdown("<br>", unsafe_allow_html=True)
                         with st.expander("What's Driving This Merchant's Risk?", expanded=True):
                             fi_scores = {}
                             if active_weeks_count > 0 and latest_wk_num > 0:
@@ -1413,7 +1395,6 @@ with tab1:
             st.download_button("Download CSV", df_c.to_csv(index=False, encoding='utf-8-sig'), "card_share_data.csv", "text/csv")
 
         # ── GROWTH ANALYTICS (Realisasi) ──────────────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
         # We can now use df_card_hist from DB for growth instead of re-parsing Excel
         if not df_card_hist.empty:
             max_month = df_card_hist['TRX_MONTH'].max()
@@ -1601,7 +1582,6 @@ with tab2:
             </div>""", unsafe_allow_html=True)
 
             # ── 3. Trend & Visuals (visuals-first) ───────────
-            st.markdown("<br>", unsafe_allow_html=True)
             section_label("Weekly Aggregated Trend")
 
             _WEEKLY_PALETTE = [
@@ -1678,7 +1658,6 @@ with tab2:
                 st.plotly_chart(fig_trend_mon, use_container_width=True, theme=None)
 
                 # Heatmap
-                st.markdown("<br>", unsafe_allow_html=True)
                 section_label("Performance Heatmap")
                 heat_data_mon = df_plot_mon.set_index('LABEL')[_W_CHART].fillna(0).apply(pd.to_numeric, errors='coerce').fillna(0)
 
@@ -1698,7 +1677,6 @@ with tab2:
                 st.plotly_chart(fig_heat_mon, use_container_width=True, theme=None)
 
             # ── 4. Main Data Matrix (details below charts) ───────────
-            st.markdown("<br>", unsafe_allow_html=True)
             section_label(f"Weekly Matrix — {sel_yr_mon}")
             st.dataframe(df_filt_mon[avail_grp_mon + W_COLS_DB].fillna(0).reset_index(drop=True), use_container_width=True, height=400)
 
@@ -2220,7 +2198,6 @@ with tab4:
             if total > 0:
 
                 if 'ZSCORE_SV' in df_c4.columns:
-                    st.markdown("<br>", unsafe_allow_html=True)
                     with st.expander("Statistical Detail — Volume, Fee & Growth Outlier Analysis", expanded=False):
                         st.caption("These charts show the distribution of merchant performance metrics. Red-shaded merchants fall below the detection threshold set in Advanced Settings.")
                         z1, z2, z3 = st.columns(3)
@@ -2259,7 +2236,6 @@ with tab4:
                 _if_flagged = df_c4[df_c4.get('IF_IS_ANOMALY', pd.Series(False, index=df_c4.index)) == True] \
                     if 'IF_IS_ANOMALY' in df_c4.columns else pd.DataFrame()
                 if not _if_flagged.empty and all(c in _if_flagged.columns for c in _if_lofo_cols):
-                    st.markdown("<br>", unsafe_allow_html=True)
                     section_label("What's Driving the Alerts? — Key Risk Factors Across Portfolio")
                     st.caption(f"Analyzing {len(_if_flagged)} flagged merchant(s). Higher bars = the metric most responsible for triggering alerts. Use this to guide where your team should focus.")
                     _fleet_lofo = _if_flagged[list(_if_lofo_cols.keys())].mean().rename(_if_lofo_cols)

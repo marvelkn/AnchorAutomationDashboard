@@ -52,7 +52,7 @@ if cloud_mode:
     st.markdown(
         f'<div style="background:{GREEN}14;border:1px solid {GREEN}40;'
         f'border-left:5px solid {GREEN};border-radius:0 14px 14px 0;padding:12px 16px;'
-        f'font-size:0.85rem;color:{GREEN};margin-bottom:22px;">'
+        f'font-size:var(--fs-sm);color:{GREEN};margin-bottom:22px;">'
         f'<b>Cloud Mode Active</b> — Master files are persisted in <b>Neon (PostgreSQL)</b> and '
         f'survive app restarts. Uploaded files are also cached locally for pipeline compatibility.'
         f'</div>',
@@ -64,7 +64,7 @@ else:
     st.markdown(
         f'<div style="background:{GOLD}14;border:1px solid {GOLD}40;'
         f'border-left:5px solid {GOLD};border-radius:0 14px 14px 0;padding:12px 16px;'
-        f'font-size:0.85rem;color:{GOLD};margin-bottom:22px;">'
+        f'font-size:var(--fs-sm);color:{GOLD};margin-bottom:22px;">'
         f'These master files are saved permanently on the server and used automatically by all '
         f'processing modules. After your first upload, the system auto-updates them — you never need to '
         f're-upload unless the reference data changes.'

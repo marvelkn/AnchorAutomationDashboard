@@ -190,6 +190,23 @@ def _make_css(p: dict) -> str:
     --color-warning:  #FBBF24;
     --color-danger:   #F87171;
     --color-info:     #2F80ED;
+
+    /* ── Type scale — 8 size tokens ── */
+    --fs-2xs:   0.65rem;
+    --fs-xs:    0.75rem;
+    --fs-sm:    0.82rem;
+    --fs-base:  0.92rem;
+    --fs-md:    1.0rem;
+    --fs-lg:    1.15rem;
+    --fs-xl:    1.4rem;
+    --fs-kpi:   2.2rem;
+
+    /* ── Font weights — 5 weight tokens ── */
+    --fw-regular:  400;
+    --fw-medium:   500;
+    --fw-semibold: 600;
+    --fw-bold:     700;
+    --fw-black:    900;
 }}
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -310,10 +327,10 @@ section[data-testid="stSidebarUserContent"] {{
     box-shadow: 0 2px 12px rgba(0,0,0,0.2) !important;
 }}
 [data-testid="metric-container"] label {{
-    color: var(--btn-text-sec) !important; font-size: 0.78rem !important;
+    color: var(--btn-text-sec) !important; font-size: var(--fs-xs) !important;
 }}
 [data-testid="metric-container"] [data-testid="stMetricValue"] {{
-    color: var(--btn-text-pri) !important; font-size: 1.2rem !important; font-weight: 700 !important;
+    color: var(--btn-text-pri) !important; font-size: var(--fs-lg) !important; font-weight: 700 !important;
 }}
 
 /* ── Tabs ── */
@@ -324,7 +341,7 @@ section[data-testid="stSidebarUserContent"] {{
 [data-testid="stTabs"] [data-baseweb="tab"] {{
     background: transparent !important; color: var(--btn-text-sec) !important;
     border-radius: 4px !important; font-weight: 500 !important;
-    font-size: 0.85rem !important; padding: 8px 16px !important; transition: all 0.15s;
+    font-size: var(--fs-sm) !important; padding: 8px 16px !important; transition: all 0.15s;
     font-family: 'Roboto', sans-serif !important;
 }}
 [data-testid="stTabs"] [aria-selected="true"] {{
@@ -637,6 +654,48 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 td.num-val  {{ color: var(--btn-blue); text-align: right; font-family: var(--btn-font-mono); }}
 td.date-val {{ color: var(--btn-teal); font-family: var(--btn-font-mono); }}
 td.null-val {{ color: var(--btn-text3); font-style: italic; }}
+
+/* ── KPI typography system ── */
+.kpi-label {{
+    font-size: var(--fs-2xs);
+    font-weight: var(--fw-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--btn-text-sec);
+    margin-bottom: 6px;
+}}
+.kpi-value {{
+    font-size: var(--fs-kpi);
+    font-weight: var(--fw-black);
+    color: var(--btn-text-pri);
+    line-height: 1;
+}}
+.kpi-meta {{
+    font-size: var(--fs-xs);
+    color: var(--btn-text-sec);
+    margin-top: 4px;
+}}
+
+/* ── Aggregate stat strip (horizontal KPI row with dividers) ── */
+.agg-strip {{
+    display: flex;
+    border: 1px solid var(--btn-border);
+    border-radius: 14px;
+    overflow: hidden;
+    margin: 12px 0 18px;
+}}
+.agg-strip-item {{
+    flex: 1;
+    text-align: center;
+    padding: 18px 12px;
+    border-right: 1px solid var(--btn-border);
+}}
+.agg-strip-item:last-child {{ border-right: none; }}
+@media (max-width: 640px) {{
+    .agg-strip {{ flex-direction: column; }}
+    .agg-strip-item {{ border-right: none; border-bottom: 1px solid var(--btn-border); }}
+    .agg-strip-item:last-child {{ border-bottom: none; }}
+}}
 
 /* ── Dot-spin loading ── */
 .dot-spin {{

@@ -79,11 +79,11 @@ if cloud_mode_enabled:
         <li><b>Optional manual file</b> — Upload a single <b>CSV</b> or <b>Excel</b> file to upsert <i>one</i> table only.
         Use this for small corrections without re-uploading the whole database.</li>
         </ul>
-        <p style="margin-top:0.65rem;opacity:0.88;font-size:0.92em;">
+        <p style="margin-top:0.65rem;opacity:0.88;font-size:var(--fs-base);">
         <b>Bahasa:</b> <i>(1) Upload <b>.db</b> lengkap = semua tabel masuk Neon sekaligus.
         (2) <b>Opsional</b> — CSV/Excel untuk perbarui <b>satu tabel</b> saja.</i>
         </p>
-        <p style="margin-top:0.5rem;opacity:0.85;font-size:0.88em;">
+        <p style="margin-top:0.5rem;opacity:0.85;font-size:var(--fs-sm);">
         Phase-1 cloud ingestion only — it does not run the legacy Windows + Excel COM analytics pipeline.</p>
         </div>""",
         unsafe_allow_html=True,
