@@ -59,6 +59,81 @@ def scrub_database(db_path):
         conn.close()
     return True
 
+def scrub_staging_tables(db_path):
+    """
+    Removes duplicates from the three raw staging tables in staging.db.
+    Uses natural business keys (not EDW_FETCH_DATE) so re-fetched data
+    with a new fetch timestamp is collapsed to the first occurrence.
+    """
+    if not os.path.exists(db_path):
+        return False
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    staging_targets = {
+        "ALL_MID":        ["MERCHANT_ID", "TERMINAL_ID"],
+        "CARD_SHARE":     ["MERCHANT_GROUP", "MERCHANT_BRAND", "TRANSACTION_MONTH"],
+        "WEEKLY_MONITOR": ["MERCHANT_GROUP", "YEAR", "WEEK_NUM"],
+    }
+
+    try:
+        for table, keys in staging_targets.items():
+            cursor.execute(
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'"
+            )
+            if not cursor.fetchone():
+                continue
+
+            keys_str = ", ".join(keys)
+            cursor.execute(f"""
+                DELETE FROM {table}
+                WHERE rowid NOT IN (
+                    SELECT MIN(rowid)
+                    FROM {table}
+                    GROUP BY {keys_str}
+                )
+            """)
+
+        conn.commit()
+    finally:
+        conn.close()
+    return True
+
+
+def scrub_staging_neon(engine, schema="public"):
+    """
+    Removes duplicates from the three raw staging tables in Neon PostgreSQL.
+    Uses ctid to keep only the first occurrence per natural business key.
+    Returns a dict of {table: message}.
+    """
+    staging_targets = {
+        "all_mid":        ["merchant_id", "terminal_id"],
+        "card_share":     ["merchant_group", "merchant_brand", "transaction_month"],
+        "weekly_monitor": ["merchant_group", "year", "week_num"],
+    }
+
+    from sqlalchemy import text as _text
+    results = {}
+    with engine.begin() as conn:
+        for table, keys in staging_targets.items():
+            full_table = f'"{schema}"."{table}"'
+            keys_str = ", ".join(keys)
+            try:
+                res = conn.execute(_text(f"""
+                    DELETE FROM {full_table}
+                    WHERE ctid NOT IN (
+                        SELECT MIN(ctid)
+                        FROM {full_table}
+                        GROUP BY {keys_str}
+                    )
+                """))
+                results[table] = f"Removed {res.rowcount} duplicate(s)."
+            except Exception as e:
+                results[table] = f"Error: {e}"
+    return results
+
+
 def scrub_excel_card_share(path):
     """Removes duplicates from master_card_share.xlsx 'Realisasi' sheet."""
     if not os.path.exists(path):

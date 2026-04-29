@@ -154,6 +154,42 @@ def _create_empty_neon_table(
         conn.execute(text(ddl))
 
 
+# Natural business keys used to deduplicate staging tables before Neon upload.
+# Matches the same keys defined in utils/db_merger.py.
+_STAGING_DEDUP_KEYS: Dict[str, List[str]] = {
+    "ALL_MID":        ["MERCHANT_ID", "TERMINAL_ID"],
+    "CARD_SHARE":     ["MERCHANT_GROUP", "MERCHANT_BRAND", "TRANSACTION_MONTH"],
+    "WEEKLY_MONITOR": ["MERCHANT_GROUP", "YEAR", "WEEK_NUM"],
+}
+
+
+def _dedup_sqlite_table(sqlite_path: str, table: str, keys: List[str]) -> int:
+    """
+    Remove duplicate rows from *table* in the SQLite file at *sqlite_path*,
+    keeping the row with the lowest rowid for each unique combination of *keys*.
+    Returns the number of rows deleted.
+    """
+    import sqlite3 as _sqlite3
+    keys_str = ", ".join(keys)
+    sql = f"""
+        DELETE FROM "{table}"
+        WHERE rowid NOT IN (
+            SELECT MIN(rowid)
+            FROM "{table}"
+            GROUP BY {keys_str}
+        )
+    """
+    try:
+        con = _sqlite3.connect(sqlite_path)
+        cur = con.execute(sql)
+        deleted = cur.rowcount
+        con.commit()
+        con.close()
+        return deleted
+    except Exception:
+        return 0
+
+
 def _normalize_chunk(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out.columns = [str(c).strip().lower() for c in out.columns]
@@ -224,6 +260,12 @@ def ingest_sqlite_bytes_to_neon(
         with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
             tmp.write(sqlite_bytes)
             tmp_path = tmp.name
+
+        # Deduplicate staging tables in the temp file before uploading to Neon.
+        # This prevents duplicate rows (same business key, different EDW_FETCH_DATE)
+        # from being copied into Neon during the TRUNCATE + re-insert cycle.
+        for _stg_table, _stg_keys in _STAGING_DEDUP_KEYS.items():
+            _dedup_sqlite_table(tmp_path, _stg_table, _stg_keys)
 
         sl_conn = sqlite3.connect(tmp_path)
         try:

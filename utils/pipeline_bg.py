@@ -130,11 +130,21 @@ def run_pipeline_thread(start_str, end_str, paths_config):
         os.makedirs(bkp_mdir, exist_ok=True)
         run_monitoring_merge(df_mon, PATH_LOCAL_DB, PATH_MON, bkp_mdir)
         step_results["monitoring"] = {"rows": len(df_mon)}
-        
+
+        # ── Step 4: Scrub duplicates from staging.db ─────────────────────────
+        set_pipeline_status({"step": 4, "message": "Step 4: Scrubbing duplicates from staging.db...", "results": step_results})
+        try:
+            from repair_data import scrub_staging_tables, scrub_database
+            scrub_staging_tables(PATH_LOCAL_DB)
+            scrub_database(PATH_LOCAL_DB)
+        except Exception as scrub_err:
+            # Non-fatal: log warning but do not abort the pipeline
+            set_pipeline_status({"message": f"Step 4: Scrub warning: {scrub_err}"})
+
         # ── Complete ────────────────────────────────────────────────────────
         set_pipeline_status({
-            "status": "complete", 
-            "step": 4, 
+            "status": "complete",
+            "step": 5,
             "message": "Pipeline Orchestration Complete!",
             "results": step_results
         })

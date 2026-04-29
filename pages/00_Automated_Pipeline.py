@@ -254,8 +254,50 @@ if cloud_mode_enabled:
         )
         with st.expander("Scrub / de-duplicate Neon Cloud Database", expanded=False):
             st.markdown(
-                "Removes duplicates in Neon tables (PROCESSED_CARD_MONTHLY, etc.) and applies the Yoshinoya normalization fix."
+                "Removes duplicates in **all** Neon tables — both staging "
+                "(ALL_MID, CARD_SHARE, WEEKLY_MONITOR) and processed "
+                "(PROCESSED_CARD_MONTHLY, etc.) — then applies the Yoshinoya normalization fix."
             )
+
+            # ── Duplicate diagnostics ────────────────────────────────────────
+            if st.button("Check duplicate counts", key="btn_diag_neon", disabled=(engine is None)):
+                _schema_diag = (neon_schema_ingest or "public").strip() or "public"
+                _diag_queries = {
+                    "all_mid":                     ("merchant_id", "terminal_id"),
+                    "card_share":                  ("merchant_group", "merchant_brand", "transaction_month"),
+                    "weekly_monitor":              ("merchant_group", "year", "week_num"),
+                    "processed_card_share":        ("merchant_group", "merchant_brand", "transaction_month"),
+                    "processed_card_history":      ("merchant_group", "merchant_brand", "transaction_month"),
+                    "processed_card_monthly":      ("merchant_group", "merchant_brand", "transaction_month"),
+                    "processed_monitoring":        ("merchant_group", "pm"),
+                    "processed_monitoring_weekly": ("merchant_group", "year", "week_num"),
+                }
+                _diag_rows = []
+                try:
+                    from sqlalchemy import text as _satext
+                    with engine.connect() as _dc:
+                        for _tbl, _keys in _diag_queries.items():
+                            _key_expr = ", ".join(_keys)
+                            try:
+                                _total = _dc.execute(_satext(
+                                    f'SELECT COUNT(*) FROM "{_schema_diag}"."{_tbl}"'
+                                )).scalar() or 0
+                                _unique = _dc.execute(_satext(
+                                    f'SELECT COUNT(*) FROM (SELECT DISTINCT {_key_expr} FROM "{_schema_diag}"."{_tbl}") _u'
+                                )).scalar() or 0
+                                _diag_rows.append({
+                                    "Table": _tbl,
+                                    "Total Rows": _total,
+                                    "Unique Keys": _unique,
+                                    "Duplicates": _total - _unique,
+                                })
+                            except Exception:
+                                _diag_rows.append({"Table": _tbl, "Total Rows": "—", "Unique Keys": "—", "Duplicates": "—"})
+                    st.dataframe(pd.DataFrame(_diag_rows), use_container_width=True)
+                except Exception as _de:
+                    st.error(f"Diagnostics failed: {_de}")
+
+            # ── Scrub button ─────────────────────────────────────────────────
             if st.button(
                 "Run cloud scrub / de-duplicate",
                 type="primary",
@@ -265,13 +307,44 @@ if cloud_mode_enabled:
             ):
                 with st.spinner("Cleaning Neon PostgreSQL tables..."):
                     try:
-                        from repair_data import scrub_neon_database
+                        from repair_data import scrub_neon_database, scrub_staging_neon
                         target_schema = (neon_schema_ingest or "public").strip() or "public"
-                        results = scrub_neon_database(engine, schema=target_schema)
-                        st.success("Cloud scrub complete!")
-                        st.json(results)
+                        staging_res   = scrub_staging_neon(engine, schema=target_schema)
+                        processed_res = scrub_neon_database(engine, schema=target_schema)
+                        st.success("Cloud scrub complete — staging + processed tables cleaned!")
+                        st.json({"staging_tables": staging_res, "processed_tables": processed_res})
                     except Exception as e:
                         st.error(f"Cloud scrub failed: {e}")
+
+            # ── VACUUM ANALYZE button ────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("**Reclaim physical disk space** after scrubbing (runs `VACUUM ANALYZE` on each table).")
+            if st.button("VACUUM Neon Tables", disabled=(engine is None), key="btn_vacuum_neon"):
+                _vac_schema = (neon_schema_ingest or "public").strip() or "public"
+                _vac_tables = [
+                    "all_mid", "card_share", "weekly_monitor",
+                    "processed_card_share", "processed_card_history",
+                    "processed_card_monthly", "processed_monitoring",
+                    "processed_monitoring_weekly", "target",
+                ]
+                _vac_results = {}
+                with st.spinner("Running VACUUM ANALYZE on Neon tables..."):
+                    try:
+                        import psycopg2, os as _os
+                        _raw = psycopg2.connect(_os.getenv("DATABASE_URL"))
+                        _raw.autocommit = True
+                        _cur = _raw.cursor()
+                        for _vt in _vac_tables:
+                            try:
+                                _cur.execute(f'VACUUM ANALYZE "{_vac_schema}"."{_vt}"')
+                                _vac_results[_vt] = "OK"
+                            except Exception as _ve:
+                                _vac_results[_vt] = f"Skipped: {_ve}"
+                        _raw.close()
+                        st.success("VACUUM ANALYZE complete!")
+                        st.json(_vac_results)
+                    except Exception as _verr:
+                        st.warning(f"VACUUM requires psycopg2 direct connection: {_verr}")
 
         with st.expander("Danger Zone: Reset Neon Cloud Database", expanded=False):
             st.warning(
@@ -542,16 +615,45 @@ with col1:
     st.markdown("<hr style='margin:1.5rem 0; opacity:0.3;'>", unsafe_allow_html=True)
     with st.expander("Maintenance & Data Integrity"):
         st.info("Use this if you notice data anomalies or duplicate entries in the dashboard.")
+
+        # ── Duplicate diagnostics (local SQLite) ─────────────────────────────
+        if st.button("Check duplicate counts (local SQLite)", key="btn_diag_sqlite"):
+            if not os.path.exists(PATH_LOCAL_DB):
+                st.warning("staging.db not found.")
+            else:
+                _sqlite_targets = {
+                    "ALL_MID":                     ["MERCHANT_ID", "TERMINAL_ID"],
+                    "CARD_SHARE":                  ["MERCHANT_GROUP", "MERCHANT_BRAND", "TRANSACTION_MONTH"],
+                    "WEEKLY_MONITOR":              ["MERCHANT_GROUP", "YEAR", "WEEK_NUM"],
+                    "PROCESSED_CARD_SHARE":        ["MERCHANT_GROUP", "MERCHANT_BRAND", "TRANSACTION_MONTH"],
+                    "PROCESSED_CARD_HISTORY":      ["MERCHANT_GROUP", "MERCHANT_BRAND", "TRANSACTION_MONTH"],
+                    "PROCESSED_CARD_MONTHLY":      ["MERCHANT_GROUP", "MERCHANT_BRAND", "TRANSACTION_MONTH"],
+                    "PROCESSED_MONITORING":        ["MERCHANT_GROUP", "PM"],
+                    "PROCESSED_MONITORING_WEEKLY": ["MERCHANT_GROUP", "YEAR", "WEEK_NUM"],
+                }
+                _sq_rows = []
+                _sq_conn = sqlite3.connect(PATH_LOCAL_DB)
+                for _tbl, _keys in _sqlite_targets.items():
+                    try:
+                        _key_expr = ", ".join(_keys)
+                        _total  = _sq_conn.execute(f'SELECT COUNT(*) FROM "{_tbl}"').fetchone()[0]
+                        _unique = _sq_conn.execute(f'SELECT COUNT(*) FROM (SELECT DISTINCT {_key_expr} FROM "{_tbl}")').fetchone()[0]
+                        _sq_rows.append({"Table": _tbl, "Total Rows": _total, "Unique Keys": _unique, "Duplicates": _total - _unique})
+                    except Exception:
+                        _sq_rows.append({"Table": _tbl, "Total Rows": "—", "Unique Keys": "—", "Duplicates": "—"})
+                _sq_conn.close()
+                st.dataframe(pd.DataFrame(_sq_rows), use_container_width=True)
+
+        # ── Scrub button ──────────────────────────────────────────────────────
         if st.button("Scrub/De-duplicate Master Data", width="stretch"):
             with st.spinner("Cleaning database and Excel files..."):
                 try:
-                    from repair_data import scrub_database, scrub_excel_card_share, scrub_excel_monitoring
-                    
+                    from repair_data import scrub_database, scrub_staging_tables, scrub_excel_card_share, scrub_excel_monitoring
+                    scrub_staging_tables(PATH_LOCAL_DB)
                     scrub_database(PATH_LOCAL_DB)
                     scrub_excel_card_share(PATH_CARD)
                     scrub_excel_monitoring(PATH_MON)
-                    
-                    st.success("Data scrubbing complete! Duplicates removed from Excel and database tables. The Yoshinoya 202503 spike has been normalized.")
+                    st.success("Data scrubbing complete! Duplicates removed from staging tables, processed tables, and Excel files. The Yoshinoya 202503 spike has been normalized.")
                 except Exception as e:
                     st.error(f"Scrub failed: {e}")
 
