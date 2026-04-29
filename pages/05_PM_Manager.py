@@ -170,7 +170,7 @@ edited_df = st.data_editor(
     num_rows="fixed",
     hide_index=True,
     width="stretch",
-    height=420,
+    height=360,
     key=f"data_editor_{st.session_state.editor_key}",
 )
 

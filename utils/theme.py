@@ -645,6 +645,58 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
     animation: dot-pulse 0.8s infinite;
 }}
 @keyframes dot-pulse {{ 0%,100%{{opacity:.2;}} 50%{{opacity:1;}} }}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE / MOBILE  — injected last so !important overrides inline styles
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Tablet (≤ 900px): wrap Streamlit columns so wide grids compress cleanly ── */
+@media (max-width: 900px) {{
+    [data-testid="stHorizontalBlock"] {{
+        flex-wrap: wrap !important;
+    }}
+    [data-testid="stColumn"] {{
+        min-width: min(100%, 260px) !important;
+        flex: 1 1 260px !important;
+    }}
+}}
+
+/* ── Tablet / large phone (≤ 768px): 2-col stat grids, smaller cards ── */
+@media (max-width: 768px) {{
+    .stats-grid {{ grid-template-columns: repeat(2, 1fr) !important; }}
+    .pipeline-stepper {{ flex-wrap: wrap; gap: 8px; overflow-x: visible; }}
+    .step-item {{ min-width: 80px !important; }}
+    .stat-card   {{ padding: 16px 18px; }}
+    .stat-value  {{ font-size: 18px; }}
+    .card-body   {{ padding: 14px 16px; }}
+    .card-header {{ padding: 12px 16px; }}
+}}
+
+/* ── Phone (≤ 640px): stack ALL Streamlit columns to full width ── */
+@media (max-width: 640px) {{
+    [data-testid="stHorizontalBlock"] {{
+        flex-direction: column !important;
+    }}
+    [data-testid="stColumn"] {{
+        width: 100% !important;
+        flex: 1 1 100% !important;
+        min-width: 0 !important;
+    }}
+}}
+
+/* ── Small phone (≤ 480px): single-column stat grids, compact everything ── */
+@media (max-width: 480px) {{
+    .stats-grid {{ grid-template-columns: 1fr !important; }}
+    .step-item   {{ min-width: 60px !important; }}
+    .step-circle {{ width: 32px !important; height: 32px !important; font-size: 0.85rem !important; }}
+    .step-label  {{ font-size: 0.65rem; }}
+    .stat-card   {{ padding: 12px 14px; }}
+    .stat-value  {{ font-size: 16px; }}
+    .card-body   {{ padding: 12px 14px; }}
+    .card-header {{ padding: 10px 14px; }}
+    .section-title {{ font-size: 13px; }}
+    .prereq-row  {{ font-size: 0.82rem; }}
+}}
 </style>
 """
 
@@ -682,7 +734,7 @@ def _nav_css(p: dict) -> str:
     border-bottom: 1px solid {BORDER} !important;
 }}
 .sidebar-brand-header img {{
-    width: 110px !important;
+    width: min(110px, 45vw) !important;
     margin: 0 !important;
     display: block !important;
     flex-shrink: 0 !important;

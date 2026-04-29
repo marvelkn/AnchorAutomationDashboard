@@ -108,7 +108,7 @@ with tab_edit:
             )
 
     # ── Editor + right-panel metrics ─────────────────────────────────────────
-    editor_col, metrics_col = st.columns([4, 1])
+    editor_col, metrics_col = st.columns([3, 1])
 
     with editor_col:
         edited_df = st.data_editor(
@@ -116,7 +116,7 @@ with tab_edit:
             column_config=col_configs,
             num_rows="dynamic",
             width="stretch",
-            height=500,
+            height=400,
             key=f"editor_{dataset_choice}",
         )
 

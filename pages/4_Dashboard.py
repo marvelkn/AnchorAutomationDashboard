@@ -1492,7 +1492,7 @@ with tab1:
                     textposition='outside',
                 ))
                 fig_top10.update_layout(
-                    height=340, margin=dict(l=180, r=100, t=10, b=32),
+                    height=340, margin=dict(l=4, r=4, t=10, b=32),
                     xaxis={**_xaxis(), 'title': 'Growth %'},
                     yaxis=dict(showgrid=False, automargin=True),
                     **_chart_base(),
@@ -1512,7 +1512,7 @@ with tab1:
                     textposition='outside',
                 ))
                 fig_bot10.update_layout(
-                    height=340, margin=dict(l=180, r=100, t=10, b=32),
+                    height=340, margin=dict(l=4, r=4, t=10, b=32),
                     xaxis={**_xaxis(), 'title': 'Growth %'},
                     yaxis=dict(showgrid=False, automargin=True),
                     **_chart_base(),
