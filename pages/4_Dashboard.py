@@ -552,15 +552,12 @@ tab0, tab1, tab2, tab3, tab4 = st.tabs([
 # TAB 0 — OVERVIEW
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab0:
-    tab_desc("Portfolio health at a glance — spot risks, track progress against targets, and surface merchants that need immediate attention.")
-
     # ── High-risk banner ─────────────────────────────────────────────────────
     if _high_risk_count > 0:
         st.warning(f"**{_high_risk_count} merchant(s) need immediate attention.** See the **Health Alerts** tab for recommended actions.")
 
     # ── Fleet Health Zone (visual-first, 3-column) ────────────────────────────
     if not _ml_kpi.empty:
-        section_label("Fleet Health Snapshot")
         fh1, fh2, fh3 = st.columns(3)
 
         with fh1:
@@ -1340,7 +1337,6 @@ with tab1:
                         height=min(38 * len(disp_fmt) + 40, 500),
                     )
 
-                styled_divider()
     else:
         conn.close()
         st.warning("PROCESSED_CARD_MONTHLY table is missing. Re-run the Automated Pipeline.")
