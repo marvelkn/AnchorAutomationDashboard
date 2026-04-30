@@ -116,7 +116,7 @@ with tab_edit:
             column_config=col_configs,
             num_rows="dynamic",
             width="stretch",
-            height=400,
+            height=min(400, max(200, len(df_master) * 35 + 60)),
             key=f"editor_{dataset_choice}",
         )
 
@@ -137,16 +137,18 @@ with tab_edit:
 
     _has_changes = _n_new > 0 or len(edited_df) != len(df_master) or _n_modified > 0
 
+    _mod_color = "amber" if _n_modified else "blue"
+    _mod_meta  = "rows changed" if _n_modified else "no changes"
     with metrics_col:
         st.markdown(f"""
             <div class="stat-card amber" style="margin-bottom:8px;">
                 <div class="stat-label">Total Rows</div>
                 <div class="stat-value">{_edit_len:,}</div>
             </div>
-            <div class="stat-card {"amber" if _n_modified else "blue"}" style="margin-bottom:8px;">
+            <div class="stat-card {_mod_color}" style="margin-bottom:8px;">
                 <div class="stat-label">Modified</div>
                 <div class="stat-value">{_n_modified}</div>
-                <div class="stat-meta">{"rows changed" if _n_modified else "no changes"}</div>
+                <div class="stat-meta">{_mod_meta}</div>
             </div>
             <div class="stat-card green" style="margin-bottom:8px;">
                 <div class="stat-label">New Rows</div>

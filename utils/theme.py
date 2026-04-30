@@ -736,6 +736,7 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
     .step-item {{ min-width: 80px !important; }}
     .stat-card   {{ padding: 16px 18px; }}
     .stat-value  {{ font-size: 18px; }}
+    .kpi-card .kpi-val {{ font-size: 22px; }}
     .card-body   {{ padding: 14px 16px; }}
     .card-header {{ padding: 12px 16px; }}
 }}
@@ -755,11 +756,13 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
 /* ── Small phone (≤ 480px): single-column stat grids, compact everything ── */
 @media (max-width: 480px) {{
     .stats-grid {{ grid-template-columns: 1fr !important; }}
-    .step-item   {{ min-width: 60px !important; }}
+    .step-item   {{ min-width: 60px !important; font-size: 0.7rem; }}
     .step-circle {{ width: 32px !important; height: 32px !important; font-size: 0.85rem !important; }}
     .step-label  {{ font-size: 0.65rem; }}
     .stat-card   {{ padding: 12px 14px; }}
     .stat-value  {{ font-size: 16px; }}
+    .kpi-card .kpi-val {{ font-size: 18px; }}
+    .kpi-card    {{ padding: 16px 18px; }}
     .card-body   {{ padding: 12px 14px; }}
     .card-header {{ padding: 10px 14px; }}
     .section-title {{ font-size: 13px; }}
