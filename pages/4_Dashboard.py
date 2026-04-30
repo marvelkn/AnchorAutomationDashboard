@@ -150,6 +150,7 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
     df['WEEKS_ACTIVE'] = pd.to_numeric(
         df.get('WEEKS_ACTIVE', pd.Series([12] * len(df))), errors='coerce'
     ).fillna(12).clip(1, 52)
+    
     months_active = (df['WEEKS_ACTIVE'] / 4.33).clip(1, 12)
     df['AVG_SV']     = df['TOTAL_SV'] / months_active
     df['AVG_FBI']    = df['TOTAL_FBI'] / months_active

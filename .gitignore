@@ -54,3 +54,8 @@ data/master/governance_audit_log.csv
 data/master/backups/
 data/master/backups_card/
 data/master/backups_monitoring/
+
+# AI tool configs and Node.js (excluded from AI indexers like Antigravity)
+.claude/
+node_modules/
+.cursor/
