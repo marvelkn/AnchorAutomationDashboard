@@ -557,58 +557,6 @@ with tab0:
     if _high_risk_count > 0:
         st.warning(f"**{_high_risk_count} merchant(s) need immediate attention.** See the **Health Alerts** tab for recommended actions.")
 
-    # ── Fleet Health Zone (visual-first, 3-column) ────────────────────────────
-    if not _ml_kpi.empty:
-        fh1, fh2, fh3 = st.columns(3)
-
-        with fh1:
-            _risk_counts = _ml_kpi['CHURN_RISK'].value_counts().reset_index()
-            _risk_counts.columns = ['Status', 'Count']
-            _risk_color_map = {'HIGH RISK': '#C0392B', 'MEDIUM RISK': '#F59E0B', 'STABLE': '#27AE60'}
-            fig_ov_donut = px.pie(
-                _risk_counts, names='Status', values='Count', hole=0.55,
-                title='Portfolio Health Status',
-                color='Status', color_discrete_map=_risk_color_map,
-            )
-            fig_ov_donut.update_layout(height=280, margin=dict(t=36, b=10, l=10, r=10), **_chart_base())
-            st.plotly_chart(fig_ov_donut, use_container_width=True, theme=None)
-
-        with fh2:
-            if 'ACHIEVEMENT_PCT' in _ml_kpi.columns:
-                _ach = _ml_kpi['ACHIEVEMENT_PCT'].dropna()
-                _avg_ach = _ach.mean()
-                _pp_ov = _p()
-                _ach_color = "#34D399" if _avg_ach >= 90 else ("#FBBF24" if _avg_ach >= 70 else "#F87171")
-                fig_ov_ach = px.histogram(
-                    _ml_kpi, x='ACHIEVEMENT_PCT', nbins=10,
-                    title='Target Achievement Distribution',
-                    labels={'ACHIEVEMENT_PCT': 'Achievement (% of FY Target)'},
-                    color_discrete_sequence=[_ach_color],
-                )
-                fig_ov_ach.add_vline(x=100, line_dash='dash', line_color='#34D399',
-                                     annotation_text='100% Target', annotation_font_color='#34D399',
-                                     annotation_position='top right')
-                fig_ov_ach.update_layout(height=280, margin=dict(t=36, b=52, l=60, r=10),
-                                          showlegend=False, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-                st.plotly_chart(fig_ov_ach, use_container_width=True, theme=None)
-
-        with fh3:
-            if 'CLUSTER' in _ml_kpi.columns:
-                _clust_counts = _ml_kpi['CLUSTER'].value_counts().reset_index()
-                _clust_counts.columns = ['Tier', 'Merchants']
-                _tier_colors = {'ELITE': '#F1C40F', 'PREMIUM': '#27AE60', 'REGULER': '#2F80ED',
-                                'PASIF': '#EB5757', 'DORMANT': '#888888'}
-                fig_ov_tier = px.bar(
-                    _clust_counts.sort_values('Merchants', ascending=True),
-                    x='Merchants', y='Tier', orientation='h',
-                    title='Merchants by Performance Tier',
-                    color='Tier', color_discrete_map=_tier_colors,
-                )
-                fig_ov_tier.update_layout(height=280, margin=dict(t=36, b=10, l=80, r=10),
-                                           showlegend=False, **_chart_base(), xaxis=_xaxis(),
-                                           yaxis=dict(showgrid=False, automargin=True))
-                st.plotly_chart(fig_ov_tier, use_container_width=True, theme=None)
-
     # ── PM Coverage Cards (visual, not table) ─────────────────────────────────
     if not df_target.empty and 'PM' in df_target.columns:
         styled_divider()
