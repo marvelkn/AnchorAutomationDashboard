@@ -154,9 +154,28 @@ with st.sidebar:
 
     # ══ SECTION D: STATUS STRIP (pinned to bottom) ═════════════════════════════
     st.markdown('<div class="sb-status-strip">', unsafe_allow_html=True)
+
+    # ── Card 1: Neon Cloud DB connection ──────────────────────────────────────
+    if neon_exists:
+        _neon_clr, _neon_dot = p["BLUE_ACC"], "☁️"
+        _neon_lbl, _neon_sub = "Connected", "Cloud DB Active"
+    else:
+        _neon_clr, _neon_dot = p["RED"], "🔴"
+        _neon_lbl, _neon_sub = "Not Connected", "Set DATABASE_URL env var"
+
+    st.markdown(
+        f"""<div class="db-info" style="border-left-color:{_neon_clr}; margin-bottom:8px;">
+          <div class="db-label">Neon Database</div>
+          <div class="db-status" style="color:{_neon_clr};">{_neon_dot} {_neon_lbl}</div>
+          <div class="db-meta">{_neon_sub}</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    # ── Card 2: Staging DB / local data source ────────────────────────────────
     st.markdown(
         f"""<div class="db-info" style="border-left-color:{_db_clr};">
-          <div class="db-label">Data Source</div>
+          <div class="db-label">Database Status</div>
           <div class="db-status" style="color:{_db_clr};">{_db_dot} {_db_lbl}</div>
           <div class="db-meta">{_db_sub}</div>
         </div>""",
