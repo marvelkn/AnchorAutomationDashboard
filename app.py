@@ -172,15 +172,16 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # ── Card 2: Staging DB / local data source ────────────────────────────────
-    st.markdown(
-        f"""<div class="db-info" style="border-left-color:{_db_clr};">
-          <div class="db-label">Database Status</div>
-          <div class="db-status" style="color:{_db_clr};">{_db_dot} {_db_lbl}</div>
-          <div class="db-meta">{_db_sub}</div>
-        </div>""",
-        unsafe_allow_html=True,
-    )
+    # ── Card 2: Staging DB / local data source (only when Neon is not active) ──
+    if not neon_exists:
+        st.markdown(
+            f"""<div class="db-info" style="border-left-color:{_db_clr};">
+              <div class="db-label">Database Status</div>
+              <div class="db-status" style="color:{_db_clr};">{_db_dot} {_db_lbl}</div>
+              <div class="db-meta">{_db_sub}</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
     st.markdown('</div>', unsafe_allow_html=True)  # close .sb-status-strip
 
 
