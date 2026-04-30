@@ -168,6 +168,8 @@ if cloud_mode_enabled:
                         else:
                             st.error(f"Ingest failed: {result.get('error_message', 'unknown')}")
 
+                        _failed_color = "red" if _failed else "green"
+                        _failed_meta  = "errors" if _failed else "all clear"
                         st.markdown(f"""<div class="stats-grid">
                             <div class="stat-card green">
                                 <div class="stat-label">Tables Ingested</div>
@@ -184,10 +186,10 @@ if cloud_mode_enabled:
                                 <div class="stat-value">{_elapsed:.1f}s</div>
                                 <div class="stat-meta">ingest duration</div>
                             </div>
-                            <div class="stat-card {"red" if _failed else "green"}">
+                            <div class="stat-card {_failed_color}">
                                 <div class="stat-label">Failed Tables</div>
                                 <div class="stat-value">{_failed}</div>
-                                <div class="stat-meta">{"errors" if _failed else "all clear"}</div>
+                                <div class="stat-meta">{_failed_meta}</div>
                             </div>
                         </div>""", unsafe_allow_html=True)
 

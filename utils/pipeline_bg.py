@@ -82,8 +82,17 @@ def run_pipeline_thread(start_str, end_str, paths_config):
         PATH_MON      = paths_config["PATH_MON"]
         MASTER_DIR    = paths_config["MASTER_DIR"]
 
+        # Validate master files exist before any step runs
+        _missing = [p for p in [PATH_MID, PATH_CARD, PATH_MON] if not os.path.exists(p)]
+        if _missing:
+            set_pipeline_status({
+                "status": "error",
+                "error": f"Pipeline aborted — missing master files: {[os.path.basename(p) for p in _missing]}"
+            })
+            return
+
         step_results = {}
-        
+
         # ── Step 1: MID Cleaner ──────────────────────────────────────────────
         set_pipeline_status({"step": 1, "message": "Step 1: Processing Anchor MIDs (Querying staging.db...)", "status": "running"})
 
