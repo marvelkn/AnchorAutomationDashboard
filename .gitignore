@@ -55,7 +55,15 @@ data/master/backups/
 data/master/backups_card/
 data/master/backups_monitoring/
 
-# AI tool configs and Node.js (excluded from AI indexers like Antigravity)
+# AI tool configs and Node.js
 .claude/
 node_modules/
 .cursor/
+
+# Presentation and generation artifacts (not app code)
+*.pptx
+*.sqbpro
+gen_pptx.js
+ml_presentation_context.md
+package.json
+package-lock.json
