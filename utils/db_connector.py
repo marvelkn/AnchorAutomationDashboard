@@ -3,6 +3,8 @@ import pandas as pd
 import os
 import re
 
+_ALLOWED_TABLES = frozenset({"CARD_SHARE", "WEEKLY_MONITOR"})
+
 def get_sql_query(query_filename, start_date, end_date):
     """
     Reads a SQL query file and injects the parameterized date range.
@@ -68,8 +70,11 @@ def get_db_date_bounds(db_path):
         conn = sqlite3.connect(db_path)
         dates = []
         for tbl in ('CARD_SHARE', 'WEEKLY_MONITOR'):
+            if tbl not in _ALLOWED_TABLES:
+                continue
             rows = conn.execute(
-                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tbl}'"
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (tbl,)
             ).fetchall()
             if rows:
                 row = conn.execute(

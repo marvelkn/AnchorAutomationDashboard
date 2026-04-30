@@ -1,19 +1,26 @@
 import sqlite3
 import os
+from pathlib import Path
 
 def merge_incremental_data(source_db_path, target_db_path):
     """
     Merges data from source_db to target_db only if it doesn't exist.
     Uses natural keys to define 'newness'.
     """
-    if not os.path.exists(source_db_path) or not os.path.exists(target_db_path):
+    src = Path(source_db_path).resolve()
+    if src.suffix.lower() != ".db":
+        raise ValueError(f"Invalid source DB path (must be .db): {source_db_path}")
+    if any(c in str(src) for c in ["'", '"', ";"]):
+        raise ValueError(f"Path contains illegal characters: {source_db_path}")
+
+    if not src.exists() or not os.path.exists(target_db_path):
         return 0
 
     conn_target = sqlite3.connect(target_db_path)
     cursor_target = conn_target.cursor()
 
-    # Attach the source database
-    cursor_target.execute(f"ATTACH DATABASE '{source_db_path}' AS source")
+    # Attach the source database (path validated above)
+    cursor_target.execute(f"ATTACH DATABASE '{src}' AS source")
 
     tables_and_keys = {
         "ALL_MID": ["MERCHANT_ID", "TERMINAL_ID"],
