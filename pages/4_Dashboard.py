@@ -397,20 +397,27 @@ with st.spinner("Loading dashboard data..."):
             st.warning("Database not found. Process files in the Processing pages first.")
             st.stop()
 
-        conn = sqlite3.connect(PATH_DB)
-        has_card       = table_exists(conn, "PROCESSED_CARD_SHARE")
-        has_card_hist  = table_exists(conn, "PROCESSED_CARD_HISTORY")
-        has_mon        = table_exists(conn, "PROCESSED_MONITORING")
-        has_mon_weekly = table_exists(conn, "PROCESSED_MONITORING_WEEKLY")
-        has_tgt        = table_exists(conn, "TARGET")
+        try:
+            conn = sqlite3.connect(PATH_DB)
+            has_card       = table_exists(conn, "PROCESSED_CARD_SHARE")
+            has_card_hist  = table_exists(conn, "PROCESSED_CARD_HISTORY")
+            has_mon        = table_exists(conn, "PROCESSED_MONITORING")
+            has_mon_weekly = table_exists(conn, "PROCESSED_MONITORING_WEEKLY")
+            has_tgt        = table_exists(conn, "TARGET")
 
-        df_card        = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_SHARE", conn) if has_card else pd.DataFrame()
-        df_card_hist   = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_HISTORY", conn) if has_card_hist else pd.DataFrame()
-        df_mon         = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING", conn) if has_mon else pd.DataFrame()
-        df_mon_weekly  = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING_WEEKLY", conn) if has_mon_weekly else pd.DataFrame()
-        df_target      = pd.read_sql_query("SELECT * FROM TARGET", conn) if has_tgt else pd.DataFrame()
-        has_monthly_tbl = table_exists(conn, "PROCESSED_CARD_MONTHLY")
-        conn.close()
+            df_card        = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_SHARE", conn) if has_card else pd.DataFrame()
+            df_card_hist   = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_HISTORY", conn) if has_card_hist else pd.DataFrame()
+            df_mon         = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING", conn) if has_mon else pd.DataFrame()
+            df_mon_weekly  = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING_WEEKLY", conn) if has_mon_weekly else pd.DataFrame()
+            df_target      = pd.read_sql_query("SELECT * FROM TARGET", conn) if has_tgt else pd.DataFrame()
+            has_monthly_tbl = table_exists(conn, "PROCESSED_CARD_MONTHLY")
+            conn.close()
+        except Exception as e:
+            st.error(
+                f"Failed to load dashboard data from `{os.path.basename(PATH_DB)}`: {e}. "
+                "Run the pipeline first, or check that the database file exists."
+            )
+            st.stop()
 
     # ── BATCH METADATA & SIGNALS ─────────────────────────────────────────────
     _last_update = "Unknown"
@@ -427,8 +434,8 @@ with st.spinner("Loading dashboard data..."):
         _meta_dict = dict(zip(_df_meta['KEY'], _df_meta['VALUE']))
         _last_update = _meta_dict.get('LAST_DATA_UPDATE', 'Unknown')
         _show_new_badge = _meta_dict.get('NEW_DATA_SIGNAL') == '1'
-    except:
-        pass
+    except Exception:
+        pass  # metadata is non-critical; dashboard continues with defaults
 
 # ── HEADER ───────────────────────────────────────────────────────────────────
 header_col1, header_col2 = st.columns([0.8, 0.2])

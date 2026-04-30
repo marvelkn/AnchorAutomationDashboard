@@ -20,19 +20,17 @@ def get_sql_query(query_filename, start_date, end_date):
     with open(query_path, 'r') as f:
         query = f.read()
 
-    # Replace hardcoded start date (any YYYY-MM-DD 00:00:00 pattern)
+    # Replace all occurrences of start date (any YYYY-MM-DD 00:00:00 pattern)
     query, n_start = re.subn(
         r"'\d{4}-\d{2}-\d{2} 00:00:00'",
         f"'{start_date} 00:00:00'",
         query,
-        count=1
     )
-    # Replace hardcoded end date (any YYYY-MM-DD 23:59:59 pattern)
+    # Replace all occurrences of end date (any YYYY-MM-DD 23:59:59 pattern)
     query, n_end = re.subn(
         r"'\d{4}-\d{2}-\d{2} 23:59:59'",
         f"'{end_date} 23:59:59'",
         query,
-        count=1
     )
 
     if n_start == 0 or n_end == 0:
