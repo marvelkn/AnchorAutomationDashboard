@@ -485,22 +485,6 @@ kpi_row([
     ),
 ])
 
-# ── System Health (DB row counts only — no local file checks on cloud) ─────────
-_card_rows = len(df_card)   if has_card and not df_card.empty   else 0
-_mon_rows  = len(df_mon)    if has_mon  and not df_mon.empty    else 0
-_tgt_rows  = len(df_target) if has_tgt  and not df_target.empty else 0
-
-with st.expander("System Health & Data Status", expanded=False):
-    sc1, sc2, sc3 = st.columns(3)
-    sc1.metric("Card Share DB",
-               f"{_card_rows:,} rows" if _card_rows > 0 else ("Empty" if has_card else "Missing"))
-    sc2.metric("Monitoring DB",
-               f"{_mon_rows:,} rows"  if _mon_rows  > 0 else ("Empty" if has_mon  else "Missing"))
-    sc3.metric("Target Data",
-               f"{_tgt_rows:,} merchants" if _tgt_rows > 0 else "Missing")
-
-styled_divider()
-
 # ── PORTFOLIO FILTERS (directly above tabs) ───────────────────────────────────
 f_col1, f_col2 = st.columns(2)
 
@@ -544,7 +528,7 @@ if _filt_group and not df_card.empty and not df_mon_weekly_filt.empty:
         _mon_mg_upper.isin(_group_brands) | (_mon_mg_upper == sel_group)
     ]
 
-st.caption(f"Filter active for **Card Share** tab only: **{sel_group}** > **{sel_brand}**. The Weekly Monitor trend chart has its own independent group selector.")
+st.caption(f"Viewing: **{sel_group}** › **{sel_brand}** — applies to Card Share tab only.")
 
 CLAMP = CLUSTER_COLORS
 
@@ -641,8 +625,6 @@ with tab0:
 
     # ── Batch Impact (merged from former Batch Impact tab) ────────────────────
     styled_divider()
-    section_label("Batch Impact Analysis")
-    st.caption("Latest ingestion vs previous cycle")
 
     def _render_batch_impact(fetch_dates, df_getter):
         """Shared rendering logic for both Neon and SQLite batch sources."""
@@ -651,7 +633,7 @@ with tab0:
             return
         latest_date = fetch_dates.iloc[0, 0]
         prev_date   = fetch_dates.iloc[1, 0] if len(fetch_dates) > 1 else None
-        filter_pill(f"Ingestion Batch: {latest_date}")
+        section_label(f"Ingestion Overview · {latest_date}")
         df_latest = df_getter(latest_date)
         sum_latest_sv  = df_latest['TOTAL_SV'].sum()
         sum_latest_trx = df_latest['TOTAL_TRX'].sum()
@@ -668,15 +650,15 @@ with tab0:
             _trx_kind = "green" if delta_trx >= 0 else "red"
             bi1.markdown(
                 f'<div class="stat-card {_sv_kind}">'
-                f'<div class="stat-label">INGESTED SALES VOLUME</div>'
+                f'<div class="stat-label">Sales Volume</div>'
                 f'<div class="stat-value">Rp {sum_latest_sv/1e9:,.2f}B</div>'
-                f'<div class="stat-meta">{delta_sv/1e6:,.1f}M ({pct_sv:+.1f}%)</div>'
+                f'<div class="stat-meta">{delta_sv/1e6:+,.1f}M ({pct_sv:+.1f}%) vs prev batch</div>'
                 f'</div>', unsafe_allow_html=True)
             bi2.markdown(
                 f'<div class="stat-card {_trx_kind}">'
-                f'<div class="stat-label">INGESTED TRANSACTIONS</div>'
+                f'<div class="stat-label">Transactions</div>'
                 f'<div class="stat-value">{sum_latest_trx:,.0f}</div>'
-                f'<div class="stat-meta">{delta_trx:,.0f} ({pct_trx:+.1f}%)</div>'
+                f'<div class="stat-meta">{delta_trx:+,.0f} ({pct_trx:+.1f}%) vs prev batch</div>'
                 f'</div>', unsafe_allow_html=True)
             merged = pd.merge(
                 df_latest.groupby('MERCHANT_GROUP').sum().reset_index(),
@@ -726,16 +708,21 @@ with tab0:
                                        yaxis=dict(showgrid=False, automargin=True, showticklabels=True,
                                                   tickfont=dict(size=11)), **_chart_base())
                 st.plotly_chart(fig_loss, use_container_width=True, theme=None)
-            with st.expander("View Full Batch Comparison Table"):
+            with st.expander("Full Group Comparison"):
                 st.dataframe(merged[['MERCHANT_GROUP','Delta SV','Growth %']].sort_values('Delta SV', ascending=False), hide_index=True, use_container_width=True)
         else:
-            st.info(f"Only one batch found ({latest_date}). Comparison available after the next update.")
-            st.markdown(
-                f'<div style="display:flex;gap:12px;margin-top:12px;">'
-                f'<div class="stat-card blue"><div class="stat-label">INGESTED SALES VOLUME</div>'
-                f'<div class="stat-value">Rp {sum_latest_sv/1e9:,.2f}B</div></div>'
-                f'<div class="stat-card blue"><div class="stat-label">INGESTED TRANSACTIONS</div>'
-                f'<div class="stat-value">{sum_latest_trx:,.0f}</div></div>'
+            sb1, sb2 = st.columns(2)
+            sb1.markdown(
+                f'<div class="stat-card blue">'
+                f'<div class="stat-label">Sales Volume</div>'
+                f'<div class="stat-value">Rp {sum_latest_sv/1e9:,.2f}B</div>'
+                f'<div class="stat-meta">First batch — no prior cycle to compare</div>'
+                f'</div>', unsafe_allow_html=True)
+            sb2.markdown(
+                f'<div class="stat-card blue">'
+                f'<div class="stat-label">Transactions</div>'
+                f'<div class="stat-value">{sum_latest_trx:,.0f}</div>'
+                f'<div class="stat-meta">Comparison available after next ingestion</div>'
                 f'</div>', unsafe_allow_html=True)
 
     if neon_url:
