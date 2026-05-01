@@ -14,7 +14,7 @@ if _BASE not in sys.path:
     sys.path.insert(0, _BASE)
 
 from utils.theme import (
-    apply_theme, page_header, section_label, pipeline_stepper, get_palette,
+    apply_theme, page_header, section_label, pipeline_stepper, get_palette, styled_divider,
 )
 from utils.db_connector import fetch_data_from_db, get_db_date_bounds
 from utils.backup_manager import rotate_backups, get_available_backups, restore_backup
@@ -843,3 +843,123 @@ def execute_pipeline_fragment():
                 st.page_link("pages/4_Dashboard.py", label="**Go to Dashboard**")
 
 execute_pipeline_fragment()
+
+# ── Last Data Batch Summary ───────────────────────────────────────────────────
+styled_divider()
+section_label("Last Data Batch")
+st.caption("A quick look at what was loaded in the most recent pipeline run.")
+
+def _render_ingestion_summary():
+    """Plain-language summary of the latest vs previous ingestion batch."""
+    try:
+        if cloud_mode_enabled:
+            _eng = build_engine()
+            _dates = pd.read_sql_query(
+                "SELECT DISTINCT edw_fetch_date FROM card_share ORDER BY edw_fetch_date DESC LIMIT 2",
+                _eng,
+            )
+            _dates.columns = [c.upper() for c in _dates.columns]
+
+            def _get(d):
+                df = pd.read_sql_query(
+                    "SELECT merchant_group, total_sv, total_trx FROM card_share WHERE edw_fetch_date = %(d)s",
+                    _eng, params={"d": d},
+                )
+                df.columns = [c.upper() for c in df.columns]
+                return df
+
+        elif os.path.exists(PATH_LOCAL_DB):
+            _conn = sqlite3.connect(PATH_LOCAL_DB)
+            _dates = pd.read_sql_query(
+                "SELECT DISTINCT EDW_FETCH_DATE FROM CARD_SHARE ORDER BY EDW_FETCH_DATE DESC LIMIT 2",
+                _conn,
+            )
+
+            def _get(d):
+                return pd.read_sql_query(
+                    f"SELECT MERCHANT_GROUP, TOTAL_SV, TOTAL_TRX FROM CARD_SHARE WHERE EDW_FETCH_DATE = '{d}'",
+                    _conn,
+                )
+        else:
+            st.info("No data loaded yet. Run the pipeline above to get started.")
+            return
+
+        if _dates.empty:
+            st.info("No data loaded yet. Run the pipeline above to get started.")
+            return
+
+        latest = _dates.iloc[0, 0]
+        prev   = _dates.iloc[1, 0] if len(_dates) > 1 else None
+
+        df_new = _get(latest)
+        sv     = df_new['TOTAL_SV'].sum()
+        trx    = df_new['TOTAL_TRX'].sum()
+
+        # Human-friendly date
+        try:
+            date_str = datetime.strptime(str(latest), "%Y-%m-%d %H:%M:%S").strftime("%d %b %Y, %H:%M")
+        except Exception:
+            date_str = str(latest)
+
+        st.markdown(f"**Data loaded on:** {date_str}")
+
+        m1, m2 = st.columns(2)
+        m1.metric("Total Sales in this Batch",        f"Rp {sv/1e9:,.2f}B")
+        m2.metric("Total Transactions in this Batch", f"{trx:,.0f}")
+
+        if prev:
+            df_old   = _get(prev)
+            sv_old   = df_old['TOTAL_SV'].sum()
+            trx_old  = df_old['TOTAL_TRX'].sum()
+            d_sv     = sv  - sv_old
+            d_trx    = trx - trx_old
+            pct_sv   = (d_sv  / sv_old  * 100) if sv_old  > 0 else 0
+            pct_trx  = (d_trx / trx_old * 100) if trx_old > 0 else 0
+
+            sv_arrow  = "↑" if d_sv  >= 0 else "↓"
+            trx_arrow = "↑" if d_trx >= 0 else "↓"
+
+            st.markdown(
+                f"**vs. previous batch:** &nbsp;"
+                f"Sales {sv_arrow} Rp {abs(d_sv)/1e6:,.0f} Jt ({pct_sv:+.1f}%) &nbsp;·&nbsp; "
+                f"Transactions {trx_arrow} {abs(d_trx):,.0f} ({pct_trx:+.1f}%)"
+            )
+            st.info(
+                "These numbers reflect how much data was included in each pipeline run, "
+                "not changes in actual business performance. Large swings are normal when "
+                "different merchant groups are processed each cycle."
+            )
+
+            with st.expander("Which merchant groups changed between batches?"):
+                merged = pd.merge(
+                    df_new.groupby('MERCHANT_GROUP')[['TOTAL_SV']].sum().reset_index(),
+                    df_old.groupby('MERCHANT_GROUP')[['TOTAL_SV']].sum().reset_index(),
+                    on='MERCHANT_GROUP', suffixes=('_new', '_old'),
+                )
+                merged['Change (Rp Jt)'] = ((merged['TOTAL_SV_new'] - merged['TOTAL_SV_old']) / 1e6).round(1)
+                merged['Change %']       = ((merged['TOTAL_SV_new'] - merged['TOTAL_SV_old'])
+                                             / merged['TOTAL_SV_old'].replace(0, 1) * 100).round(1)
+                merged = merged[['MERCHANT_GROUP', 'Change (Rp Jt)', 'Change %']]
+
+                g1, g2 = st.columns(2)
+                with g1:
+                    st.markdown("**📈 More data this batch**")
+                    top_up = merged[merged['Change (Rp Jt)'] > 0].sort_values('Change (Rp Jt)', ascending=False).head(5)
+                    if top_up.empty:
+                        st.caption("No groups with increased data.")
+                    else:
+                        st.dataframe(top_up, hide_index=True, use_container_width=True)
+                with g2:
+                    st.markdown("**📉 Less data this batch**")
+                    top_dn = merged[merged['Change (Rp Jt)'] < 0].sort_values('Change (Rp Jt)').head(5)
+                    if top_dn.empty:
+                        st.caption("No groups with decreased data.")
+                    else:
+                        st.dataframe(top_dn, hide_index=True, use_container_width=True)
+        else:
+            st.caption("This is the first batch loaded — no previous run to compare against yet.")
+
+    except Exception as e:
+        st.warning(f"Could not load batch summary: {e}")
+
+_render_ingestion_summary()
