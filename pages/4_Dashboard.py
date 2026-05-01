@@ -553,9 +553,11 @@ with tab0:
     if not df_target.empty and 'PM' in df_target.columns:
         styled_divider()
         section_label("Account Manager Coverage")
-        _active_pms = df_target['PM'].nunique()
         _unassigned = int((df_target['PM'].fillna('UNASSIGNED').str.upper() == 'UNASSIGNED').sum())
-        _assigned = len(df_target) - _unassigned
+        _assigned   = len(df_target) - _unassigned
+        _active_pms = int(df_target['PM'].dropna()[
+            df_target['PM'].dropna().str.upper() != 'UNASSIGNED'
+        ].nunique())
         _avg_per_pm = round(_assigned / max(_active_pms, 1), 1)
 
         # ── Row 1: Individual PM cards ────────────────────────────────────────
