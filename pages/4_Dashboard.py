@@ -533,12 +533,13 @@ st.caption(f"Viewing: **{sel_group}** › **{sel_brand}** — applies to Card Sh
 CLAMP = CLUSTER_COLORS
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tab0, tab1, tab2, tab3, tab4 = st.tabs([
+tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Overview",
     "Card Share",
     "Weekly Monitor",
     "Merchant Tiers",
     "Health Alerts",
+    "Anomaly Detection",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2158,3 +2159,193 @@ with tab4:
                         st.success(f"No merchants dropped by {_slider_drop}%+ this week ({_wk_curr}). Portfolio activity looks stable.")
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — ANOMALY DETECTION
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab5:
+    tab_desc(
+        "Detects abnormal merchant transaction patterns using three complementary "
+        "statistical methods (Threshold, Z-Score, Isolation Forest) to support "
+        "fraud and anomaly monitoring."
+    )
+
+    @st.cache_data
+    def _load_wm_anomaly():
+        conn = sqlite3.connect(PATH_DB)
+        df = pd.read_sql_query("SELECT * FROM WEEKLY_MONITOR WHERE YEAR=2026", conn)
+        conn.close()
+        return df
+
+    _df_wm = _load_wm_anomaly()
+
+    if _df_wm.empty:
+        st.info("Run the automated pipeline to populate data first.")
+    else:
+        # ── Method 1: Threshold ─────────────────────────────────────────────
+        _pm_avg = _df_wm.groupby("MERCHANT_GROUP")["WEEKLY_VOL"].transform("mean")
+        _thresh_mask = _df_wm["WEEKLY_VOL"] > 3 * _pm_avg
+        _thresh_anom = _df_wm[_thresh_mask].copy()
+        _thresh_anom["RATIO"] = _thresh_anom["WEEKLY_VOL"] / _pm_avg[_thresh_mask]
+
+        # ── Method 2: Z-Score ───────────────────────────────────────────────
+        _df_wm = _df_wm.copy()
+        _df_wm["Z_SCORE"] = stats.zscore(_df_wm["WEEKLY_VOL"])
+        _zscore_anom = _df_wm[_df_wm["Z_SCORE"].abs() > 3.0].copy()
+
+        # ── Method 3: Isolation Forest ──────────────────────────────────────
+        _if_feats = ["WEEKLY_VOL", "WEEKLY_TRX", "WEEKLY_FBI"]
+        _if_X = StandardScaler().fit_transform(_df_wm[_if_feats])
+        _if_preds = IsolationForest(contamination=0.02, random_state=42).fit_predict(_if_X)
+        _if_anom = _df_wm[_if_preds == -1].copy()
+
+        # ── KPI Cards ───────────────────────────────────────────────────────
+        st.markdown(f"""<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">
+            <div class="stat-card amber">
+                <div class="stat-label">Threshold Flags</div>
+                <div class="stat-value">{len(_thresh_anom)}</div>
+                <div class="stat-meta">VOL &gt; 3&times; merchant avg</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Z-Score Flags</div>
+                <div class="stat-value">{len(_zscore_anom)}</div>
+                <div class="stat-meta">|Z| &gt; 3.0 global</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-label">Isolation Forest Flags</div>
+                <div class="stat-value">{len(_if_anom)}</div>
+                <div class="stat-meta">multivariate outliers</div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+        styled_divider()
+
+        # ── Expander 1: Threshold ────────────────────────────────────────────
+        with st.expander("Method 1 — Threshold (VOL > 3× Merchant Average)", expanded=False):
+            st.write(
+                "Flags merchants whose weekly volume spikes beyond 3× their own 2026 average "
+                "— the simplest possible rule."
+            )
+            if _thresh_anom.empty:
+                st.info("No threshold anomalies detected in 2026 data.")
+            else:
+                _t_disp = _thresh_anom[["MERCHANT_GROUP", "WEEK_NUM", "WEEKLY_VOL", "RATIO"]].copy()
+                _t_disp.insert(2, "Avg Vol (B IDR)", (_thresh_anom["WEEKLY_VOL"] / _thresh_anom["RATIO"]) / 1e9)
+                _t_disp["Flagged Vol (B IDR)"] = _t_disp["WEEKLY_VOL"] / 1e9
+                _t_disp["RATIO"] = _t_disp["RATIO"].map(lambda x: f"{x:.1f}×")
+                st.dataframe(
+                    _t_disp[["MERCHANT_GROUP", "WEEK_NUM", "Avg Vol (B IDR)", "Flagged Vol (B IDR)", "RATIO"]]
+                    .rename(columns={"MERCHANT_GROUP": "Merchant", "WEEK_NUM": "Week", "RATIO": "Ratio"}),
+                    use_container_width=True, hide_index=True,
+                )
+                _indom = _df_wm[_df_wm["MERCHANT_GROUP"] == "INDOMARET"].sort_values("WEEK_NUM")
+                if not _indom.empty:
+                    _thresh_line_val = _pm_avg[_df_wm["MERCHANT_GROUP"] == "INDOMARET"].iloc[0] * 3
+                    _fig_t = go.Figure()
+                    _fig_t.add_trace(go.Scatter(
+                        x=_indom["WEEK_NUM"], y=_indom["WEEKLY_VOL"] / 1e9,
+                        mode="lines+markers", name="INDOMARET Weekly VOL",
+                        line=dict(color=BLUE_ACC),
+                    ))
+                    _anom_indom = _indom[_indom["WEEK_NUM"].isin(_thresh_anom["WEEK_NUM"])]
+                    if not _anom_indom.empty:
+                        _fig_t.add_trace(go.Scatter(
+                            x=_anom_indom["WEEK_NUM"], y=_anom_indom["WEEKLY_VOL"] / 1e9,
+                            mode="markers", marker=dict(color=RED, size=12), name="Anomaly",
+                        ))
+                    _fig_t.add_hline(
+                        y=_thresh_line_val / 1e9, line_dash="dash", line_color=AMBER,
+                        annotation_text="3× threshold",
+                    )
+                    _fig_t.update_layout(xaxis_title="Week", yaxis_title="Volume (IDR Billions)",
+                                         title="INDOMARET — Weekly Volume 2026")
+                    apply_plotly_theme(_fig_t)
+                    st.plotly_chart(_fig_t, use_container_width=True)
+
+        # ── Expander 2: Z-Score ──────────────────────────────────────────────
+        with st.expander("Method 2 — Z-Score (|Z| > 3.0)", expanded=False):
+            st.write(
+                "Flags transactions more than 3 standard deviations from the global mean "
+                "— catches extreme global outliers regardless of merchant identity."
+            )
+            if _zscore_anom.empty:
+                st.info("No Z-score anomalies detected in 2026 data.")
+            else:
+                _z_disp = _zscore_anom[["MERCHANT_GROUP", "WEEK_NUM", "WEEKLY_VOL", "Z_SCORE"]].copy()
+                _z_disp["Vol (B IDR)"] = _z_disp["WEEKLY_VOL"] / 1e9
+                _z_disp["Z-Score"] = _z_disp["Z_SCORE"].map(lambda x: f"{x:.1f}")
+                st.dataframe(
+                    _z_disp[["MERCHANT_GROUP", "WEEK_NUM", "Vol (B IDR)", "Z-Score"]]
+                    .rename(columns={"MERCHANT_GROUP": "Merchant", "WEEK_NUM": "Week"}),
+                    use_container_width=True, hide_index=True,
+                )
+            _fig_z = px.scatter(
+                _df_wm, x="WEEK_NUM", y=_df_wm["WEEKLY_VOL"] / 1e9,
+                color="Z_SCORE", color_continuous_scale="RdBu_r",
+                labels={"WEEK_NUM": "Week", "y": "Volume (IDR Billions)", "Z_SCORE": "Z-Score"},
+                title="All Merchants — Weekly VOL vs Week (colored by Z-Score)",
+            )
+            _ph = _df_wm[
+                _df_wm["MERCHANT_GROUP"].str.contains("PIZZA HUT", na=False) &
+                (_df_wm["WEEK_NUM"] == 11)
+            ]
+            if not _ph.empty:
+                _fig_z.add_trace(go.Scatter(
+                    x=_ph["WEEK_NUM"], y=_ph["WEEKLY_VOL"] / 1e9,
+                    mode="markers+text", marker=dict(color=RED, size=14, symbol="star"),
+                    text=["PIZZA HUT Wk11"], textposition="top right", name="Z-Score Anomaly",
+                ))
+            apply_plotly_theme(_fig_z)
+            st.plotly_chart(_fig_z, use_container_width=True)
+
+        # ── Expander 3: Isolation Forest (open by default) ───────────────────
+        with st.expander("Method 3 — Isolation Forest (Multivariate)", expanded=True):
+            st.write(
+                "Fits an ensemble of random trees on [VOL, TRX, FBI] simultaneously; "
+                "rows easiest to isolate are flagged — catches anomalies invisible to any single metric."
+            )
+            if _if_anom.empty:
+                st.info("No Isolation Forest anomalies detected in 2026 data.")
+            else:
+                _if_disp = _if_anom[["MERCHANT_GROUP", "WEEK_NUM", "WEEKLY_VOL", "WEEKLY_TRX"]].copy()
+                _if_disp["Vol (B IDR)"] = _if_disp["WEEKLY_VOL"] / 1e9
+                _if_disp["Vol/TRX"] = (
+                    _if_disp["WEEKLY_VOL"] / _if_disp["WEEKLY_TRX"].clip(lower=1)
+                ).map(lambda x: f"{x:,.0f} IDR/txn")
+                st.dataframe(
+                    _if_disp[["MERCHANT_GROUP", "WEEK_NUM", "Vol (B IDR)", "WEEKLY_TRX", "Vol/TRX"]]
+                    .rename(columns={"MERCHANT_GROUP": "Merchant", "WEEK_NUM": "Week",
+                                     "WEEKLY_TRX": "TRX Count"}),
+                    use_container_width=True, hide_index=True,
+                )
+            _df_if_normal = _df_wm[_if_preds == 1]
+            _df_if_anom   = _df_wm[_if_preds == -1]
+            _fig_if = go.Figure()
+            _fig_if.add_trace(go.Scatter(
+                x=_df_if_normal["WEEKLY_TRX"], y=_df_if_normal["WEEKLY_VOL"] / 1e9,
+                mode="markers", marker=dict(color=BLUE_ACC, opacity=0.4, size=7), name="Normal",
+            ))
+            _fig_if.add_trace(go.Scatter(
+                x=_df_if_anom["WEEKLY_TRX"], y=_df_if_anom["WEEKLY_VOL"] / 1e9,
+                mode="markers", marker=dict(color=RED, size=10), name="Anomaly",
+            ))
+            _om = _df_if_anom[_df_if_anom["MERCHANT_GROUP"].str.contains("OPTIK MELAWAI", na=False)]
+            if not _om.empty:
+                _fig_if.add_trace(go.Scatter(
+                    x=_om["WEEKLY_TRX"], y=_om["WEEKLY_VOL"] / 1e9,
+                    mode="markers+text", marker=dict(color=AMBER, size=14, symbol="diamond"),
+                    text=["OPTIK MELAWAI"], textposition="top right", name="OPTIK MELAWAI",
+                ))
+            _fig_if.update_layout(
+                xaxis_title="Weekly TRX Count", yaxis_title="Volume (IDR Billions)",
+                title="Isolation Forest — VOL vs TRX (2026)",
+            )
+            apply_plotly_theme(_fig_if)
+            st.plotly_chart(_fig_if, use_container_width=True)
+
+        # ── Insight box ──────────────────────────────────────────────────────
+        st.info(
+            "The three methods are complementary: Threshold catches simple volume spikes. "
+            "Z-Score catches global statistical outliers. Isolation Forest catches "
+            "multivariate anomalies that no single metric would flag — like a merchant "
+            "with high volume but near-zero transactions."
+        )
