@@ -2171,9 +2171,20 @@ with tab5:
 
     @st.cache_data
     def _load_wm_anomaly():
-        conn = sqlite3.connect(PATH_DB)
-        df = pd.read_sql_query("SELECT * FROM WEEKLY_MONITOR WHERE YEAR=2026", conn)
-        conn.close()
+        if neon_url:
+            if not table_exists(engine, "WEEKLY_MONITOR"):
+                return pd.DataFrame()
+            df = pd.read_sql_query("SELECT * FROM weekly_monitor WHERE year=2026", engine)
+            df.columns = [c.upper() for c in df.columns]
+        else:
+            if not os.path.exists(PATH_DB):
+                return pd.DataFrame()
+            _conn = sqlite3.connect(PATH_DB)
+            if not table_exists(_conn, "WEEKLY_MONITOR"):
+                _conn.close()
+                return pd.DataFrame()
+            df = pd.read_sql_query("SELECT * FROM WEEKLY_MONITOR WHERE YEAR=2026", _conn)
+            _conn.close()
         return df
 
     _df_wm = _load_wm_anomaly()
