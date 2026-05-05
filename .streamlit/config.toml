@@ -1,5 +1,7 @@
 [server]
 maxUploadSize = 2000
+maxMessageSize = 2100
+enableXsrfProtection = true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BTN Anchor Dashboard — Light Theme (BTN Anchor Design System)

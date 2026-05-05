@@ -2,8 +2,20 @@ import sqlite3
 import pandas as pd
 import os
 import re
+from datetime import date as _date
 
 _ALLOWED_TABLES = frozenset({"CARD_SHARE", "WEEKLY_MONITOR"})
+
+_DATE_FORMAT_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+
+def _validate_date(date_str: str) -> str:
+    """Reject anything that isn't a valid YYYY-MM-DD date before it touches SQL."""
+    s = str(date_str).strip()
+    if not _DATE_FORMAT_RE.match(s):
+        raise ValueError(f"Invalid date format: {s!r} — expected YYYY-MM-DD")
+    _date.fromisoformat(s)  # raises ValueError for impossible dates like 2024-13-99
+    return s
 
 def get_sql_query(query_filename, start_date, end_date):
     """
@@ -14,6 +26,9 @@ def get_sql_query(query_filename, start_date, end_date):
     matches the first 'YYYY-MM-DD 00:00:00' occurrence (= start bound) and
     the first 'YYYY-MM-DD 23:59:59' occurrence (= end bound).
     """
+    start_date = _validate_date(start_date)
+    end_date   = _validate_date(end_date)
+
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     query_path = os.path.join(base_dir, 'Query', query_filename)
 

@@ -13,6 +13,8 @@ if _BASE not in sys.path:
 
 from utils.theme import apply_theme, page_header, section_label
 apply_theme()
+from utils.rate_limiter import enforce_rate_limit
+enforce_rate_limit("pm_page", max_calls=60, window_seconds=60, label="page loads")
 
 DB_PATH    = os.path.join(_BASE, "database", "staging.db")
 EXCEL_PATH = os.path.join(_BASE, "data", "master", "master_monitoring.xlsx")

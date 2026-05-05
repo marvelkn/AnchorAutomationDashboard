@@ -14,6 +14,8 @@ from utils.theme import apply_theme, page_header, section_label, GOLD
 
 st.set_page_config(page_title="Data Editor — BTN Anchor", page_icon=os.path.join(_BASE, "static", "btn_logo.png"), layout="wide")
 apply_theme()
+from utils.rate_limiter import enforce_rate_limit
+enforce_rate_limit("editor_page", max_calls=60, window_seconds=60, label="editor loads")
 page_header("", "Master Records Editor", "Safely View, Edit, Add, or Delete Master Classifications & Data")
 
 st.markdown(

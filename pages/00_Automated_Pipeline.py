@@ -31,11 +31,13 @@ from utils.governance import (
     _append_to_parameter_sheet,
     _write_governance_audit,
 )
+from utils.rate_limiter import enforce_rate_limit, is_pipeline_cooling_down, set_pipeline_cooldown
 
 cloud_mode_enabled = bool(os.getenv("DATABASE_URL"))
 
 st.set_page_config(page_title="Automated Pipeline — BTN Anchor", page_icon=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "btn_logo.png"), layout="wide")
 apply_theme()
+enforce_rate_limit("pipeline_page", max_calls=30, window_seconds=60, label="page loads")
 
 BASE_DIR      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_UPLOAD_DIR = os.path.join(BASE_DIR, "database")
@@ -112,6 +114,13 @@ if cloud_mode_enabled:
             key="neon_schema_ingest",
             help="Table names are lowercased in Neon (e.g. ALL_MID → all_mid).",
         )
+        import re as _re
+        _IDENT_RE = _re.compile(r'^[a-z][a-z0-9_]*$')
+        _schema_val = (neon_schema_ingest or "public").strip() or "public"
+        if not _IDENT_RE.match(_schema_val):
+            st.error("Schema name must start with a letter and contain only lowercase letters, digits, and underscores (e.g. 'public').")
+            st.stop()
+        neon_schema_ingest = _schema_val
         cloud_db_upload = st.file_uploader(
             "SQLite file (.db / .sqlite)",
             type=["db", "sqlite"],
@@ -128,6 +137,11 @@ if cloud_mode_enabled:
             if not cloud_db_upload:
                 st.warning("Please upload a .db file first.")
             else:
+                _blocked, _remaining = is_pipeline_cooling_down()
+                if _blocked:
+                    st.warning(f"Ingest ran recently — please wait {_remaining:.0f}s before running again.", icon="⏳")
+                    st.stop()
+                set_pipeline_cooldown()
                 # Reserve space BEFORE the action starts — prevents layout jumps
                 progress_placeholder = st.empty()
                 status_placeholder   = st.empty()

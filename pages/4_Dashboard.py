@@ -42,6 +42,10 @@ st.set_page_config(
 )
 apply_theme()
 
+from utils.rate_limiter import enforce_rate_limit
+enforce_rate_limit("dashboard_page", max_calls=60, window_seconds=60, label="dashboard loads")
+
+
 @st.dialog("No Data Found", width="large")
 def _show_no_data_dialog():
     st.markdown(

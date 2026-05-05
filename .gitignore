@@ -49,6 +49,7 @@ database/*.db-journal
 # Runtime generated files
 database/pipeline_status.json
 data/master/governance_audit_log.csv
+.pipeline_cooldown
 
 # Backup directories (runtime artefacts)
 data/master/backups/
