@@ -543,24 +543,22 @@ if _filt_group and not df_card.empty and not df_mon_weekly_filt.empty:
 CLAMP = CLUSTER_COLORS
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
-# Plan §1.2 — re-ordered to follow a decision narrative: outcome (Overview) →
-# diagnosis (Health Alerts → Anomaly) → context (Tiers) → composition (Card
-# Share) → power-user matrix (Weekly).
+# Tab order per user directive:
+# Overview → Card Share → Weekly → Merchant Tiers → Health → Anomaly
 #
-# Plan §4.1 — Health Alerts gets a numeric badge so daily users see at-a-glance
-# how many merchants need attention. The variable bindings preserve content:
-# `with tab4:` still renders Health Alerts (just appears 2nd visually now);
-# `with tab5:` still renders Anomaly Detection; etc.
+# Variable bindings stay aligned with each tab's content block:
+# tab0 = Overview, tab1 = Card Share, tab2 = Weekly,
+# tab3 = Merchant Tiers, tab4 = Health, tab5 = Anomaly
 #
-# Plan §2 declutter #5 — dropped the "Viewing: {group} > {brand} — applies to
-# Card Share tab only" caption. The filter pills above already convey scope.
-tab0, tab4, tab5, tab3, tab1, tab2 = st.tabs([
+# Plan §4.1 — Health label keeps a numeric badge so daily users see at a
+# glance how many merchants need attention.
+tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Overview",
-    tab_label_with_badge("Health Alerts", _high_risk_count),
-    "Anomaly Detection",
-    "Merchant Tiers",
     "Card Share",
-    "Weekly Monitor",
+    "Weekly",
+    "Merchant Tiers",
+    tab_label_with_badge("Health", _high_risk_count),
+    "Anomaly",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -789,63 +787,112 @@ with tab0:
     else:
         st.info("No assignment data loaded. Run the pipeline to populate PM assignments.")
 
-    # ── Merchant Explorer (formerly Merchant Detail tab) ─────────────────────
+    # ── Find a Merchant (rebuilt from "Merchant Explorer & Export") ──────────
+    # Recommendation: keep this tool — it's the only place in the dashboard
+    # with a name-search box, cross-dimensional filtering, and a CSV export
+    # of the whole merchant universe. But the previous "4 filter columns +
+    # sort + asc/desc" presentation was heavy and buried. New design leads
+    # with a single search box (the 80% use case), demotes secondary filters
+    # into a sub-expander, and shows only the columns most users actually scan.
     styled_divider()
-    with st.expander("Merchant Explorer & Export", expanded=False):
-        st.caption("Fully interactive explorer. Apply any combination of filters, search, sort, and export to CSV.")
+    with st.expander("Find a Merchant — search, filter, export", expanded=False):
         if has_card and has_mon:
-            df_exp = run_ml(df_card, df_mon, df_target)
+            _df_find_full = run_ml(df_card, df_mon, df_target)
         elif has_card:
-            df_exp = df_card.copy()
+            _df_find_full = df_card.copy()
         else:
-            df_exp = df_mon.copy() if not df_mon.empty else pd.DataFrame()
+            _df_find_full = df_mon.copy() if not df_mon.empty else pd.DataFrame()
 
-        if df_exp.empty:
-            st.info("No merchants found to explore. Please populate the database first.")
+        if _df_find_full.empty:
+            st.info("No merchants found to explore. Populate the database first.")
         else:
-            section_label("Explorer Filters")
-            ef1, ef2, ef3, ef4 = st.columns(4)
-            with ef1:
-                if 'CLUSTER' in df_exp.columns:
-                    _ec_opts = sorted(df_exp['CLUSTER'].dropna().unique().tolist())
-                    sel_ec = st.multiselect("Cluster", _ec_opts, default=_ec_opts, key="e_clust")
-                    df_exp = df_exp[df_exp['CLUSTER'].isin(sel_ec)]
-            with ef2:
-                if 'PM' in df_exp.columns:
-                    all_pm_e = sorted(df_exp['PM'].dropna().unique().tolist())
-                    sel_ep = st.multiselect("PM", all_pm_e, default=all_pm_e, key="e_pm")
-                    df_exp = df_exp[df_exp['PM'].isin(sel_ep)]
-            with ef3:
-                if 'CHURN_RISK' in df_exp.columns:
-                    cr_opts = ['All'] + df_exp['CHURN_RISK'].dropna().unique().tolist()
-                    sel_cr = st.selectbox("Churn Risk", cr_opts, key="e_cr")
-                    if sel_cr != 'All':
-                        df_exp = df_exp[df_exp['CHURN_RISK'] == sel_cr]
-            with ef4:
-                srch = st.text_input("Search merchant name", key="e_srch")
-                if srch:
-                    df_exp = df_exp[df_exp['MERCHANT_GROUP'].str.contains(srch.upper(), na=False)]
+            df_find = _df_find_full.copy()
 
-            active_count = len(df_exp)
-            all_count    = len(run_ml(df_card, df_mon, df_target)) if (has_card and has_mon) else len(df_exp)
-            if active_count < all_count:
-                filter_pill(f"Filter Active: Showing {active_count:,} of {all_count:,} merchants")
+            # 1. Primary control: a single search-by-name input. Most users open
+            #    this expander knowing exactly which merchant they're looking for.
+            _q = st.text_input(
+                "Search merchant name",
+                key="e_srch",
+                placeholder="Start typing — e.g. INDOMARET, HOKBEN, ...",
+                label_visibility="collapsed",
+            )
+            if _q:
+                df_find = df_find[df_find['MERCHANT_GROUP'].str.contains(
+                    _q.strip().upper(), na=False
+                )]
+
+            # 2. Secondary filters live in a sub-expander so they don't dominate
+            #    the surface for users who just need to type a name.
+            with st.expander("Advanced filters", expanded=False):
+                _ef1, _ef2, _ef3 = st.columns(3)
+                with _ef1:
+                    if 'CLUSTER' in df_find.columns:
+                        _opts = sorted(_df_find_full['CLUSTER'].dropna().unique().tolist())
+                        _sel = st.multiselect("Tier", _opts, default=_opts, key="e_clust")
+                        df_find = df_find[df_find['CLUSTER'].isin(_sel)]
+                with _ef2:
+                    if 'PM' in df_find.columns:
+                        _opts = sorted(_df_find_full['PM'].dropna().unique().tolist())
+                        _sel = st.multiselect("PM", _opts, default=_opts, key="e_pm")
+                        df_find = df_find[df_find['PM'].isin(_sel)]
+                with _ef3:
+                    if 'CHURN_RISK' in df_find.columns:
+                        _opts = ['All'] + _df_find_full['CHURN_RISK'].dropna().unique().tolist()
+                        _sel = st.selectbox("Risk", _opts, key="e_cr")
+                        if _sel != 'All':
+                            df_find = df_find[df_find['CHURN_RISK'] == _sel]
+
+            # 3. Coverage caption — surface match count next to the all-data total
+            #    so users see the filter scope without a separate filter pill.
+            _all_count = len(_df_find_full)
+            _hit_count = len(df_find)
+            if _hit_count == _all_count:
+                st.caption(f"Showing all **{_all_count:,}** merchants. Type a name above to filter.")
+            elif _hit_count == 0:
+                st.caption(f"No merchants match. Try a shorter query, or clear advanced filters.")
             else:
-                st.info(f"No filters applied — showing all **{active_count:,}** merchants.")
+                st.caption(f"Matching **{_hit_count:,}** of {_all_count:,} merchants.")
 
-            show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK',
-                                      'TOTAL_SV','TOTAL_TRX','TOTAL_FBI','RASIO_ONUS',
-                                      'WEEKS_ACTIVE','YTD_VOL','ACHIEVEMENT_PCT',
-                                      'SV_GROWTH_RATE','ZSCORE_SV'] if c in df_exp.columns]
-            es1, es2 = st.columns([3, 1])
-            sort_e = es1.selectbox("Sort by", show_cols, key="e_sort")
-            asc_e  = es2.radio("Order", ["Desc", "Asc"], horizontal=True, key="e_asc")
-            df_exp_s = df_exp[show_cols].sort_values(sort_e, ascending=(asc_e == 'Asc')).reset_index(drop=True) \
-                       if sort_e else df_exp[show_cols].reset_index(drop=True)
-            st.dataframe(df_exp_s, use_container_width=True, height=480)
-            st.download_button("Export Filtered View as CSV",
-                               df_exp_s.to_csv(index=False, encoding='utf-8-sig'),
-                               "merchant_explorer_export.csv", "text/csv", type="primary")
+            # 4. Compact 5-column inline view — the columns most users scan first.
+            #    Everything else moves into the row-detail dataframe below.
+            _show_compact = [c for c in
+                             ['MERCHANT_GROUP', 'PM', 'CLUSTER', 'ACHIEVEMENT_PCT', 'CHURN_RISK']
+                             if c in df_find.columns]
+            if _show_compact and not df_find.empty:
+                _compact = df_find[_show_compact].rename(columns={
+                    'MERCHANT_GROUP':   'Merchant',
+                    'PM':               'PM',
+                    'CLUSTER':          'Tier',
+                    'ACHIEVEMENT_PCT':  'Achievement',
+                    'CHURN_RISK':       'Risk',
+                })
+                _fmt = {}
+                if 'Achievement' in _compact.columns:
+                    _fmt['Achievement'] = lambda x: fmt_pct(x, decimals=0, scale=False) if pd.notna(x) else "—"
+                _compact_styled = _compact.style.format(_fmt) if _fmt else _compact.style
+                st.dataframe(_compact_styled, use_container_width=True,
+                             hide_index=True,
+                             height=min(38 * len(_compact) + 40, 380))
+
+            # 5. Full record + CSV export tucked into a second sub-expander so
+            #    quick lookups don't have to scroll past a 13-column wide grid.
+            with st.expander("Show full record + export", expanded=False):
+                _show_full = [c for c in
+                              ['MERCHANT_GROUP', 'PM', 'CLUSTER', 'CHURN_RISK',
+                               'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS',
+                               'WEEKS_ACTIVE', 'YTD_VOL', 'ACHIEVEMENT_PCT',
+                               'SV_GROWTH_RATE', 'ZSCORE_SV']
+                              if c in df_find.columns]
+                if _show_full and not df_find.empty:
+                    st.dataframe(df_find[_show_full].reset_index(drop=True),
+                                 use_container_width=True, height=380)
+                    st.download_button(
+                        "Export filtered list as CSV",
+                        df_find[_show_full].to_csv(index=False, encoding='utf-8-sig'),
+                        "merchant_explorer_export.csv", "text/csv", type="primary",
+                    )
+                else:
+                    st.caption("No data to export at this filter scope.")
 
     # ── AI Insights (formerly AI Insights tab) ────────────────────────────────
     with st.expander("AI Insights & Recommendations", expanded=False):
@@ -1592,180 +1639,347 @@ with tab1:
 # TAB 2 — WEEKLY MONITORING (reads from '2026' sheet directly)
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab2:
-    tab_desc("Weekly monitoring — merchant-level weekly matrix read directly from the <b>2026</b> sheet. "
-             "Filter by <b>PM</b> and <b>Metric</b> (TRX / VOL / FBI) to drill down.")
+    # Tab rebuilt for at-a-glance clarity. Old layout buried the actual signals
+    # (this week's volume, week-over-week change, who moved) under a 6-control
+    # filter bar, a meaningless "Selected Year" KPI card, and a 52-column raw
+    # matrix at the bottom. New layout leads with the four numbers a director
+    # actually wants, then movers, then a compact 12-week heatmap, with the
+    # full matrix demoted to an opt-in expander.
+    tab_desc(
+        "Weekly pulse of the merchant portfolio. Pick a metric — the KPIs, "
+        "movers, and heatmap update together. The full 52-week matrix lives "
+        "in the expander at the bottom for power users."
+    )
 
     if not has_mon_weekly:
-        st.warning("Weekly Monitoring database table is missing. Please run the Automated Pipeline first.")
+        st.warning("Weekly Monitoring data is missing. Run the Automated Pipeline first.")
     else:
-        # ── 1. Filters ───────────
-        f_col1, f_col2, f_col3 = st.columns([1, 1, 1])
-        
-        with f_col1:
-            avail_years_mon = []
-            if not df_mon_weekly_filt.empty and 'YEAR' in df_mon_weekly_filt.columns:
-                avail_years_mon = sorted(df_mon_weekly_filt['YEAR'].unique().tolist(), reverse=True)
-
-            sel_yr_mon = st.selectbox("Year", [str(y) for y in avail_years_mon] if avail_years_mon else ["No Data"], key="t2_year_mon")
-            df_mon_yr = df_mon_weekly_filt[df_mon_weekly_filt['YEAR'] == str(sel_yr_mon)] if (not df_mon_weekly_filt.empty and 'YEAR' in df_mon_weekly_filt.columns) else pd.DataFrame()
-        
-        with f_col2:
-            pm_names_mon = []
-            if not df_mon_yr.empty and 'PM' in df_mon_yr.columns:
-                pm_names_mon = sorted([p for p in df_mon_yr['PM'].dropna().unique() if str(p).strip().upper() not in ['NAN', 'NONE', 'UNKNOWN', 'UNASSIGNED']])
-            sel_pm_mon = st.selectbox("Filter by PM", ["All PMs"] + pm_names_mon, key="t2_pm_mon")
-        
-        with f_col3:
-            avail_ket_mon = sorted(df_mon_yr['DIMENSI'].dropna().unique()) if (not df_mon_yr.empty and 'DIMENSI' in df_mon_yr.columns) else []
-            sel_ket_mon = st.multiselect("Metric (Dimensi)", avail_ket_mon, default=avail_ket_mon, key="t2_ket_mon")
-
-        # ── 2. Data Processing ───────────
-        df_filt_mon = df_mon_yr.copy()
-        if sel_pm_mon != "All PMs":
-            df_filt_mon = df_filt_mon[df_filt_mon['PM'] == sel_pm_mon]
-        if sel_ket_mon:
-            df_filt_mon = df_filt_mon[df_filt_mon['DIMENSI'].isin(sel_ket_mon)]
-        
-        W_COLS_DB = sorted([c for c in df_filt_mon.columns if c.startswith('W') and c[1:].isdigit()])
-        
-        if df_filt_mon.empty:
-            st.info("No monitoring data matches the current filters.")
-        else:
-            grp_cols_mon = ['MERCHANT_GROUP', 'DIMENSI', 'PM', 'FY', 'YTD']
-            avail_grp_mon = [c for c in grp_cols_mon if c in df_filt_mon.columns]
-            
-            # YTD from df_mon_weekly is often object dtype — coerce before summing
-            _total_ytd_mon = pd.to_numeric(
-                df_filt_mon[df_filt_mon['DIMENSI'] == 'VOL']['YTD'], errors='coerce'
-            ).sum()
-            _total_ytd_mon = float(_total_ytd_mon) if not pd.isna(_total_ytd_mon) else 0.0
-            
-            def fmt_ytd_mon(v):
-                if v >= 1e12: return f"Rp {v/1e12:,.2f}T"
-                if v >= 1e9:  return f"Rp {v/1e9:,.1f}M"
-                if v >= 1e6:  return f"Rp {v/1e6:,.0f}Jt"
-                return f"{v:,.0f}"
-
-            st.markdown(f"""<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">
-                <div class="stat-card green">
-                    <div class="stat-label">Filtered YTD Volume</div>
-                    <div class="stat-value">{fmt_ytd_mon(_total_ytd_mon)}</div>
-                    <div class="stat-meta">volume total</div>
-                </div>
-                <div class="stat-card blue">
-                    <div class="stat-label">Selected Year</div>
-                    <div class="stat-value">{sel_yr_mon}</div>
-                    <div class="stat-meta">fiscal year</div>
-                </div>
-                <div class="stat-card purple">
-                    <div class="stat-label">Total Metrics Tracked</div>
-                    <div class="stat-value">{len(df_filt_mon)}</div>
-                    <div class="stat-meta">metric rows</div>
-                </div>
-            </div>""", unsafe_allow_html=True)
-
-            # ── 3. Trend & Visuals (visuals-first) ───────────
-            section_label("Weekly Aggregated Trend")
-
-            _WEEKLY_PALETTE = [
-                "#2563EB","#DC2626","#16A34A","#D97706","#7C3AED",
-                "#0891B2","#BE185D","#65A30D","#EA580C","#4338CA",
-            ]
-
-            # ── Independent chart pipeline — NOT driven by global Merchant Group filter ──
-            # Base: df_mon_weekly (full, unscoped) → year + PM applied (shared with KPI section).
-            _df_chart = (
-                df_mon_weekly[df_mon_weekly['YEAR'] == str(sel_yr_mon)].copy()
-                if not df_mon_weekly.empty and 'YEAR' in df_mon_weekly.columns
+        # ── Step 1: Minimal controls (year + metric only) ───────────────────
+        avail_years_mon = (
+            sorted(df_mon_weekly_filt['YEAR'].unique().tolist(), reverse=True)
+            if not df_mon_weekly_filt.empty and 'YEAR' in df_mon_weekly_filt.columns
+            else []
+        )
+        _DIM_LABELS = {'VOL': 'Volume', 'TRX': 'Transactions', 'FBI': 'Fee Income'}
+        _ctl_l, _ctl_r = st.columns([1, 3])
+        with _ctl_l:
+            sel_yr_mon = st.selectbox(
+                "Year",
+                [str(y) for y in avail_years_mon] if avail_years_mon else ["No Data"],
+                key="t2_year_mon",
+            )
+        with _ctl_r:
+            _df_year = (
+                df_mon_weekly_filt[df_mon_weekly_filt['YEAR'] == str(sel_yr_mon)].copy()
+                if not df_mon_weekly_filt.empty and 'YEAR' in df_mon_weekly_filt.columns
                 else pd.DataFrame()
             )
-            if sel_pm_mon != "All PMs" and not _df_chart.empty:
-                _df_chart = _df_chart[_df_chart['PM'] == sel_pm_mon]
+            _avail_dims = (sorted(_df_year['DIMENSI'].dropna().unique().tolist())
+                           if not _df_year.empty and 'DIMENSI' in _df_year.columns else [])
+            # Default to VOL — it's the headline business metric.
+            _default_idx = _avail_dims.index('VOL') if 'VOL' in _avail_dims else 0
+            sel_metric = st.radio(
+                "Metric",
+                _avail_dims if _avail_dims else ['VOL'],
+                index=_default_idx if _avail_dims else 0,
+                horizontal=True,
+                key="t2_metric_pick",
+                format_func=lambda d: _DIM_LABELS.get(d, d),
+            )
 
-            # Local group selector
-            _chart_grp_opts = (["ALL GROUPS"] + sorted(df_card['MERCHANT_GROUP'].unique().tolist())
-                               if not df_card.empty else ["ALL GROUPS"])
-            _chart_c1, _chart_c2 = st.columns([1, 2])
-            with _chart_c1:
-                _sel_chart_grp = st.selectbox("Select Group", _chart_grp_opts, key="t2_chart_grp")
-            with _chart_c2:
-                _avail_dim_c = sorted(_df_chart['DIMENSI'].dropna().unique().tolist()) if not _df_chart.empty else []
-                _sel_dim_c   = st.multiselect("Filter Metrics (DIMENSI)", _avail_dim_c,
-                                              default=_avail_dim_c, key="t2_dim_filter")
+        # ── Step 2: Build the metric-scoped slice ───────────────────────────
+        df_metric = _df_year[_df_year['DIMENSI'] == sel_metric].copy() if not _df_year.empty else pd.DataFrame()
 
-            # Apply local group filter (brand-level rows + group-aggregate row)
-            if _sel_chart_grp != "ALL GROUPS" and not df_card.empty and not _df_chart.empty:
-                _chart_brands = (df_card[df_card['MERCHANT_GROUP'] == _sel_chart_grp]['MERCHANT_ANCHOR']
-                                 .str.strip().str.upper().unique())
-                _chart_mg_up  = _df_chart['MERCHANT_GROUP'].str.strip().str.upper()
-                _df_chart = _df_chart[
-                    _chart_mg_up.isin(_chart_brands) | (_chart_mg_up == _sel_chart_grp.strip().upper())
-                ]
+        if df_metric.empty:
+            st.info(f"No {sel_metric} data for {sel_yr_mon}.")
+        else:
+            W_COLS_DB = sorted(
+                [c for c in df_metric.columns if c.startswith('W') and len(c) >= 2 and c[1:].isdigit()],
+                key=lambda c: int(c[1:]),
+            )
+            # Coerce W-columns to numeric (the source can be object-typed).
+            for _wc in W_COLS_DB:
+                df_metric[_wc] = pd.to_numeric(df_metric[_wc], errors='coerce').fillna(0.0)
 
-            _df_chart_plot = (_df_chart[_df_chart['DIMENSI'].isin(_sel_dim_c)].copy()
-                              if _sel_dim_c else _df_chart.copy())
+            # Aggregate per-week totals across all merchants in scope.
+            _weekly_totals = df_metric[W_COLS_DB].sum(axis=0)
 
-            _all_merch_c  = sorted(_df_chart_plot['MERCHANT_GROUP'].unique().tolist()) if not _df_chart_plot.empty else []
-            _plot_label   = "Select Brand to Plot" if _sel_chart_grp != "ALL GROUPS" else "Select Merchants to Plot"
-            _vol_c        = (_df_chart_plot[_df_chart_plot['DIMENSI'] == 'VOL']
-                             if 'VOL' in _sel_dim_c and not _df_chart_plot.empty else _df_chart_plot)
-            _def_merch_c  = ([m for m in _vol_c.sort_values('YTD', ascending=False)['MERCHANT_GROUP'].head(5).tolist()
-                              if m in _all_merch_c] if not _vol_c.empty else [])
-            sel_plot_merch = st.multiselect(_plot_label, _all_merch_c, default=_def_merch_c, key="t2_plot_merch")
+            # Latest "this week" = the most recent populated week.
+            _populated = [w for w in W_COLS_DB if _weekly_totals[w] > 0]
+            if not _populated:
+                st.info(f"No populated weeks for {sel_metric} in {sel_yr_mon} yet.")
+                _latest_w = None
+            else:
+                _latest_w = _populated[-1]
 
-            _W_CHART = sorted([c for c in _df_chart_plot.columns if c.startswith('W') and c[1:].isdigit()])
+            # Helper used in multiple places: format a value for the active metric.
+            def _fmt_metric_val(v):
+                if pd.isna(v):
+                    return "—"
+                if sel_metric == 'TRX':
+                    return fmt_count(v)
+                return fmt_currency_idr(v)
 
-            if sel_plot_merch:
-                _sel_up     = {b.strip().upper() for b in sel_plot_merch}
-                _mg_up      = _df_chart_plot['MERCHANT_GROUP'].str.strip().str.upper()
-                df_plot_mon = _df_chart_plot[_mg_up.isin(_sel_up)].copy()
-                # Truncate long merchant names so labels don't crash the chart
-                def _abbrev(name, n=16):
-                    return name if len(name) <= n else name[:n].rstrip() + '…'
-                df_plot_mon['LABEL'] = df_plot_mon['MERCHANT_GROUP'].apply(_abbrev) + ' (' + df_plot_mon['DIMENSI'] + ')'
-                df_long_mon = df_plot_mon.melt(id_vars='LABEL', value_vars=_W_CHART, var_name='Week', value_name='Value')
-                df_long_mon = df_long_mon.sort_values(['LABEL', 'Week'])
+            # ── Step 3: Insight-forward KPI strip (4 cards that answer real Qs) ─
+            _this_week_total = float(_weekly_totals[_latest_w]) if _latest_w else 0.0
 
-                fig_trend_mon = px.line(
-                    df_long_mon, x='Week', y='Value', color='LABEL', markers=True,
-                    title=f"Weekly Trend Analysis — {sel_yr_mon}",
-                    color_discrete_sequence=_WEEKLY_PALETTE,
+            # WoW: this week vs the average of the prior 4 weeks (not just last week)
+            # — robust to single-week noise. Same baseline used by Health Alerts.
+            _baseline_4w = 0.0
+            _wow_pct = 0.0
+            if _latest_w is not None:
+                _idx = W_COLS_DB.index(_latest_w)
+                _prior_window = W_COLS_DB[max(0, _idx - 4):_idx]
+                if _prior_window:
+                    _baseline_4w = float(_weekly_totals[_prior_window].mean())
+                    if _baseline_4w > 0:
+                        _wow_pct = (_this_week_total - _baseline_4w) / _baseline_4w
+
+            # Active merchants this week = how many have non-zero W{latest}.
+            _active_this_week = int((df_metric[_latest_w] > 0).sum()) if _latest_w else 0
+            _active_total     = int((df_metric[W_COLS_DB].sum(axis=1) > 0).sum())
+
+            # Behind pace = merchants whose W{latest} fell below half their 4-week avg.
+            _behind_pace = 0
+            if _latest_w and _idx > 0:
+                _row_avg = df_metric[_prior_window].mean(axis=1) if _prior_window else df_metric[W_COLS_DB].mean(axis=1)
+                _behind_pace = int(((df_metric[_latest_w] < _row_avg * 0.5) & (_row_avg > 0)).sum())
+
+            _wow_color = SUCCESS if _wow_pct > 0.02 else (DANGER if _wow_pct < -0.02 else WARNING)
+            _wow_arrow = "▲" if _wow_pct > 0 else ("▼" if _wow_pct < 0 else "•")
+
+            _k1, _k2, _k3, _k4 = st.columns(4)
+            with _k1:
+                st.markdown(kpi_card(
+                    _fmt_metric_val(_this_week_total),
+                    f"This week ({_latest_w or '—'})",
+                ), unsafe_allow_html=True)
+            with _k2:
+                _wow_str = f"{_wow_arrow} {fmt_growth(_wow_pct, decimals=1, scale=True)}" if _latest_w else "—"
+                st.markdown(
+                    f"<div class='kpi-card' style='border-top:3px solid {_wow_color};'>"
+                    f"<div class='kpi-val' style='color:{_wow_color};'>{_wow_str}</div>"
+                    f"<div class='kpi-lbl'>vs prior 4-week avg</div></div>",
+                    unsafe_allow_html=True,
                 )
-                fig_trend_mon.update_layout(
-                    height=480,
-                    margin=dict(l=0, r=0, t=36, b=80),
-                    legend=dict(orientation='h', y=-0.35),
-                    **_chart_base(),
+            with _k3:
+                st.markdown(kpi_card(
+                    f"{_active_this_week} / {_active_total}",
+                    "Active this week",
+                ), unsafe_allow_html=True)
+            with _k4:
+                _bp_kind = "danger" if _behind_pace > 0 else "success"
+                st.markdown(kpi_card(
+                    str(_behind_pace),
+                    "Behind pace · investigate",
+                    kind=_bp_kind,
+                ), unsafe_allow_html=True)
+
+            styled_divider()
+
+            # ── Step 4: Portfolio Pulse — single full-width line ────────────
+            section_label(f"Portfolio Pulse — {_DIM_LABELS.get(sel_metric, sel_metric)} · {sel_yr_mon}")
+
+            _pulse_x = [w[1:].lstrip('0') or '0' for w in W_COLS_DB]
+            _pulse_y = [_weekly_totals[w] for w in W_COLS_DB]
+            _avg_y = float(np.mean([y for y in _pulse_y if y > 0])) if any(y > 0 for y in _pulse_y) else 0.0
+
+            fig_pulse = go.Figure()
+            fig_pulse.add_trace(go.Scatter(
+                x=_pulse_x, y=_pulse_y,
+                mode='lines+markers',
+                line=dict(color=BLUE_ACC, width=2.5),
+                marker=dict(size=6, color=BLUE_ACC),
+                fill='tozeroy', fillcolor=hex_to_rgba(BLUE_ACC, 0.10),
+                name='Total per week',
+                hovertemplate='Week %{x}<br>%{y:,.0f}<extra></extra>',
+            ))
+            # Highlight the most-recent week with a star so the eye lands there.
+            if _latest_w is not None:
+                _idx_latest = W_COLS_DB.index(_latest_w)
+                fig_pulse.add_trace(go.Scatter(
+                    x=[_pulse_x[_idx_latest]],
+                    y=[_pulse_y[_idx_latest]],
+                    mode='markers+text',
+                    marker=dict(color=SUCCESS, size=16, symbol='star',
+                                line=dict(color='white', width=2)),
+                    text=[f"  {_fmt_metric_val(_this_week_total)}"],
+                    textposition='middle right',
+                    textfont=dict(size=11, color=TEXT_PRI),
+                    name='This week',
+                    showlegend=False,
+                ))
+            if _avg_y > 0:
+                fig_pulse.add_hline(
+                    y=_avg_y, line_dash='dot', line_color=TEXT_SEC, opacity=0.6,
+                    annotation_text=f"avg {_fmt_metric_val(_avg_y)}",
+                    annotation_position='top left',
                 )
-                fig_trend_mon.update_xaxes(tickangle=-45, **_xaxis())
-                st.plotly_chart(fig_trend_mon, use_container_width=True, theme=None)
+            fig_pulse.update_layout(
+                height=320, margin=dict(l=4, r=4, t=10, b=40),
+                xaxis={**_xaxis(), 'title': 'Week'},
+                yaxis=_yaxis(),
+                **_chart_base(),
+                showlegend=False,
+            )
+            st.plotly_chart(fig_pulse, use_container_width=True, theme=None)
 
-                # Heatmap
-                section_label("Performance Heatmap")
-                heat_data_mon = df_plot_mon.set_index('LABEL')[_W_CHART].fillna(0).apply(pd.to_numeric, errors='coerce').fillna(0)
+            # ── Step 5: Top movers this week (gainers / losers) ─────────────
+            # Per-merchant change = W{latest} − mean of prior 4 weeks. Filter to
+            # merchants with a meaningful baseline so % deltas are interpretable.
+            section_label("Top movers — this week vs prior 4-week average")
+            _movers = pd.DataFrame()
+            if _latest_w is not None and _idx > 0:
+                _baseline_per_merch = (df_metric[_prior_window].mean(axis=1)
+                                       if _prior_window else pd.Series(dtype=float))
+                _movers = df_metric[['MERCHANT_GROUP']].copy()
+                _movers['this_week'] = df_metric[_latest_w].values
+                _movers['baseline'] = _baseline_per_merch.values
+                _movers['delta'] = _movers['this_week'] - _movers['baseline']
+                _movers['pct'] = np.where(
+                    _movers['baseline'] > 0,
+                    _movers['delta'] / _movers['baseline'],
+                    np.nan,
+                )
+                # Require a meaningful baseline so we don't surface 1-trx merchants.
+                _meaningful = _movers[(_movers['baseline'] > 0) & _movers['pct'].notna()]
+                _gainers = _meaningful.sort_values('pct', ascending=False).head(5)
+                _losers  = _meaningful.sort_values('pct', ascending=True ).head(5)
+            else:
+                _gainers = pd.DataFrame()
+                _losers  = pd.DataFrame()
 
-                fig_heat_mon = px.imshow(
-                    heat_data_mon,
+            def _render_mover(row, *, gain: bool):
+                _color = SUCCESS if gain else DANGER
+                _arrow = "▲" if gain else "▼"
+                # 8-week mini-sparkline so the trajectory is visible at a glance.
+                _spark_cols = W_COLS_DB[max(0, _idx - 7):_idx + 1] if _latest_w else W_COLS_DB[-8:]
+                _spark_vals = (df_metric[df_metric['MERCHANT_GROUP'] == row['MERCHANT_GROUP']]
+                               [_spark_cols].iloc[0].tolist()
+                               if _spark_cols and not df_metric[df_metric['MERCHANT_GROUP'] == row['MERCHANT_GROUP']].empty
+                               else [])
+                _c1, _c2, _c3 = st.columns([3, 2, 2])
+                with _c1:
+                    st.markdown(
+                        f"<div style='font-weight:var(--fw-semibold);font-size:var(--fs-sm);'>"
+                        f"{row['MERCHANT_GROUP']}"
+                        f"</div>"
+                        f"<div style='color:var(--btn-text-sec);font-size:var(--fs-xs);'>"
+                        f"{_fmt_metric_val(row['this_week'])} this week · {_fmt_metric_val(row['baseline'])} avg"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                with _c2:
+                    if len(_spark_vals) >= 2:
+                        _spark = go.Figure(go.Scatter(
+                            x=list(range(len(_spark_vals))),
+                            y=_spark_vals,
+                            mode='lines',
+                            line=dict(color=_color, width=2),
+                            fill='tozeroy',
+                            fillcolor=hex_to_rgba(_color, 0.15),
+                        ))
+                        _spark.update_layout(
+                            height=44, margin=dict(l=0, r=0, t=0, b=0),
+                            showlegend=False,
+                            xaxis=dict(visible=False),
+                            yaxis=dict(visible=False),
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                        )
+                        st.plotly_chart(
+                            _spark, use_container_width=True, theme=None,
+                            config={'displayModeBar': False, 'staticPlot': True},
+                        )
+                with _c3:
+                    st.markdown(
+                        f"<div style='text-align:right;color:{_color};"
+                        f"font-weight:var(--fw-bold);font-size:var(--fs-md);'>"
+                        f"{_arrow} {fmt_growth(row['pct'], decimals=1, scale=True)}"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
+            _mvl, _mvr = st.columns(2)
+            with _mvl:
+                st.markdown(
+                    f"<div style='color:{SUCCESS};font-weight:var(--fw-bold);"
+                    f"text-transform:uppercase;letter-spacing:1px;font-size:var(--fs-xs);"
+                    f"margin-bottom:6px;'>▲ Top 5 gainers</div>",
+                    unsafe_allow_html=True,
+                )
+                if _gainers.empty:
+                    st.caption("Not enough history yet to compute gainers.")
+                else:
+                    for _, _row in _gainers.iterrows():
+                        with st.container(border=True):
+                            _render_mover(_row, gain=True)
+            with _mvr:
+                st.markdown(
+                    f"<div style='color:{DANGER};font-weight:var(--fw-bold);"
+                    f"text-transform:uppercase;letter-spacing:1px;font-size:var(--fs-xs);"
+                    f"margin-bottom:6px;'>▼ Top 5 losers</div>",
+                    unsafe_allow_html=True,
+                )
+                if _losers.empty:
+                    st.caption("Not enough history yet to compute losers.")
+                else:
+                    for _, _row in _losers.iterrows():
+                        with st.container(border=True):
+                            _render_mover(_row, gain=False)
+
+            # ── Step 6: Compact 12-week × top-10 heatmap ─────────────────────
+            styled_divider()
+            section_label("Recent 12-week heatmap — top 10 merchants by YTD")
+            _ytd_per_merch = df_metric[W_COLS_DB].sum(axis=1)
+            _top10_idx = _ytd_per_merch.sort_values(ascending=False).head(10).index
+            _last12 = W_COLS_DB[-12:]
+            _heat_df = df_metric.loc[_top10_idx, ['MERCHANT_GROUP'] + _last12].set_index('MERCHANT_GROUP')
+
+            if _heat_df.empty:
+                st.caption("Not enough top-merchant data for a heatmap yet.")
+            else:
+                fig_heat = px.imshow(
+                    _heat_df.values,
+                    x=[w[1:].lstrip('0') or '0' for w in _last12],
+                    y=_heat_df.index.tolist(),
                     color_continuous_scale='Viridis',
                     aspect='auto',
-                    title=f"Weekly Performance Patterns — {sel_yr_mon}"
+                    labels={'x': 'Week', 'y': 'Merchant', 'color': _DIM_LABELS.get(sel_metric, sel_metric)},
                 )
-                n_rows = len(heat_data_mon)
-                fig_heat_mon.update_layout(
-                    height=max(280, 36 * n_rows + 120),
-                    margin=dict(l=180, r=20, t=50, b=40),
+                fig_heat.update_layout(
+                    height=max(220, 36 * len(_heat_df) + 100),
+                    margin=dict(l=8, r=8, t=10, b=40),
                     **_chart_base(),
                 )
-                fig_heat_mon.update_yaxes(tickfont=dict(size=11))
-                st.plotly_chart(fig_heat_mon, use_container_width=True, theme=None)
+                st.plotly_chart(fig_heat, use_container_width=True, theme=None)
 
-            # ── 4. Main Data Matrix (details below charts) ───────────
-            section_label(f"Weekly Matrix — {sel_yr_mon}")
-            st.dataframe(df_filt_mon[avail_grp_mon + W_COLS_DB].fillna(0).reset_index(drop=True), use_container_width=True, height=400)
-
-            st.download_button("Export Table",
-                df_filt_mon[avail_grp_mon + W_COLS_DB].to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig'),
-                f"monitoring_{sel_yr_mon}_export.csv", "text/csv")
+            # ── Step 7: Full matrix demoted to expander (power-user view) ───
+            with st.expander(f"Full {sel_yr_mon} weekly matrix · all merchants · all metrics", expanded=False):
+                _full = _df_year.copy()
+                _W_FULL = sorted(
+                    [c for c in _full.columns if c.startswith('W') and len(c) >= 2 and c[1:].isdigit()],
+                    key=lambda c: int(c[1:]),
+                )
+                _grp_cols = [c for c in ('MERCHANT_GROUP', 'DIMENSI', 'PM', 'FY', 'YTD') if c in _full.columns]
+                _matrix = _full[_grp_cols + _W_FULL].fillna(0).reset_index(drop=True)
+                # Format the W-columns and YTD per row for readability.
+                def _fmt_row(v, dim):
+                    if pd.isna(v) or v == 0:
+                        return "—"
+                    if str(dim).upper() == 'TRX':
+                        return fmt_count(v)
+                    return fmt_currency_idr(v)
+                _disp = _matrix.copy()
+                if 'DIMENSI' in _disp.columns:
+                    for _wc in (_W_FULL + (['YTD'] if 'YTD' in _disp.columns else [])):
+                        _disp[_wc] = [_fmt_row(_v, _d) for _v, _d in zip(_disp[_wc], _disp['DIMENSI'])]
+                st.dataframe(_disp, use_container_width=True, height=420, hide_index=True)
+                st.download_button(
+                    "Export full matrix as CSV",
+                    _matrix.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig'),
+                    f"weekly_matrix_{sel_yr_mon}.csv", "text/csv",
+                )
 
 
 
