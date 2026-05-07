@@ -30,26 +30,32 @@ _DARK = dict(
 )
 
 _LIGHT = dict(
-    BG          = "#F9F9F9",   # --ink-050 canvas
+    # Plan §4.3 — refreshed light palette: cooler off-white BG (less yellow cast),
+    # slightly more saturated SURFACE2 so cards/active filters pop, higher-contrast
+    # BORDER (was disappearing), and navy-tinted black instead of pure black for
+    # text — pure #000 on light is harsh and out of brand. GREEN/RED/AMBER/BLUE_ACC
+    # now match the unified status system (Healthy/Alert/Watch/Info).
+    BG          = "#FAFBFC",   # cooler off-white canvas
     SURFACE     = "#FFFFFF",   # white widgets
-    SURFACE2    = "#F2F7FF",   # --btn-blue-050
-    BORDER      = "#EFF0F6",   # --ink-200
-    TEXT_PRI    = "#000000",   # --ink-900
-    TEXT_SEC    = "#4D4D4D",   # --ink-700
+    SURFACE2    = "#EEF4FE",   # slightly more saturated blue tint
+    BORDER      = "#E1E7F2",   # higher-contrast neutral border
+    TEXT_PRI    = "#0F1B33",   # navy-tinted near-black, brand-aligned
+    TEXT_SEC    = "#5C6680",   # navy-tinted secondary text
     NAVY        = "#0F2552",   # --btn-navy
     NAVY2       = "#DDE8FE",   # --btn-blue-100
     GOLD        = "#FFBF1A",   # --btn-gold
     GOLD_DIM    = "#E9A800",   # --btn-gold-600
-    GREEN       = "#2FEA9B",   # --ok-green
-    RED         = "#E51837",   # --btn-red
-    AMBER       = "#FFBF1A",   # reuse gold for warning
-    BLUE_ACC    = "#1B59F8",   # --btn-blue
+    GREEN       = "#10B981",   # unified status: healthy
+    RED         = "#EF4444",   # unified status: alert
+    AMBER       = "#F59E0B",   # unified status: watch
+    BLUE_ACC    = "#3B82F6",   # unified status: info / neutral
     SIDEBAR_BG  = "#FFFFFF",   # white sidebar
-    ALERT_BG    = "rgba(249,249,249,0.9)",
+    ALERT_BG    = "rgba(250,251,252,0.9)",
     DROPDOWN_BG = "#FFFFFF",
-    SCROLLBAR   = "#DADADA",   # --ink-300
-    # primary button: BTN blue in light mode
-    PRIMARY_BTN_BG  = "#1B59F8",
+    SCROLLBAR   = "#D1D9E6",   # cooler, matches new BORDER
+    # Primary button: subtle gradient on light mode mirrors the gold-gradient
+    # in dark mode and lifts CTAs above flat secondary buttons (plan §4.3).
+    PRIMARY_BTN_BG  = "linear-gradient(135deg, #1B59F8, #3D7AFE)",
     PRIMARY_BTN_FG  = "#FFFFFF",
     NAV_ACTIVE      = "#1B59F8",
     NAV_ACTIVE_BG   = "rgba(27,89,248,0.10)",
@@ -88,20 +94,25 @@ RED      = "#ff5252"
 AMBER    = "#ffc152"
 BLUE_ACC = "#4b7bec"
 
-# Tier colors — STYLING_GUIDE.md §1 Tier-Specific Colors
+# Tier colors — aligned to the unified status system (plan §4.3).
+# ELITE keeps gold (special/highest tier); PREMIUM/REGULER/PASIF/DORMANT now
+# use the same exact shades as SUCCESS/INFO/DANGER/neutral so semantics are
+# consistent across cluster pies, KPI bars, status chips, and growth arrows.
 CLUSTER_COLORS = {
-    "ELITE":   "#F1C40F",
-    "PREMIUM": "#27AE60",
-    "REGULER": "#2F80ED",
-    "PASIF":   "#EB5757",
-    "DORMANT": "#888888",
+    "ELITE":   "#F59E0B",   # gold (= WARNING shade — special, attention-grabbing)
+    "PREMIUM": "#10B981",   # = SUCCESS (healthy, top performers)
+    "REGULER": "#3B82F6",   # = INFO    (neutral, the standard tier)
+    "PASIF":   "#EF4444",   # = DANGER  (at-risk, action required)
+    "DORMANT": "#9CA3AF",   # neutral gray (inactive, no signal)
 }
 
-# Semantic status colors — STYLING_GUIDE.md Quick Reference
-SUCCESS    = "#34D399"   # emerald green
-WARNING    = "#FBBF24"   # amber
-DANGER     = "#F87171"   # red
-INFO       = "#2F80ED"   # blue
+# Unified semantic status colors — plan §4.3 single source of truth.
+# Use these everywhere for status chips, KPI accent bars, growth arrows,
+# gauge thresholds. Replaces three previously-conflicting red/green shades.
+SUCCESS    = "#10B981"   # healthy
+WARNING    = "#F59E0B"   # watch
+DANGER     = "#EF4444"   # alert
+INFO       = "#3B82F6"   # info / neutral
 
 # PM palette — for per-item left-accent cards (STYLING_GUIDE.md §1)
 PM_PALETTE = ['#2F80ED', '#9B59B6', '#F39C12', '#1ABC9C', '#E67E22', '#16A085']
@@ -185,11 +196,20 @@ def _make_css(p: dict) -> str:
     --btn-purple:     #a29bfe;
     --btn-font-mono:  'JetBrains Mono', monospace;
 
-    /* Semantic status tokens — STYLING_GUIDE.md Quick Reference */
-    --color-success:  #34D399;
-    --color-warning:  #FBBF24;
-    --color-danger:   #F87171;
-    --color-info:     #2F80ED;
+    /* Unified semantic status tokens — plan §4.3 single source of truth.
+       Same shades flow into Python via SUCCESS/WARNING/DANGER/INFO module
+       constants and into CLUSTER_COLORS so PREMIUM=success, PASIF=danger, etc. */
+    --color-success:  #10B981;   /* healthy */
+    --color-warning:  #F59E0B;   /* watch   */
+    --color-danger:   #EF4444;   /* alert   */
+    --color-info:     #3B82F6;   /* info / neutral */
+
+    /* ── Elevation tokens — plan §4.3 ──
+       Layered card shadows tint with navy (matches new TEXT_PRI #0F1B33) so
+       elevation feels brand-aligned rather than generic gray. */
+    --shadow-card:      0 1px 2px rgba(15,27,51,0.04), 0 4px 12px rgba(15,27,51,0.04);
+    --shadow-elevated:  0 2px 4px rgba(15,27,51,0.06), 0 12px 24px rgba(15,27,51,0.06);
+    --shadow-popover:   0 8px 24px rgba(15,27,51,0.10), 0 2px 6px rgba(15,27,51,0.05);
 
     /* ── Type scale — 8 size tokens ── */
     --fs-2xs:   0.65rem;
@@ -199,7 +219,11 @@ def _make_css(p: dict) -> str:
     --fs-md:    1.0rem;
     --fs-lg:    1.15rem;
     --fs-xl:    1.4rem;
-    --fs-kpi:   2.2rem;
+    --fs-kpi:   2.6rem;          /* plan §4.3 — bumped from 2.2 */
+
+    /* ── KPI typography refinements (plan §4.3) ── */
+    --kpi-letter-spacing: -0.02em;
+    --kpi-line-height:    1.05;
 
     /* ── Font weights — 5 weight tokens ── */
     --fw-regular:  400;
@@ -352,16 +376,21 @@ div[data-testid="stSidebarNav"] {{
 }}
 [data-testid="stTabs"] [data-baseweb="tab-highlight"] {{ display: none !important; }}
 
-/* ── Buttons ── */
+/* ── Buttons ──
+   Plan §4.3 — primary button uses a gradient via PRIMARY_BTN_BG (solid hex
+   in dark mode is replaced; light mode now matches the gold-gradient pattern).
+   Shadows use the unified elevation tokens so dark-mode (gold) and light-mode
+   (blue) buttons each get a brand-aligned glow rather than a hardcoded blue tint. */
 [data-testid="stButton"] > button[kind="primary"] {{
     background: {PRIMARY_BTN_BG} !important;
     color: {PRIMARY_BTN_FG} !important; border: none !important; font-weight: 700 !important;
     border-radius: 10px !important; font-family: 'Roboto', sans-serif !important;
     transition: all 120ms cubic-bezier(0.2,0.7,0.2,1);
-    box-shadow: 0 2px 8px rgba(27,89,248,0.20) !important;
+    box-shadow: var(--shadow-card) !important;
 }}
 [data-testid="stButton"] > button[kind="primary"]:hover {{
-    filter: brightness(0.92); box-shadow: 0 4px 14px rgba(27,89,248,0.30) !important;
+    filter: brightness(0.95); box-shadow: var(--shadow-elevated) !important;
+    transform: translateY(-1px);
 }}
 [data-testid="stButton"] > button[kind="primary"]:active {{
     transform: scale(0.98);
@@ -461,14 +490,21 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .kpi-card {{
     background: var(--btn-surface); border: 1px solid var(--btn-border);
     border-radius: 20px; padding: 22px 24px;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+    box-shadow: var(--shadow-card);                 /* plan §4.3 — layered navy-tinted */
     position: relative; overflow: hidden;
     display: flex; flex-direction: column; gap: 10px;
+    transition: box-shadow .15s ease, transform .15s ease;
+}}
+.kpi-card:hover {{
+    box-shadow: var(--shadow-elevated);
+    transform: translateY(-1px);
 }}
 .kpi-card .kpi-val {{
-    font-size: 28px; font-weight: 800; font-family: 'Roboto', sans-serif;
-    color: var(--btn-text-pri); line-height: 1.05;
-    font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+    /* Plan §4.3 — bumped from 28px so the headline number reads as a headline. */
+    font-size: var(--fs-kpi); font-weight: var(--fw-bold);
+    font-family: 'Roboto', sans-serif;
+    color: var(--btn-text-pri); line-height: var(--kpi-line-height);
+    font-variant-numeric: tabular-nums; letter-spacing: var(--kpi-letter-spacing);
 }}
 .kpi-card .kpi-lbl {{
     font-size: 13px; font-weight: 500; color: var(--btn-text3);
@@ -675,9 +711,11 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
 }}
 .kpi-value {{
     font-size: var(--fs-kpi);
-    font-weight: var(--fw-black);
+    font-weight: var(--fw-bold);                 /* plan §4.3: 700, not black 900 */
     color: var(--btn-text-pri);
-    line-height: 1;
+    line-height: var(--kpi-line-height);
+    letter-spacing: var(--kpi-letter-spacing);  /* tighter tracking on the headline number */
+    font-variant-numeric: tabular-nums;          /* stable column widths in KPI rows */
 }}
 .kpi-meta {{
     font-size: var(--fs-xs);
@@ -1005,6 +1043,32 @@ def kpi_row(cards: list):
         f'<div style="display:flex;gap:12px;margin-bottom:20px;">{inner}</div>',
         unsafe_allow_html=True,
     )
+
+
+def tab_label_with_badge(label: str, count: int) -> str:
+    """Plan §4.1 — add a numeric badge to a tab label so daily users see at a
+    glance which tabs need attention. Streamlit's st.tabs() accepts plain text
+    only (HTML is rendered as text), so the badge is unicode-only.
+
+    Examples:
+        tab_label_with_badge("Health Alerts", 5)  -> "Health Alerts  •  5"
+        tab_label_with_badge("Anomaly", 0)        -> "Anomaly"
+        tab_label_with_badge("Anomaly", None)     -> "Anomaly"
+    """
+    if not count:
+        return label
+    try:
+        n = int(count)
+    except (TypeError, ValueError):
+        return label
+    if n <= 0:
+        return label
+    # Thin-space + bullet + thin-space (explicit unicode escapes so the source
+    # is unambiguous and there is no copy-paste hazard) reads as "label · count"
+    # without the bullet looking like punctuation belonging to the label itself.
+    THIN = " "  # THIN SPACE
+    DOT  = "•"  # BULLET
+    return f"{label}{THIN}{THIN}{DOT}{THIN}{THIN}{n}"
 
 
 def tab_desc(text: str):

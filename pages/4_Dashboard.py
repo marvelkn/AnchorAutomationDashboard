@@ -23,7 +23,7 @@ if _BASE not in sys.path:
     sys.path.insert(0, _BASE)
 from utils.theme import (
     apply_theme, page_header, section_label, section_header, styled_divider,
-    kpi_card, kpi_row, tab_desc, filter_pill,
+    kpi_card, kpi_row, tab_desc, tab_label_with_badge, filter_pill,
     status_card, apply_plotly_theme, get_palette, stale_data_banner,
     left_accent_card, status_chip_html, status_box,
     NAVY, GOLD, GOLD_DIM, BG, SURFACE, BORDER, TEXT_PRI, TEXT_SEC,
@@ -32,6 +32,13 @@ from utils.theme import (
     SUCCESS, WARNING, DANGER, PM_PALETTE,
 )
 from utils.cloud_db import build_engine
+from utils.formatting import (
+    fmt_count, fmt_currency_idr, fmt_growth, fmt_pct, fmt_zscore,
+    growth_cell_style, zscore_cell_style,
+)
+from utils.growth_analytics import (
+    BASELINE_FLOORS, compute_growth_signals,
+)
 from sqlalchemy import text
 
 # ── PAGE CONFIG ──────────────────────────────────────────────────────────────
@@ -532,18 +539,27 @@ if _filt_group and not df_card.empty and not df_mon_weekly_filt.empty:
         _mon_mg_upper.isin(_group_brands) | (_mon_mg_upper == sel_group)
     ]
 
-st.caption(f"Viewing: **{sel_group}** › **{sel_brand}** — applies to Card Share tab only.")
-
 CLAMP = CLUSTER_COLORS
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+# Plan §1.2 — re-ordered to follow a decision narrative: outcome (Overview) →
+# diagnosis (Health Alerts → Anomaly) → context (Tiers) → composition (Card
+# Share) → power-user matrix (Weekly).
+#
+# Plan §4.1 — Health Alerts gets a numeric badge so daily users see at-a-glance
+# how many merchants need attention. The variable bindings preserve content:
+# `with tab4:` still renders Health Alerts (just appears 2nd visually now);
+# `with tab5:` still renders Anomaly Detection; etc.
+#
+# Plan §2 declutter #5 — dropped the "Viewing: {group} > {brand} — applies to
+# Card Share tab only" caption. The filter pills above already convey scope.
+tab0, tab4, tab5, tab3, tab1, tab2 = st.tabs([
     "Overview",
+    tab_label_with_badge("Health Alerts", _high_risk_count),
+    "Anomaly Detection",
+    "Merchant Tiers",
     "Card Share",
     "Weekly Monitor",
-    "Merchant Tiers",
-    "Health Alerts",
-    "Anomaly Detection",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1171,14 +1187,18 @@ with tab1:
         # Format display dataframe
         disp_top = df_top[['MERCHANT_GROUP', 'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'AVG_TRX_VAL', 'FBI_YIELD', 'RASIO_ONUS']].copy()
         
-        # Add formatted strings
+        # Plan §3.6 — route through utils/formatting so values auto-scale with magnitude
+        # (e.g. Rp 28.9 Jt vs Rp 1.93 M instead of hard-coded /1e9 that crushes mid-tier
+        # merchants to "Rp 0.05 M"). FBI_YIELD is already in percent form (line 1165
+        # multiplied by 100), RASIO_ONUS is a 0–1 fraction. AVG_TRX_VAL stays in raw
+        # rupiah for column-wise comparability.
         format_dict = {
-            'Sales Volume': lambda x: f"Rp {x/1e9:,.2f} M",
-            'Fee Based Income': lambda x: f"Rp {x/1e6:,.1f} Jt",
-            'Transactions': lambda x: f"{x:,.0f}",
-            'Avg Trx Size': lambda x: f"Rp {x:,.0f}",
-            'FBI Yield': lambda x: f"{x:.4f}%",
-            'On-Us Ratio': lambda x: f"{x*100:.1f}%",
+            'Sales Volume':     fmt_currency_idr,
+            'Fee Based Income': fmt_currency_idr,
+            'Transactions':     fmt_count,
+            'Avg Trx Size':     lambda x: f"Rp {x:,.0f}" if pd.notna(x) else "—",
+            'FBI Yield':        lambda x: fmt_pct(x, decimals=2, scale=False),
+            'On-Us Ratio':      lambda x: fmt_pct(x, decimals=1, scale=True),
         }
         
         col_names = {
@@ -1242,72 +1262,177 @@ with tab1:
                 
                 df_growth = pd.merge(df_curr, df_prev, on='MERCHANT_GROUP', how='outer')
                 df_growth = pd.merge(df_growth, df_fy, on='MERCHANT_GROUP', how='outer').fillna(0)
-                
-                df_growth['Delta'] = df_growth[col_curr] - df_growth[col_prev]
-                df_growth['Growth %'] = np.where(df_growth[col_prev] > 0, 
-                                                (df_growth['Delta'] / df_growth[col_prev]) * 100, 
-                                                np.where(df_growth[col_curr] > 0, 100, 0))
-                
-                df_growth = df_growth[(df_growth[col_curr] > 0) | (df_growth[col_prev] > 0) | (df_growth[col_fy_prev] > 0)]
-                top_10 = df_growth.sort_values('Growth %', ascending=False).head(10)
-                bot_10 = df_growth.sort_values('Growth %', ascending=True).head(10)
-                
-                def val_fmt_g(x):
-                    if 'TOTAL_TRX' in m_col: return f"{x:,.0f}"
-                    if x >= 1e9 or x <= -1e9: return f"{x/1e9:,.2f} M"
-                    return f"{x/1e6:,.0f} Jt"
-                
-                def style_growth(row):
-                    styles = [''] * len(row)
-                    pct = row['Growth %']
-                    color = '#27AE60' if pct > 0 else ('#EB5757' if pct < 0 else '#888')
-                    styles[4] = f'color: {color}; font-weight: bold;'
-                    styles[5] = f'color: {color}; font-weight: bold;'
-                    return styles
-                    
-                formatters = {
-                    col_curr: val_fmt_g, col_prev: val_fmt_g, col_fy_prev: val_fmt_g,
-                    'Delta': val_fmt_g, 'Growth %': lambda x: f"{x:,.0f}%"
-                }
-                
-                section_label(f"Top 10 by {metric_sel} Growth")
-                fig_top10 = go.Figure(go.Bar(
-                    x=top_10['Growth %'],
-                    y=top_10['MERCHANT_GROUP'],
-                    orientation='h',
-                    marker_color='#27AE60',
-                    text=[f"{v:+.1f}%" for v in top_10['Growth %']],
-                    textposition='outside',
-                ))
-                fig_top10.update_layout(
-                    height=340, margin=dict(l=4, r=4, t=10, b=32),
-                    xaxis={**_xaxis(), 'title': 'Growth %'},
-                    yaxis=dict(showgrid=False, automargin=True),
-                    **_chart_base(),
-                )
-                st.plotly_chart(fig_top10, use_container_width=True, theme=None)
-                with st.expander("View Raw Data Table"):
-                    st.dataframe(top_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), use_container_width=True)
 
-                st.markdown("")
-                section_label(f"Bottom 10 by {metric_sel} Growth")
-                fig_bot10 = go.Figure(go.Bar(
-                    x=bot_10['Growth %'],
-                    y=bot_10['MERCHANT_GROUP'],
-                    orientation='h',
-                    marker_color='#EB5757',
-                    text=[f"{v:+.1f}%" for v in bot_10['Growth %']],
-                    textposition='outside',
-                ))
-                fig_bot10.update_layout(
-                    height=340, margin=dict(l=4, r=4, t=10, b=32),
-                    xaxis={**_xaxis(), 'title': 'Growth %'},
-                    yaxis=dict(showgrid=False, automargin=True),
-                    **_chart_base(),
+                # Plan §3.1 — replace the broken raw `(curr - prev) / prev` formula
+                # with: baseline-floor classification + symmetric percent change for
+                # ranking + separate buckets for new merchants and dropped-off ones.
+                # This kills the HOKBEN +328,734% outlier and the four merchants pinned
+                # at exactly -100% in the prior visualization.
+                _baseline = BASELINE_FLOORS[m_col]
+                df_signals = compute_growth_signals(
+                    df_growth, curr_col=col_curr, prev_col=col_prev, baseline=_baseline,
                 )
-                st.plotly_chart(fig_bot10, use_container_width=True, theme=None)
-                with st.expander("View Raw Data Table"):
-                    st.dataframe(bot_10.style.apply(style_growth, axis=1).format(formatters).hide(axis="index"), use_container_width=True)
+
+                df_established = df_signals[df_signals['Status'] == 'established'].copy()
+                df_new_react   = df_signals[df_signals['Status'] == 'new_reactivated'].copy()
+                df_dropped     = df_signals[df_signals['Status'] == 'dropped_off'].copy()
+
+                # Rank by symmetric percent change (bounded [-200, +200]) so the chart
+                # scale is meaningful. Raw Growth % stays in the table for reference.
+                top_10 = df_established.sort_values('Symmetric %', ascending=False).head(10).copy()
+                bot_10 = df_established.sort_values('Symmetric %', ascending=True).head(10).copy()
+
+                def _val_fmt(x):
+                    if pd.isna(x):
+                        return "—"
+                    if 'TOTAL_TRX' in m_col:
+                        return fmt_count(x)
+                    return fmt_currency_idr(x)
+
+                def _row_growth_color(row):
+                    pct = row['Symmetric %']
+                    color = GREEN if pct > 0 else (RED if pct < 0 else TEXT_SEC)
+                    styles = [''] * len(row)
+                    # Color only the % columns. Index by column name to be order-safe.
+                    for i, col in enumerate(row.index):
+                        if col in ('Growth %', 'Symmetric %', 'Delta'):
+                            styles[i] = f'color: {color}; font-weight: 600;'
+                    return styles
+
+                _table_formatters = {
+                    col_curr:    _val_fmt,
+                    col_prev:    _val_fmt,
+                    col_fy_prev: _val_fmt,
+                    'Delta':     _val_fmt,
+                    'Growth %':     lambda x: fmt_growth(x, decimals=1, scale=False, cap=10_000),
+                    'Symmetric %':  lambda x: fmt_growth(x, decimals=1, scale=False),
+                }
+
+                # Coverage caption — surface how many merchants were classified into each
+                # bucket so the user understands why the bar chart only shows established
+                # merchants. Without this, "Top/Bottom 10" feels incomplete.
+                _n_total = len(df_signals)
+                _n_est   = len(df_established)
+                _n_new   = len(df_new_react)
+                _n_drop  = len(df_dropped)
+                _n_inact = _n_total - _n_est - _n_new - _n_drop
+                st.caption(
+                    f"Of **{_n_total}** merchants this month: "
+                    f"**{_n_est}** established · **{_n_new}** new/re-activated · "
+                    f"**{_n_drop}** dropped off · **{_n_inact}** inactive. "
+                    f"Only established merchants appear in the Top/Bottom bars below — "
+                    f"baseline for {metric_sel} is {fmt_currency_idr(_baseline) if 'TOTAL_TRX' not in m_col else fmt_count(_baseline)}."
+                )
+
+                # Plan §3.1 visual fix — side-by-side panels (each with its own scale),
+                # symmetric-pct as the bar value (bounded), and bar text that combines
+                # the absolute Delta with the % so users see both the relative move and
+                # the actual rupiah/trx change.
+                def _bar_text(row, prefix=""):
+                    delta_str = _val_fmt(row['Delta'])
+                    pct_str   = fmt_growth(row['Symmetric %'], decimals=1, scale=False)
+                    return f"{prefix}{delta_str}  ({pct_str})"
+
+                _gcol_l, _gcol_r = st.columns(2)
+                with _gcol_l:
+                    section_label(f"Top 10 by {metric_sel} Growth")
+                    if not top_10.empty:
+                        # Reverse order so largest growth appears at the top of the bar chart.
+                        _top_plot = top_10.iloc[::-1]
+                        fig_top10 = go.Figure(go.Bar(
+                            x=_top_plot['Symmetric %'],
+                            y=_top_plot['MERCHANT_GROUP'],
+                            orientation='h',
+                            marker_color=GREEN,
+                            text=[_bar_text(r, prefix="+") for _, r in _top_plot.iterrows()],
+                            textposition='outside',
+                            cliponaxis=False,
+                        ))
+                        fig_top10.update_layout(
+                            height=380, margin=dict(l=4, r=140, t=10, b=32),
+                            xaxis={**_xaxis(), 'title': 'Symmetric Growth % (bounded ±200)',
+                                   'range': [0, 220]},
+                            yaxis=dict(showgrid=False, automargin=True),
+                            **_chart_base(),
+                        )
+                        st.plotly_chart(fig_top10, use_container_width=True, theme=None)
+                        with st.expander("View raw data"):
+                            st.dataframe(
+                                top_10[['MERCHANT_GROUP', col_curr, col_prev, 'Delta', 'Growth %', 'Symmetric %']]
+                                .style.apply(_row_growth_color, axis=1).format(_table_formatters).hide(axis="index"),
+                                use_container_width=True,
+                            )
+                    else:
+                        st.info("No established merchants this month.")
+
+                with _gcol_r:
+                    section_label(f"Bottom 10 by {metric_sel} Growth")
+                    if not bot_10.empty:
+                        # Reverse so largest decline (most negative) appears at the top.
+                        _bot_plot = bot_10.iloc[::-1]
+                        fig_bot10 = go.Figure(go.Bar(
+                            x=_bot_plot['Symmetric %'],
+                            y=_bot_plot['MERCHANT_GROUP'],
+                            orientation='h',
+                            marker_color=RED,
+                            text=[_bar_text(r) for _, r in _bot_plot.iterrows()],
+                            textposition='outside',
+                            cliponaxis=False,
+                        ))
+                        fig_bot10.update_layout(
+                            height=380, margin=dict(l=4, r=140, t=10, b=32),
+                            xaxis={**_xaxis(), 'title': 'Symmetric Growth % (bounded ±200)',
+                                   'range': [-220, 0]},
+                            yaxis=dict(showgrid=False, automargin=True),
+                            **_chart_base(),
+                        )
+                        st.plotly_chart(fig_bot10, use_container_width=True, theme=None)
+                        with st.expander("View raw data"):
+                            st.dataframe(
+                                bot_10[['MERCHANT_GROUP', col_curr, col_prev, 'Delta', 'Growth %', 'Symmetric %']]
+                                .style.apply(_row_growth_color, axis=1).format(_table_formatters).hide(axis="index"),
+                                use_container_width=True,
+                            )
+                    else:
+                        st.info("No established merchants this month.")
+
+                # New / Re-activated and Dropped-off lists — separate from the bars
+                # because % growth is meaningless for these (small or zero baseline).
+                _scol_l, _scol_r = st.columns(2)
+                with _scol_l:
+                    section_label(f"New & Re-activated (top 10 by {metric_sel})")
+                    if not df_new_react.empty:
+                        _new_show = df_new_react.sort_values(col_curr, ascending=False).head(10)[
+                            ['MERCHANT_GROUP', col_curr, col_prev, 'Delta']
+                        ]
+                        st.dataframe(
+                            _new_show.style.format(_table_formatters).hide(axis="index"),
+                            use_container_width=True, hide_index=True,
+                        )
+                        st.caption(
+                            f"Merchants whose **{col_prev}** baseline was below the activity floor. "
+                            f"Their percentage growth would be a data artifact, so they're listed "
+                            f"by absolute current-period value instead."
+                        )
+                    else:
+                        st.caption("No newly active merchants this month.")
+
+                with _scol_r:
+                    section_label(f"Dropped Off (top 10 by prior {metric_sel})")
+                    if not df_dropped.empty:
+                        _drop_show = df_dropped.sort_values(col_prev, ascending=False).head(10)[
+                            ['MERCHANT_GROUP', col_prev, col_fy_prev]
+                        ]
+                        st.dataframe(
+                            _drop_show.style.format(_table_formatters).hide(axis="index"),
+                            use_container_width=True, hide_index=True,
+                        )
+                        st.caption(
+                            f"Merchants who had real activity in **{col_prev}** but zero in **{col_curr}**. "
+                            f"Investigate before treating as a decline — it may be a data gap."
+                        )
+                    else:
+                        st.caption("No merchants dropped off this month.")
             except Exception as e:
                 st.error(f"Growth calculation failed: {e}")
 
@@ -1694,7 +1819,30 @@ with tab3:
                 show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','RISK_SCORE',
                                          'AVG_SV','AVG_FBI','ACHIEVEMENT_PCT',
                                          'WEEKS_ACTIVE','ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH'] if c in df_f.columns]
-                st.dataframe(df_f[show_cols].sort_values('RISK_SCORE', ascending=False).reset_index(drop=True), use_container_width=True)
+                _ml_view = df_f[show_cols].sort_values('RISK_SCORE', ascending=False).reset_index(drop=True)
+
+                # Plan §3.6 — replace raw 6-decimal numbers with human-readable formats.
+                # ACHIEVEMENT_PCT in this dataset is already in percent form (0–100+),
+                # not a 0–1 fraction, so use scale=False.
+                _ml_format_dict = {
+                    'RISK_SCORE':      lambda x: f"{x:.1f}" if pd.notna(x) else "—",
+                    'AVG_SV':          fmt_currency_idr,
+                    'AVG_FBI':         fmt_currency_idr,
+                    'ACHIEVEMENT_PCT': lambda x: fmt_pct(x, decimals=1, scale=False),
+                    'WEEKS_ACTIVE':    lambda x: f"{int(x)}" if pd.notna(x) else "—",
+                    'ZSCORE_SV':       fmt_zscore,
+                    'ZSCORE_FBI':      fmt_zscore,
+                    'ZSCORE_GROWTH':   fmt_zscore,
+                }
+                _ml_format_dict = {k: v for k, v in _ml_format_dict.items() if k in _ml_view.columns}
+
+                # Diverging red/white/green heatmap on Z-score columns so the eye
+                # can scan the table without reading every digit (plan §3.6).
+                _zscore_cols = [c for c in ('ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH') if c in _ml_view.columns]
+                _styled = _ml_view.style.format(_ml_format_dict)
+                if _zscore_cols:
+                    _styled = _styled.map(zscore_cell_style, subset=_zscore_cols)
+                st.dataframe(_styled, use_container_width=True, hide_index=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — CHURN & RISK
@@ -2155,10 +2303,30 @@ with tab4:
                     _anomalies = _anomalies.sort_values('This Week Change', ascending=True)
                     if not _anomalies.empty:
                         st.warning(f"**{len(_anomalies)} merchant(s) dropped by {_slider_drop}%+ in {_wk_curr}** compared to their 4-week average.")
+
+                        # Plan §3.6 — replace raw 6-decimal numbers (e.g. 30561.000000,
+                        # 656135255.805000) with human-readable formats. Unit depends on
+                        # the DIMENSI label per row: VOL/FBI → IDR currency, TRX → count.
+                        def _fmt_by_dim(val, dim):
+                            if pd.isna(val):
+                                return "—"
+                            d = str(dim).upper()
+                            if d in ('VOL', 'FBI'):
+                                return fmt_currency_idr(val)
+                            return fmt_count(val)
+
                         _anom_disp = _anomalies[['MERCHANT_GROUP', 'DIMENSI', '4-Week Avg', _wk_curr, 'This Week Change']].copy()
-                        _anom_disp['This Week Change'] = (_anom_disp['This Week Change']*100).round(1).astype(str) + "%"
-                        st.dataframe(_anom_disp.style.map(lambda x: f"color: {RED}; font-weight: bold", subset=['This Week Change']),
-                                     use_container_width=True, hide_index=True)
+                        _anom_disp['4-Week Avg'] = _anom_disp.apply(lambda r: _fmt_by_dim(r['4-Week Avg'], r['DIMENSI']), axis=1)
+                        _anom_disp[_wk_curr]     = _anom_disp.apply(lambda r: _fmt_by_dim(r[_wk_curr],     r['DIMENSI']), axis=1)
+
+                        # Keep `This Week Change` numeric so the Styler can both format
+                        # AND apply a diverging red/green heatmap based on the actual value.
+                        _styled_drop = (
+                            _anom_disp.style
+                            .format({'This Week Change': lambda x: fmt_growth(x, decimals=1, scale=True)})
+                            .map(growth_cell_style, subset=['This Week Change'])
+                        )
+                        st.dataframe(_styled_drop, use_container_width=True, hide_index=True)
                     else:
                         st.success(f"No merchants dropped by {_slider_drop}%+ this week ({_wk_curr}). Portfolio activity looks stable.")
 
