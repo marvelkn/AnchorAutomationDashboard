@@ -15,6 +15,7 @@ if _BASE not in sys.path:
 
 from utils.theme import (
     apply_theme, page_header, section_label, pipeline_stepper, get_palette, styled_divider,
+    DANGER,
 )
 from utils.db_connector import fetch_data_from_db, get_db_date_bounds
 from utils.backup_manager import rotate_backups, get_available_backups, restore_backup
@@ -98,15 +99,32 @@ if cloud_mode_enabled:
     try:
         engine = _get_cloud_engine()
         test_connection(engine)
-        st.success("Connected to Neon (`DATABASE_URL`).")
+        # Plan §2 declutter #9 — drop the redundant "Connected to Neon" success
+        # banner. The sidebar already shows Neon connection status, so two
+        # indicators on one screen is noise. Keep the error path though —
+        # connection failures still need to be surfaced loudly.
     except Exception as conn_err:
         st.error(f"Neon connection failed: {conn_err}")
         engine = None
 
-    # ── 2-TAB LAYOUT: Ingest Data | Audit Log ────────────────────────────────
-    cloud_tab_ingest, cloud_tab_audit = st.tabs(["Ingest Data", "Audit Log"])
+    # Plan §4.4 — three-tab structure: Ingest Data | Maintenance | Audit Log.
+    # Maintenance was previously buried at the bottom of the Ingest tab, with
+    # the destructive Reset button looking visually identical to the safe
+    # ingest button. Splitting them isolates the danger zone onto its own
+    # surface where users have to navigate deliberately.
+    cloud_tab_ingest, cloud_tab_maintenance, cloud_tab_audit = st.tabs(
+        ["Ingest Data", "Maintenance", "Audit Log"]
+    )
 
     with cloud_tab_ingest:
+        # Plan §4.4 — 3-step horizontal stepper sets expectations: users see
+        # exactly which phase they are in. Static (current_step=-1) since this
+        # is single-shot UI; the file_uploader + button below drive the flow.
+        pipeline_stepper(
+            [("📤", "Upload"), ("🔍", "Validate"), ("☁", "Push to Neon")],
+            current_step=-1,
+        )
+
         section_label("A — Full SQLite database")
         neon_schema_ingest = st.text_input(
             "Schema for imported tables",
@@ -264,6 +282,10 @@ if cloud_mode_enabled:
                     except Exception as upload_err:
                         st.error(f"Upsert failed: {upload_err}")
 
+    # Plan §4.4 — Maintenance lives in its own tab so destructive operations
+    # don't share a scroll surface with safe ingestion. The Reset button has
+    # been further hardened with a typed-name confirmation below.
+    with cloud_tab_maintenance:
         section_label("Database Maintenance")
         st.info(
             "Use these tools to clean your **Neon (PostgreSQL)** database. Fixes data anomalies like duplicates or historical spikes."
@@ -362,25 +384,56 @@ if cloud_mode_enabled:
                     except Exception as _verr:
                         st.warning(f"VACUUM requires psycopg2 direct connection: {_verr}")
 
-        with st.expander("Danger Zone: Reset Neon Cloud Database", expanded=False):
-            st.warning(
-                "This will permanently **PURGE ALL DATA** from business, raw, and audit tables in your Neon production database."
+        # Plan §4.4 — Danger Zone gets visual isolation (red border via inline
+        # style block) and a two-step confirmation: the existing checkbox PLUS
+        # a typed schema name. A single misplaced click can no longer purge
+        # production data.
+        st.markdown(
+            f"""<div style='margin-top:24px;padding:2px;border-radius:14px;
+                background:linear-gradient(135deg, {DANGER}, {DANGER}88);'>
+                <div style='background:var(--btn-surface);border-radius:12px;padding:4px;'>
+                </div></div>""",
+            unsafe_allow_html=True,
+        )
+        with st.expander("⚠ Danger Zone — Reset Neon Cloud Database", expanded=False):
+            st.error(
+                "**This will permanently PURGE ALL DATA** from business, raw, and audit "
+                "tables in your Neon production database. There is no undo. "
+                "Two-step confirmation is required."
             )
+            _reset_schema = (neon_schema_ingest or "public").strip() or "public"
+            st.markdown(f"**Target schema:** `{_reset_schema}`")
+
             confirm_reset_neon = st.checkbox(
                 "I understand this will permanently delete all data in the cloud (PostgreSQL).",
                 key="confirm_reset_neon_cloud",
             )
+            _typed_confirm = st.text_input(
+                f"To confirm, type the schema name **`{_reset_schema}`** below exactly:",
+                key="reset_typed_confirm",
+                placeholder=_reset_schema,
+                help="This second confirmation prevents accidental purges from a misclicked checkbox.",
+            )
+            _typed_match = (_typed_confirm or "").strip() == _reset_schema
+
+            if not confirm_reset_neon:
+                st.caption("☐ Step 1: tick the acknowledgement checkbox above.")
+            elif not _typed_match:
+                st.caption(f"☐ Step 2: type `{_reset_schema}` exactly to enable the reset button.")
+            else:
+                st.caption("✓ Both confirmations received. Reset is now armed.")
+
             if st.button(
                 "RESET NEON CLOUD DATABASE",
                 type="primary",
-                disabled=not confirm_reset_neon,
+                disabled=not (confirm_reset_neon and _typed_match),
                 width="stretch",
                 key="btn_reset_neon_cloud",
             ):
                 with st.spinner("Purging Neon PostgreSQL tables..."):
                     try:
                         from repair_data import reset_neon_database
-                        target_schema = (neon_schema_ingest or "public").strip() or "public"
+                        target_schema = _reset_schema
                         results = reset_neon_database(engine, schema=target_schema)
                         st.success("Neon database reset successfully!")
                         st.json(results)

@@ -37,7 +37,8 @@ from utils.formatting import (
     growth_cell_style, zscore_cell_style,
 )
 from utils.growth_analytics import (
-    BASELINE_FLOORS, compute_growth_signals,
+    BASELINE_FLOORS, compose_urgency_score, compute_growth_signals,
+    extract_recent_weeks,
 )
 from sqlalchemy import text
 
@@ -570,6 +571,148 @@ with tab0:
     if _high_risk_count > 0:
         st.warning(f"**{_high_risk_count} merchant(s) need immediate attention.** See the **Health Alerts** tab for recommended actions.")
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Plan §1.3 — Daily Briefing
+    # Adds a high-density briefing at the top of Overview: a horizontal AM-
+    # coverage bar chart on the left (every PM, ranked by avg achievement,
+    # high-risk count called out as a red badge) and an "Insight of the Day"
+    # auto-selected merchant card on the right (highest urgency, what's wrong,
+    # and a CTA to the Health Alerts tab). Detail sections below remain for
+    # deeper drill-down.
+    # ──────────────────────────────────────────────────────────────────────────
+    if not _ml_kpi.empty and 'PM' in _ml_kpi.columns:
+        styled_divider()
+        section_label("Daily Briefing")
+        _bf_left, _bf_right = st.columns([3, 2])
+
+        with _bf_left:
+            # Per-PM aggregates: count, avg achievement, high-risk count.
+            _pm_agg = (
+                _ml_kpi.assign(
+                    _is_high=_ml_kpi['CHURN_RISK'].astype(str).str.contains('HIGH', na=False)
+                )
+                .groupby('PM', dropna=False)
+                .agg(
+                    merchants=('MERCHANT_GROUP', 'count'),
+                    avg_ach=('ACHIEVEMENT_PCT', 'mean'),
+                    high_risk=('_is_high', 'sum'),
+                )
+                .reset_index()
+            )
+            _pm_agg = _pm_agg[
+                _pm_agg['PM'].notna() & (_pm_agg['PM'].astype(str).str.upper() != 'UNASSIGNED')
+            ].copy()
+            _pm_agg['avg_ach'] = _pm_agg['avg_ach'].fillna(0).clip(lower=0)
+            # Order by achievement descending so the most concerning PMs sit
+            # at the bottom of the chart (where the eye lands last).
+            _pm_agg = _pm_agg.sort_values('avg_ach', ascending=True)
+
+            if _pm_agg.empty:
+                st.caption("No PM coverage data this period.")
+            else:
+                # Bar color scales by achievement: red below 60, amber 60-100, green ≥100.
+                def _ach_color(v):
+                    if v >= 100: return SUCCESS
+                    if v >= 60:  return WARNING
+                    return DANGER
+                _pm_colors = [_ach_color(v) for v in _pm_agg['avg_ach']]
+
+                _bar_text = [
+                    f"{v:.0f}%" + (f"  ⚠ {int(h)} high-risk" if h > 0 else "")
+                    for v, h in zip(_pm_agg['avg_ach'], _pm_agg['high_risk'])
+                ]
+                _fig_pm = go.Figure(go.Bar(
+                    x=_pm_agg['avg_ach'],
+                    y=_pm_agg['PM'],
+                    orientation='h',
+                    marker_color=_pm_colors,
+                    text=_bar_text,
+                    textposition='outside',
+                    cliponaxis=False,
+                    customdata=_pm_agg[['merchants', 'high_risk']].values,
+                    hovertemplate=(
+                        "<b>%{y}</b><br>"
+                        "Avg achievement: %{x:.1f}%<br>"
+                        "Merchants: %{customdata[0]}<br>"
+                        "High-risk: %{customdata[1]}<extra></extra>"
+                    ),
+                ))
+                # Reference line at the 100% target.
+                _fig_pm.add_vline(x=100, line_dash='dash', line_color=TEXT_SEC, opacity=0.5)
+                _fig_pm.update_layout(
+                    height=max(60 + 40 * len(_pm_agg), 220),
+                    margin=dict(l=4, r=120, t=10, b=32),
+                    xaxis={**_xaxis(), 'title': 'Avg Achievement %', 'range': [0, max(140, float(_pm_agg['avg_ach'].max()) * 1.15)]},
+                    yaxis=dict(showgrid=False, automargin=True),
+                    **_chart_base(),
+                )
+                st.plotly_chart(_fig_pm, use_container_width=True, theme=None)
+                st.caption("Bars colored by achievement: green ≥ 100%, amber 60-99%, red < 60%. Hover for merchant counts.")
+
+        with _bf_right:
+            # Auto-pick the single most actionable merchant for today. Use the
+            # composite urgency score from §4.2 so this stays consistent with
+            # the Action Inbox ordering on the Health Alerts tab.
+            _focus_pool = _ml_kpi.copy()
+            if not _focus_pool.empty and 'RISK_SCORE' in _focus_pool.columns:
+                _focus_pool = _focus_pool.copy()
+                _focus_pool['_URGENCY'] = compose_urgency_score(
+                    _focus_pool['RISK_SCORE'].astype(float),
+                    achievement_pct=_focus_pool.get('ACHIEVEMENT_PCT', pd.Series(dtype=float)),
+                    is_iforest_anomaly=_focus_pool.get('IF_IS_ANOMALY', pd.Series(dtype=bool)),
+                ).values
+                _focus = _focus_pool.sort_values('_URGENCY', ascending=False).head(1)
+            else:
+                _focus = pd.DataFrame()
+
+            if _focus.empty:
+                st.markdown(
+                    f"<div style='padding:18px;border-radius:12px;background:{SUCCESS}14;"
+                    f"border:1px solid {SUCCESS}55;'>"
+                    f"<div style='font-weight:var(--fw-bold);color:{SUCCESS};'>No urgent alerts</div>"
+                    f"<div style='margin-top:6px;color:var(--btn-text-sec);font-size:var(--fs-sm);'>"
+                    f"All merchants are within normal operating bands today.</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                _f = _focus.iloc[0]
+                _f_merchant = _f.get('MERCHANT_GROUP', '—')
+                _f_pm       = _f.get('PM', 'N/A')
+                _f_cluster  = _f.get('CLUSTER', '—')
+                _f_ach      = float(_f.get('ACHIEVEMENT_PCT', 0) or 0)
+                _f_risk     = float(_f.get('RISK_SCORE', 0) or 0)
+                _f_growth   = float(_f.get('SV_GROWTH_RATE', 0) or 0)
+                _f_color    = DANGER if _f_risk >= 60 else WARNING
+
+                st.markdown(
+                    f"<div style='padding:18px;border-radius:12px;"
+                    f"background:linear-gradient(135deg, {_f_color}1F, {_f_color}10);"
+                    f"border:1px solid {_f_color}66;'>"
+                    f"<div style='display:flex;align-items:center;gap:8px;'>"
+                    f"<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:{_f_color};'></span>"
+                    f"<span style='font-size:var(--fs-xs);color:{_f_color};font-weight:var(--fw-bold);"
+                    f"text-transform:uppercase;letter-spacing:1px;'>Insight of the Day</span>"
+                    f"</div>"
+                    f"<div style='margin-top:8px;font-weight:var(--fw-bold);font-size:var(--fs-lg);'>{_f_merchant}</div>"
+                    f"<div style='color:var(--btn-text-sec);font-size:var(--fs-sm);margin-top:2px;'>"
+                    f"PM · {_f_pm}  ·  Tier · {_f_cluster}"
+                    f"</div>"
+                    f"<div style='margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px;'>"
+                    f"<div><div style='color:var(--btn-text-sec);font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:0.5px;'>Risk Score</div>"
+                    f"<div style='font-weight:var(--fw-bold);font-size:var(--fs-md);color:{_f_color};'>{_f_risk:.0f} / 100</div></div>"
+                    f"<div><div style='color:var(--btn-text-sec);font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:0.5px;'>Achievement</div>"
+                    f"<div style='font-weight:var(--fw-bold);font-size:var(--fs-md);color:{DANGER if _f_ach < 60 else (WARNING if _f_ach < 100 else SUCCESS)};'>{fmt_pct(_f_ach, decimals=0, scale=False)}</div></div>"
+                    f"</div>"
+                    f"<div style='margin-top:14px;color:var(--btn-text-pri);font-size:var(--fs-sm);line-height:1.5;'>"
+                    f"Growth trend: <b>{fmt_growth(_f_growth, decimals=1, scale=True)}</b> MoM. "
+                    f"This merchant tops today's urgency ranking. Open the <b>Health Alerts</b> tab for "
+                    f"the full Action Inbox and a one-click PM Manager handoff."
+                    f"</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
     # ── PM Coverage Cards (visual, not table) ─────────────────────────────────
     if not df_target.empty and 'PM' in df_target.columns:
         styled_divider()
@@ -1085,55 +1228,63 @@ with tab1:
                     clean_map[c] = TYPE_LABELS.get(suffix, suffix)
                 display = display.rename(columns=clean_map)
 
-                # YTD row (needed for donut chart and table)
+                # YTD row (needed for table + the inline composition pill)
                 ytd_vals = display.drop(columns=['Bulan']).sum()
 
-                # ── Charts first (visual priority) ─────────────────────────────
-                ch_left, ch_right = st.columns([1, 1])
-                with ch_left:
-                    if chart_type in ("Stacked Bar", "Both"):
-                        type_cols_clean = [clean_map[c] for c in valid_sub]
-                        melted = display.melt(id_vars="Bulan", value_vars=type_cols_clean, var_name="Type", value_name="Value")
-                        fig_s = px.bar(
-                            melted, x="Bulan", y="Value", color="Type",
-                            color_discrete_map=PAYMENT_COLORS,
-                            barmode="stack",
-                            title=f"{sec_name} — Composition",
-                        )
-                        fig_s.update_layout(
-                            height=340, margin=dict(l=0, r=0, t=36, b=64),
-                            xaxis=dict(tickangle=-30),
-                            **_chart_base(),
-                        )
-                        st.plotly_chart(fig_s, use_container_width=True, theme=None)
-                    if chart_type in ("Line Trend", "Both"):
-                        fig_l = go.Figure()
-                        fig_l.add_trace(go.Scatter(
-                            x=display["Bulan"], y=display["TOTAL"],
-                            mode="lines+markers+text",
-                            line=dict(color=accent, width=2.5),
-                            text=[fmt_num_db(v, sec_name) for v in display["TOTAL"]],
-                            textposition="top center",
-                            marker=dict(size=7, color=accent, line=dict(color=_p()['BG'], width=1.5)),
-                        ))
-                        fig_l.update_layout(
-                            title=f"{sec_name} — Total Trend",
-                            height=340, margin=dict(l=0, r=0, t=36, b=64),
-                            xaxis=dict(tickangle=-30),
-                            **_chart_base(),
-                        )
-                        st.plotly_chart(fig_l, use_container_width=True, theme=None)
-                with ch_right:
-                    section_label("Mix Composition (Selected Period)")
-                    fig_pie = px.pie(
-                        values=ytd_vals.drop('TOTAL'),
-                        names=[clean_map[c] for c in valid_sub],
-                        hole=0.6,
-                        color=[clean_map[c] for c in valid_sub],
-                        color_discrete_map=PAYMENT_COLORS
+                # Plan §2 declutter #3 + §3.3 — drop the redundant 360-px donut
+                # next to every monthly stacked bar (it duplicated the totals
+                # the bar already shows). Replace with a one-line composition
+                # caption that quotes the top 2 payment types' share — keeps the
+                # mix-information value, frees up half the horizontal space,
+                # makes the trend chart the main visual.
+                _ytd_total = float(ytd_vals.get('TOTAL', 0) or 0)
+                _type_cols_caption = [clean_map[c] for c in valid_sub]
+                _mix_parts = []
+                if _ytd_total > 0:
+                    _shares = sorted(
+                        ((name, float(ytd_vals.get(name, 0) or 0) / _ytd_total)
+                         for name in _type_cols_caption),
+                        key=lambda kv: kv[1], reverse=True,
                     )
-                    fig_pie.update_layout(height=340, margin=dict(t=10, b=50, l=10, r=10), **_chart_base())
-                    st.plotly_chart(fig_pie, use_container_width=True, theme=None)
+                    for name, share in _shares[:3]:
+                        if share > 0:
+                            _mix_parts.append(f"**{name}** {fmt_pct(share, decimals=1, scale=True)}")
+                if _mix_parts:
+                    st.caption("Mix (selected period): " + " · ".join(_mix_parts))
+
+                # ── Full-width chart (no twin donut) ──────────────────────────
+                if chart_type in ("Stacked Bar", "Both"):
+                    type_cols_clean = [clean_map[c] for c in valid_sub]
+                    melted = display.melt(id_vars="Bulan", value_vars=type_cols_clean, var_name="Type", value_name="Value")
+                    fig_s = px.bar(
+                        melted, x="Bulan", y="Value", color="Type",
+                        color_discrete_map=PAYMENT_COLORS,
+                        barmode="stack",
+                        title=f"{sec_name} — Composition",
+                    )
+                    fig_s.update_layout(
+                        height=380, margin=dict(l=0, r=0, t=36, b=64),
+                        xaxis=dict(tickangle=-30),
+                        **_chart_base(),
+                    )
+                    st.plotly_chart(fig_s, use_container_width=True, theme=None)
+                if chart_type in ("Line Trend", "Both"):
+                    fig_l = go.Figure()
+                    fig_l.add_trace(go.Scatter(
+                        x=display["Bulan"], y=display["TOTAL"],
+                        mode="lines+markers+text",
+                        line=dict(color=accent, width=2.5),
+                        text=[fmt_num_db(v, sec_name) for v in display["TOTAL"]],
+                        textposition="top center",
+                        marker=dict(size=7, color=accent, line=dict(color=_p()['BG'], width=1.5)),
+                    ))
+                    fig_l.update_layout(
+                        title=f"{sec_name} — Total Trend",
+                        height=380, margin=dict(l=0, r=0, t=36, b=64),
+                        xaxis=dict(tickangle=-30),
+                        **_chart_base(),
+                    )
+                    st.plotly_chart(fig_l, use_container_width=True, theme=None)
 
                 # ── Monthly breakdown table in expander (drill-down) ────────────
                 with st.expander("View Monthly Breakdown Table"):
@@ -1761,13 +1912,59 @@ with tab3:
                 st.plotly_chart(fig_pie, use_container_width=True, theme=None)
 
             with sc2:
-                fig_sc = px.scatter_3d(df_f, x='AVG_SV', y='AVG_FBI', z='SV_GROWTH_CLIPPED',
-                                    color='CLUSTER', hover_name='MERCHANT_GROUP',
-                                    hover_data=['PM','ACHIEVEMENT_PCT','WEEKS_ACTIVE'],
-                                    title="Merchant Performance Map",
-                                    labels={'AVG_SV': 'Monthly Volume', 'AVG_FBI': 'Fee Income', 'SV_GROWTH_CLIPPED': 'Growth Trend'},
-                                    color_discrete_map=color_lookup)
-                fig_sc.update_layout(height=450, margin=dict(l=0, r=0, b=48, t=30), **_chart_base())
+                # Plan §3.5 — replace the gimmicky 3D scatter (3 dots in 3-space,
+                # impossible to read) with a 2D Tier Map: log-X volume × Y growth,
+                # sized by FBI, divided into named quadrants (STARS / CASH COWS /
+                # EMERGING / AT-RISK) by reference lines at the portfolio median
+                # volume and growth=0. One chart that encodes everything.
+                _tm = df_f.copy()
+                _tm = _tm[(_tm['AVG_SV'] > 0)]  # log axis needs positive x
+                _median_sv = float(_tm['AVG_SV'].median()) if not _tm.empty else 0.0
+
+                fig_sc = px.scatter(
+                    _tm,
+                    x='AVG_SV', y='SV_GROWTH_CLIPPED',
+                    color='CLUSTER', size='AVG_FBI', size_max=28,
+                    hover_name='MERCHANT_GROUP',
+                    hover_data={'PM': True, 'ACHIEVEMENT_PCT': ':.1f',
+                                'AVG_SV': ':,.0f', 'AVG_FBI': ':,.0f',
+                                'SV_GROWTH_CLIPPED': ':.2f'},
+                    color_discrete_map=color_lookup,
+                    log_x=True,
+                    title="Merchant Tier Map — Volume × Growth (log scale)",
+                    labels={'AVG_SV': 'Monthly Volume (IDR, log)',
+                            'SV_GROWTH_CLIPPED': 'Growth Trend'},
+                )
+
+                # Quadrant reference lines + corner labels for the four named zones.
+                fig_sc.add_hline(y=0, line_dash='dot', line_color=TEXT_SEC, opacity=0.5)
+                if _median_sv > 0:
+                    fig_sc.add_vline(x=_median_sv, line_dash='dot', line_color=TEXT_SEC, opacity=0.5)
+                # Annotations are positioned by paper-coords so they sit in the
+                # corners of the plot regardless of data range.
+                fig_sc.add_annotation(xref='paper', yref='paper', x=0.99, y=0.97,
+                                      text="<b>STARS</b><br>high vol · growing",
+                                      showarrow=False, align='right',
+                                      font=dict(size=10, color=SUCCESS), opacity=0.85)
+                fig_sc.add_annotation(xref='paper', yref='paper', x=0.99, y=0.03,
+                                      text="<b>CASH COWS</b><br>high vol · flat/decline",
+                                      showarrow=False, align='right',
+                                      font=dict(size=10, color=INFO), opacity=0.85)
+                fig_sc.add_annotation(xref='paper', yref='paper', x=0.01, y=0.97,
+                                      text="<b>EMERGING</b><br>low vol · growing",
+                                      showarrow=False, align='left',
+                                      font=dict(size=10, color=WARNING), opacity=0.85)
+                fig_sc.add_annotation(xref='paper', yref='paper', x=0.01, y=0.03,
+                                      text="<b>AT-RISK</b><br>low vol · declining",
+                                      showarrow=False, align='left',
+                                      font=dict(size=10, color=DANGER), opacity=0.85)
+
+                fig_sc.update_layout(
+                    height=450, margin=dict(l=0, r=0, b=48, t=40),
+                    **_chart_base(),
+                    xaxis=_xaxis(),
+                    yaxis=_yaxis(),
+                )
                 st.plotly_chart(fig_sc, use_container_width=True, theme=None)
 
             section_label("Tier Characteristic Profile")
@@ -2097,51 +2294,126 @@ with tab4:
                                 st.plotly_chart(fig_pc, use_container_width=True, theme=None)
 
             # ── Action Inbox ──────────────────────────────────────────────────
+            # Plan §4.2 — render each at-risk merchant as a unified card with:
+            # tier chip + PM owner | 12-week sparkline | reason+CTA. Sort by
+            # composite urgency (risk_score + IF-confirmation + below-target
+            # bonuses) so multi-method-confirmed alerts bubble to the top.
             _at_risk_inbox = pd.concat([df_high, df_medium], ignore_index=True)
             if not _at_risk_inbox.empty and 'RISK_SCORE' in _at_risk_inbox.columns:
-                _at_risk_inbox = _at_risk_inbox.sort_values('RISK_SCORE', ascending=False).head(7)
-                _pp4_inbox = _p()
-                inbox_rows = ""
+                _at_risk_inbox = _at_risk_inbox.copy()
+                _at_risk_inbox['_URGENCY'] = compose_urgency_score(
+                    _at_risk_inbox['RISK_SCORE'].astype(float),
+                    achievement_pct=_at_risk_inbox.get('ACHIEVEMENT_PCT', pd.Series(dtype=float)),
+                    is_iforest_anomaly=_at_risk_inbox.get('IF_IS_ANOMALY', pd.Series(dtype=bool)),
+                ).values
+                _at_risk_inbox = _at_risk_inbox.sort_values('_URGENCY', ascending=False).head(7)
+
+                section_label(f"Action Inbox — {len(_at_risk_inbox)} merchant(s) need attention")
+                st.caption("Sorted by composite urgency (risk score + Isolation-Forest confirmation + below-target bonus). Click **Open in PM Manager** to take action.")
+
                 for _, row in _at_risk_inbox.iterrows():
+                    _merchant = row.get('MERCHANT_GROUP', '—')
                     _cr = row.get('CHURN_RISK', '')
                     _pm_name = row.get('PM', 'N/A')
                     _is_high = 'HIGH' in str(_cr)
                     _is_if   = bool(row.get('IF_IS_ANOMALY', False))
-                    _ach     = row.get('ACHIEVEMENT_PCT', 0)
-                    _growth  = row.get('SV_GROWTH_RATE', 0)
-                    _row_color = "#F87171" if _is_high else "#FBBF24"
-                    _icon      = ""
+                    _ach     = float(row.get('ACHIEVEMENT_PCT', 0) or 0)
+                    _growth  = float(row.get('SV_GROWTH_RATE', 0) or 0)
+                    _cluster = row.get('CLUSTER', '')
+                    _row_color = DANGER if _is_high else WARNING
+                    _tier_color = CLUSTER_COLORS.get(str(_cluster).upper(), TEXT_SEC)
+
                     if _is_high and _is_if:
                         _reason = "Flagged by 2 independent detection methods — highest confidence alert"
                         _action = "Escalate to PM immediately; schedule merchant call this week"
                     elif _is_high:
-                        _reason = f"Volume or growth significantly below fleet average (Achievement: {_ach:.0f}%)"
+                        _reason = f"Volume or growth significantly below fleet average (Achievement: {fmt_pct(_ach, decimals=0, scale=False)})"
                         _action = "PM to conduct business review; investigate operational issues"
                     elif _ach < 60:
-                        _reason = f"Below 60% of yearly target (Achievement: {_ach:.0f}%)"
+                        _reason = f"Below 60% of yearly target (Achievement: {fmt_pct(_ach, decimals=0, scale=False)})"
                         _action = "Schedule business review; consider promotional support"
                     else:
-                        _reason = f"Growth trend declining (MoM: {_growth*100:.1f}%)"
+                        _reason = f"Growth trend declining (MoM: {fmt_growth(_growth, decimals=1, scale=True)})"
                         _action = "Monitor weekly; check for competitive pressure"
-                    inbox_rows += (
-                        f'<div style="padding:12px 16px;border-left:5px solid {_row_color};'
-                        f'background:{_row_color}14;margin-bottom:8px;border-radius:0 14px 14px 0;">'
-                        f'<div>'
-                        f'<span class="kpi-label" style="color:{_row_color};">{_icon} {row["MERCHANT_GROUP"]}</span>'
-                        f'<span class="kpi-meta" style="margin-left:10px;">PM: {_pm_name}</span>'
-                        f'</div>'
-                        f'<div class="kpi-meta" style="margin-top:6px;">{_reason}</div>'
-                        f'<div class="kpi-meta" style="margin-top:3px;font-weight:var(--fw-bold);color:{_row_color};">→ {_action}</div>'
-                        f'</div>'
-                    )
-                section_label(f"Action Inbox — {len(_at_risk_inbox)} merchants need attention")
-                st.markdown(
-                    f'<div style="border:1px solid {_pp4_inbox["BORDER"]};border-radius:14px;'
-                    f'padding:16px;margin:8px 0 16px;">'
-                    f'{inbox_rows}'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+
+                    # 12-week VOL sparkline (falls back gracefully if no weekly data).
+                    _sparkline = []
+                    if has_mon_weekly and not df_mon_weekly.empty:
+                        try:
+                            _sparkline = extract_recent_weeks(
+                                df_mon_weekly, merchant=_merchant, dimensi='VOL',
+                                n_weeks=12,
+                            )
+                        except Exception:
+                            _sparkline = []
+
+                    with st.container(border=True):
+                        _c1, _c2, _c3 = st.columns([4, 3, 2])
+                        with _c1:
+                            # Header: merchant + tier chip + PM owner
+                            st.markdown(
+                                f"<div style='font-weight:var(--fw-bold);font-size:var(--fs-md);'>"
+                                f"{_merchant}"
+                                f"</div>"
+                                f"<div style='margin-top:4px;'>"
+                                f"<span style='display:inline-block;padding:2px 8px;border-radius:10px;"
+                                f"background:{_tier_color}26;color:{_tier_color};font-size:var(--fs-xs);"
+                                f"font-weight:var(--fw-semibold);'>{_cluster or 'UNCLASSIFIED'}</span>"
+                                f"<span style='margin-left:10px;color:var(--btn-text-sec);"
+                                f"font-size:var(--fs-xs);'>PM · {_pm_name}</span>"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                            st.markdown(
+                                f"<div style='margin-top:8px;color:var(--btn-text-sec);"
+                                f"font-size:var(--fs-sm);'>{_reason}</div>"
+                                f"<div style='margin-top:4px;color:{_row_color};"
+                                f"font-weight:var(--fw-semibold);font-size:var(--fs-sm);'>"
+                                f"→ {_action}"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                        with _c2:
+                            if _sparkline and len(_sparkline) >= 2:
+                                _spark = go.Figure(go.Scatter(
+                                    x=list(range(len(_sparkline))),
+                                    y=_sparkline,
+                                    mode='lines',
+                                    line=dict(color=_row_color, width=2),
+                                    fill='tozeroy',
+                                    fillcolor=f"{_row_color}26",
+                                    hovertemplate='Week %{x}: %{y:,.0f}<extra></extra>',
+                                ))
+                                _spark.update_layout(
+                                    height=70, margin=dict(l=0, r=0, t=0, b=0),
+                                    showlegend=False,
+                                    xaxis=dict(visible=False),
+                                    yaxis=dict(visible=False),
+                                    paper_bgcolor='rgba(0,0,0,0)',
+                                    plot_bgcolor='rgba(0,0,0,0)',
+                                )
+                                st.plotly_chart(
+                                    _spark, use_container_width=True, theme=None,
+                                    config={'displayModeBar': False, 'staticPlot': True},
+                                )
+                                st.caption(f"VOL last {len(_sparkline)} weeks")
+                            else:
+                                st.caption("No weekly trend data")
+                        with _c3:
+                            try:
+                                st.page_link(
+                                    "pages/05_PM_Manager.py",
+                                    label="Open in PM Manager →",
+                                    icon=":material/arrow_forward:",
+                                )
+                            except Exception:
+                                # Older Streamlit versions: graceful fallback.
+                                st.markdown(
+                                    "<div style='color:var(--btn-text-sec);"
+                                    "font-size:var(--fs-xs);'>"
+                                    "Open the PM Manager page</div>",
+                                    unsafe_allow_html=True,
+                                )
 
             st.markdown("")
 
@@ -2402,9 +2674,27 @@ with tab5:
 
         styled_divider()
 
-        # ── Expander 1: Threshold ────────────────────────────────────────────
-        with st.expander("Method 1 — Threshold (VOL > 3× Merchant Average)", expanded=False):
-            st.write(
+        # Plan §2 declutter #6 — replace the three expanders (which forced users
+        # to scroll through accordion blocks) with a single radio chip group.
+        # Plan §3.2 — apply log axes + 2-layer marker encoding (small grey
+        # normals + larger anomaly stars with white halo) + universal labels
+        # on every flagged point so the eye doesn't have to map color-bar values.
+        _method = st.radio(
+            "Detection method",
+            ["Threshold (VOL > 3× merchant avg)",
+             "Z-Score (|Z| > 3.0 global)",
+             "Isolation Forest (multivariate)"],
+            horizontal=True,
+            key="t5_method_pick",
+            label_visibility="collapsed",
+        )
+
+        # Helper: log-safe transform for plotting (avoids log(0) → -inf).
+        def _log_safe(x):
+            return np.log10(np.asarray(x, dtype=float) + 1.0)
+
+        if _method.startswith("Threshold"):
+            st.caption(
                 "Flags merchants whose weekly volume spikes beyond 3× their own 2026 average "
                 "— the simplest possible rule."
             )
@@ -2433,10 +2723,12 @@ with tab5:
                     if not _anom_indom.empty:
                         _fig_t.add_trace(go.Scatter(
                             x=_anom_indom["WEEK_NUM"], y=_anom_indom["WEEKLY_VOL"] / 1e9,
-                            mode="markers", marker=dict(color=RED, size=12), name="Anomaly",
+                            mode="markers", marker=dict(color=DANGER, size=14, symbol='star',
+                                                        line=dict(color='white', width=2)),
+                            name="Anomaly",
                         ))
                     _fig_t.add_hline(
-                        y=_thresh_line_val / 1e9, line_dash="dash", line_color=AMBER,
+                        y=_thresh_line_val / 1e9, line_dash="dash", line_color=WARNING,
                         annotation_text="3× threshold",
                     )
                     _fig_t.update_layout(xaxis_title="Week", yaxis_title="Volume (IDR Billions)",
@@ -2444,9 +2736,8 @@ with tab5:
                     apply_plotly_theme(_fig_t)
                     st.plotly_chart(_fig_t, use_container_width=True)
 
-        # ── Expander 2: Z-Score ──────────────────────────────────────────────
-        with st.expander("Method 2 — Z-Score (|Z| > 3.0)", expanded=False):
-            st.write(
+        elif _method.startswith("Z-Score"):
+            st.caption(
                 "Flags transactions more than 3 standard deviations from the global mean "
                 "— catches extreme global outliers regardless of merchant identity."
             )
@@ -2461,28 +2752,45 @@ with tab5:
                     .rename(columns={"MERCHANT_GROUP": "Merchant", "WEEK_NUM": "Week"}),
                     use_container_width=True, hide_index=True,
                 )
-            _fig_z = px.scatter(
-                _df_wm, x="WEEK_NUM", y=_df_wm["WEEKLY_VOL"] / 1e9,
-                color="Z_SCORE", color_continuous_scale="RdBu_r",
-                labels={"WEEK_NUM": "Week", "y": "Volume (IDR Billions)", "Z_SCORE": "Z-Score"},
-                title="All Merchants — Weekly VOL vs Week (colored by Z-Score)",
-            )
-            _ph = _df_wm[
-                _df_wm["MERCHANT_GROUP"].str.contains("PIZZA HUT", na=False) &
-                (_df_wm["WEEK_NUM"] == 11)
-            ]
-            if not _ph.empty:
+
+            # Plan §3.2 — 2-layer encoding instead of crushed-by-scale colorbar.
+            _df_normal = _df_wm[_df_wm["Z_SCORE"].abs() <= 3.0]
+            _df_anom_z = _zscore_anom
+            _fig_z = go.Figure()
+            # Layer 1: normals — small grey, low opacity, no labels.
+            _fig_z.add_trace(go.Scatter(
+                x=_df_normal["WEEK_NUM"],
+                y=_df_normal["WEEKLY_VOL"] / 1e9,
+                mode="markers",
+                marker=dict(color=TEXT_SEC, opacity=0.45, size=6),
+                name="Normal",
+                hoverinfo='skip',
+            ))
+            # Layer 2: anomalies — large red stars with white halo + direct labels.
+            if not _df_anom_z.empty:
+                _labels = (_df_anom_z["MERCHANT_GROUP"].str.split().str[0]
+                           + " W" + _df_anom_z["WEEK_NUM"].astype(int).astype(str))
                 _fig_z.add_trace(go.Scatter(
-                    x=_ph["WEEK_NUM"], y=_ph["WEEKLY_VOL"] / 1e9,
-                    mode="markers+text", marker=dict(color=RED, size=14, symbol="star"),
-                    text=["PIZZA HUT Wk11"], textposition="top right", name="Z-Score Anomaly",
+                    x=_df_anom_z["WEEK_NUM"],
+                    y=_df_anom_z["WEEKLY_VOL"] / 1e9,
+                    mode="markers+text",
+                    marker=dict(color=DANGER, size=14, symbol='star',
+                                line=dict(color='white', width=2)),
+                    text=_labels, textposition="top right",
+                    textfont=dict(size=10, color=TEXT_PRI),
+                    name=f"Anomaly (n={len(_df_anom_z)})",
                 ))
+            _fig_z.update_layout(
+                title="All Merchants — Weekly VOL by Week (anomalies labeled)",
+                xaxis_title="Week",
+                yaxis_title="Volume (IDR Billions, log)",
+                yaxis_type="log",
+            )
             apply_plotly_theme(_fig_z)
             st.plotly_chart(_fig_z, use_container_width=True)
 
-        # ── Expander 3: Isolation Forest (open by default) ───────────────────
-        with st.expander("Method 3 — Isolation Forest (Multivariate)", expanded=True):
-            st.write(
+        else:  # Isolation Forest
+            st.caption(
                 "Fits an ensemble of random trees on [VOL, TRX, FBI] simultaneously; "
                 "rows easiest to isolate are flagged — catches anomalies invisible to any single metric."
             )
@@ -2500,27 +2808,39 @@ with tab5:
                                      "WEEKLY_TRX": "TRX Count"}),
                     use_container_width=True, hide_index=True,
                 )
-            _df_if_normal = _df_wm[_if_preds == 1]
+
+            # Plan §3.2 — log-log scatter with 2-layer encoding so the 90% of
+            # points clustered near (0,0) on the linear scale are now spread out.
+            _df_if_normal = _df_wm[_if_preds ==  1]
             _df_if_anom   = _df_wm[_if_preds == -1]
             _fig_if = go.Figure()
             _fig_if.add_trace(go.Scatter(
-                x=_df_if_normal["WEEKLY_TRX"], y=_df_if_normal["WEEKLY_VOL"] / 1e9,
-                mode="markers", marker=dict(color=BLUE_ACC, opacity=0.4, size=7), name="Normal",
+                x=_df_if_normal["WEEKLY_TRX"].clip(lower=1),
+                y=(_df_if_normal["WEEKLY_VOL"] / 1e9).clip(lower=0.001),
+                mode="markers",
+                marker=dict(color=TEXT_SEC, opacity=0.45, size=6),
+                name=f"Normal (n={len(_df_if_normal)})",
+                hoverinfo='skip',
             ))
-            _fig_if.add_trace(go.Scatter(
-                x=_df_if_anom["WEEKLY_TRX"], y=_df_if_anom["WEEKLY_VOL"] / 1e9,
-                mode="markers", marker=dict(color=RED, size=10), name="Anomaly",
-            ))
-            _om = _df_if_anom[_df_if_anom["MERCHANT_GROUP"].str.contains("OPTIK MELAWAI", na=False)]
-            if not _om.empty:
+            if not _df_if_anom.empty:
+                _if_labels = (_df_if_anom["MERCHANT_GROUP"].str.split().str[0]
+                              + " W" + _df_if_anom["WEEK_NUM"].astype(int).astype(str))
                 _fig_if.add_trace(go.Scatter(
-                    x=_om["WEEKLY_TRX"], y=_om["WEEKLY_VOL"] / 1e9,
-                    mode="markers+text", marker=dict(color=AMBER, size=14, symbol="diamond"),
-                    text=["OPTIK MELAWAI"], textposition="top right", name="OPTIK MELAWAI",
+                    x=_df_if_anom["WEEKLY_TRX"].clip(lower=1),
+                    y=(_df_if_anom["WEEKLY_VOL"] / 1e9).clip(lower=0.001),
+                    mode="markers+text",
+                    marker=dict(color=DANGER, size=14, symbol='star',
+                                line=dict(color='white', width=2)),
+                    text=_if_labels, textposition="top right",
+                    textfont=dict(size=10, color=TEXT_PRI),
+                    name=f"Anomaly (n={len(_df_if_anom)})",
                 ))
             _fig_if.update_layout(
-                xaxis_title="Weekly TRX Count", yaxis_title="Volume (IDR Billions)",
-                title="Isolation Forest — VOL vs TRX (2026)",
+                xaxis_title="Weekly TRX Count (log)",
+                yaxis_title="Volume (IDR Billions, log)",
+                title="Isolation Forest — VOL vs TRX (log-log, 2026)",
+                xaxis_type="log",
+                yaxis_type="log",
             )
             apply_plotly_theme(_fig_if)
             st.plotly_chart(_fig_if, use_container_width=True)

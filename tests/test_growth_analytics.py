@@ -28,7 +28,9 @@ if PROJECT_ROOT not in sys.path:
 from utils.growth_analytics import (
     BASELINE_FLOORS,
     classify_merchant_growth,
+    compose_urgency_score,
     compute_growth_signals,
+    extract_recent_weeks,
     symmetric_pct_change,
 )
 
@@ -201,3 +203,136 @@ class TestComputeGrowthSignals:
         _ = compute_growth_signals(sample_df, curr_col='curr', prev_col='prev',
                                    baseline=BASELINE_FLOORS['TOTAL_SV'])
         pd.testing.assert_frame_equal(sample_df, original)
+
+
+# compose_urgency_score — Action Inbox sort key (plan §4.2)
+class TestComposeUrgencyScore:
+    def test_baseline_score_passthrough(self):
+        # No bonuses, no penalties: returns the risk score itself.
+        assert compose_urgency_score(50.0) == pytest.approx(50.0)
+        assert compose_urgency_score(0.0)  == pytest.approx(0.0)
+        assert compose_urgency_score(95.0) == pytest.approx(95.0)
+
+    def test_iforest_anomaly_adds_bonus(self):
+        # Multi-method confirmation should bubble these merchants up.
+        base = compose_urgency_score(50.0)
+        with_if = compose_urgency_score(50.0, is_iforest_anomaly=True)
+        assert with_if > base
+        assert with_if - base == pytest.approx(10.0)
+
+    def test_below_target_adds_proportional_bonus(self):
+        # Achievement at 40% (below 60% threshold) should add a 20-point bonus,
+        # capped at +10 so it can't drown out the risk_score.
+        score = compose_urgency_score(50.0, achievement_pct=40.0)
+        assert score > 50.0
+        # bonus = min(10, 60 - 40) = 10
+        assert score == pytest.approx(60.0)
+
+    def test_below_target_bonus_capped(self):
+        # Even achievement = 0% gives no more than +10 bonus.
+        score = compose_urgency_score(50.0, achievement_pct=0.0)
+        assert score == pytest.approx(60.0)
+
+    def test_above_target_no_bonus(self):
+        # Achievement well above threshold: no penalty for hitting target.
+        score = compose_urgency_score(50.0, achievement_pct=120.0)
+        assert score == pytest.approx(50.0)
+
+    def test_combined_bonuses_stack(self):
+        # IF=True + below-target should both apply.
+        score = compose_urgency_score(50.0, achievement_pct=30.0,
+                                      is_iforest_anomaly=True)
+        # 50 + 10 (IF) + 10 (target) = 70
+        assert score == pytest.approx(70.0)
+
+    def test_clamps_at_150(self):
+        # Even maxed risk + both bonuses can't exceed the upper bound.
+        score = compose_urgency_score(200.0, achievement_pct=0.0,
+                                      is_iforest_anomaly=True)
+        assert score <= 150.0
+
+    def test_handles_nan_risk_score(self):
+        import math
+        assert compose_urgency_score(float("nan")) == pytest.approx(0.0)
+        assert compose_urgency_score(None) == pytest.approx(0.0)
+
+    def test_handles_nan_achievement(self):
+        # NaN achievement should be treated as "no signal" not "below target".
+        import math
+        score = compose_urgency_score(50.0, achievement_pct=float("nan"))
+        assert score == pytest.approx(50.0)
+
+    def test_array_inputs(self):
+        # Works on Series/array inputs for vectorized sorting.
+        risk = pd.Series([10.0, 50.0, 90.0])
+        ach  = pd.Series([100.0, 40.0, 0.0])
+        ifa  = pd.Series([False, False, True])
+        out = compose_urgency_score(risk, achievement_pct=ach, is_iforest_anomaly=ifa)
+        assert hasattr(out, '__len__')
+        assert len(out) == 3
+        assert out.iloc[0] == pytest.approx(10.0)
+        assert out.iloc[1] == pytest.approx(60.0)   # 50 + min(10, 60-40)
+        assert out.iloc[2] == pytest.approx(110.0)  # 90 + 10 IF + 10 below-target
+
+
+# extract_recent_weeks — sparkline data extractor (plan §4.2)
+class TestExtractRecentWeeks:
+    @pytest.fixture
+    def weekly_df(self):
+        # Mimics PROCESSED_MONITORING_WEEKLY shape: per-merchant per-DIMENSI rows
+        # with W1..W52 columns. Most weeks zero/null until late in the year.
+        cols = ['MERCHANT_GROUP', 'DIMENSI'] + [f'W{i:02d}' for i in range(1, 53)]
+        rows = []
+        # INDOMARET — VOL row populated through W12
+        indomaret = ['INDOMARET', 'VOL'] + [0] * 52
+        for w in range(1, 13):
+            indomaret[2 + w] = 1_000_000_000 + w * 50_000_000  # ramping up
+        rows.append(indomaret)
+        # INDOMARET — TRX row also present (should be ignored for VOL extraction)
+        indomaret_trx = ['INDOMARET', 'TRX'] + [0] * 52
+        for w in range(1, 13):
+            indomaret_trx[2 + w] = 1000 + w
+        rows.append(indomaret_trx)
+        # GRAMEDIA — no rows for W1..W52 (all zero) — dropped-off scenario
+        gramedia = ['GRAMEDIA', 'VOL'] + [0] * 52
+        rows.append(gramedia)
+        return pd.DataFrame(rows, columns=cols)
+
+    def test_returns_last_n_weeks_for_existing_merchant(self, weekly_df):
+        out = extract_recent_weeks(weekly_df, merchant='INDOMARET',
+                                   dimensi='VOL', n_weeks=4)
+        assert len(out) == 4
+        # Should be the trailing 4 populated weeks: W9..W12
+        # (1.45B, 1.5B, 1.55B, 1.6B)
+        expected = [1_450_000_000, 1_500_000_000, 1_550_000_000, 1_600_000_000]
+        assert out == pytest.approx(expected)
+
+    def test_filters_by_dimensi(self, weekly_df):
+        # VOL extraction should NOT pick up the TRX row's small numbers.
+        out = extract_recent_weeks(weekly_df, merchant='INDOMARET',
+                                   dimensi='VOL', n_weeks=4)
+        # Last value of VOL row is 1.6B, last value of TRX row is 1012.
+        # If filtering worked, we get the billion-scale number, not 1012.
+        assert out[-1] > 1_000_000
+
+    def test_returns_empty_for_missing_merchant(self, weekly_df):
+        out = extract_recent_weeks(weekly_df, merchant='UNKNOWN',
+                                   dimensi='VOL', n_weeks=12)
+        assert out == []
+
+    def test_returns_empty_for_all_zero_merchant(self, weekly_df):
+        # GRAMEDIA has all zeros — should yield empty list, not 12 zeros.
+        out = extract_recent_weeks(weekly_df, merchant='GRAMEDIA',
+                                   dimensi='VOL', n_weeks=12)
+        assert out == []
+
+    def test_handles_empty_dataframe(self):
+        out = extract_recent_weeks(pd.DataFrame(), merchant='X',
+                                   dimensi='VOL', n_weeks=12)
+        assert out == []
+
+    def test_returns_n_weeks_or_fewer(self, weekly_df):
+        # INDOMARET only has 12 populated weeks; asking for 24 returns 12.
+        out = extract_recent_weeks(weekly_df, merchant='INDOMARET',
+                                   dimensi='VOL', n_weeks=24)
+        assert len(out) == 12

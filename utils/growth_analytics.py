@@ -151,3 +151,118 @@ def compute_growth_signals(
     out = classify_merchant_growth(out, curr_col=curr_col, prev_col=prev_col,
                                    baseline=baseline)
     return out
+
+
+# ── Action Inbox helpers (plan §4.2) ──────────────────────────────────────────
+
+
+def compose_urgency_score(
+    risk_score: ArrayLike,
+    achievement_pct: ArrayLike = None,
+    is_iforest_anomaly: ArrayLike = False,
+    *,
+    achievement_threshold: float = 60.0,
+) -> ArrayLike:
+    """Composite urgency score for sorting the Action Inbox (plan §4.2).
+
+    Returns risk_score (0-100) plus two small bonuses:
+      + 10 if Isolation Forest also flagged the merchant (multi-method confirmation)
+      + min(10, achievement_threshold - achievement_pct) if below target
+
+    Caps at 150 so a single feature can't blow up the ranking. Designed to
+    surface "two-way confirmed" alerts above one-signal alerts of equal raw
+    risk score, while keeping the score interpretable as "risk + a bit extra".
+
+    Scalar in -> scalar out. Array/Series in -> Series out (preserves index
+    so callers can do df.assign(URGENCY=compose_urgency_score(...))).
+    """
+    rs = pd.to_numeric(pd.Series([risk_score]) if np.ndim(risk_score) == 0
+                       else pd.Series(risk_score), errors='coerce').fillna(0.0)
+
+    ifa = pd.Series([is_iforest_anomaly]) if np.ndim(is_iforest_anomaly) == 0 \
+          else pd.Series(is_iforest_anomaly)
+    ifa = ifa.astype(bool, errors='ignore').fillna(False).astype(bool)
+
+    if achievement_pct is None:
+        ach = pd.Series([np.nan] * len(rs))
+    elif np.ndim(achievement_pct) == 0:
+        ach = pd.Series([achievement_pct] * len(rs))
+    else:
+        ach = pd.Series(achievement_pct)
+    ach = pd.to_numeric(ach, errors='coerce')
+
+    # Below-target bonus: capped at +10 so far-below-target merchants don't
+    # drown out the underlying risk_score signal.
+    below_gap = (achievement_threshold - ach).clip(lower=0).fillna(0)
+    target_bonus = below_gap.clip(upper=10.0)
+
+    # Multi-method confirmation bonus
+    if_bonus = ifa.astype(float) * 10.0
+
+    score = (rs + if_bonus.values + target_bonus.values).clip(0, 150)
+
+    if np.ndim(risk_score) == 0:
+        return float(score.iloc[0])
+    score.index = pd.Series(risk_score).index if hasattr(risk_score, 'index') else score.index
+    return score
+
+
+def extract_recent_weeks(
+    weekly_df: pd.DataFrame,
+    *,
+    merchant: str,
+    dimensi: str,
+    n_weeks: int = 12,
+    merchant_col: str = 'MERCHANT_GROUP',
+    dimensi_col: str = 'DIMENSI',
+) -> list:
+    """Extract the trailing N weeks of values for one merchant + DIMENSI.
+
+    Used by the Action Inbox to render a sparkline next to each merchant card
+    so the reader sees the actual trajectory, not just a static % number.
+
+    Returns an empty list if:
+      - the dataframe is empty
+      - the merchant is not present
+      - the row has no W-columns or all values are zero/null
+
+    Parameters
+    ----------
+    weekly_df       PROCESSED_MONITORING_WEEKLY-shaped DataFrame with W1..W52 columns.
+    merchant        Merchant identifier value to look up.
+    dimensi         'VOL' / 'TRX' / 'FBI' to disambiguate multi-row merchants.
+    n_weeks         How many trailing populated weeks to return.
+    """
+    if weekly_df is None or weekly_df.empty:
+        return []
+    if merchant_col not in weekly_df.columns or dimensi_col not in weekly_df.columns:
+        return []
+
+    # Find W-columns that exist in this dataframe, sorted numerically.
+    w_cols = sorted(
+        (c for c in weekly_df.columns
+         if isinstance(c, str) and len(c) >= 2 and c.startswith('W') and c[1:].isdigit()),
+        key=lambda c: int(c[1:]),
+    )
+    if not w_cols:
+        return []
+
+    matches = weekly_df[
+        (weekly_df[merchant_col] == merchant) & (weekly_df[dimensi_col] == dimensi)
+    ]
+    if matches.empty:
+        return []
+
+    row = matches.iloc[0]
+    series = pd.to_numeric(row[w_cols], errors='coerce').fillna(0.0)
+    nonzero_idx = series[series > 0].index.tolist()
+    if not nonzero_idx:
+        return []
+
+    # Slice from first non-zero week up to AND INCLUDING the last non-zero week
+    # so legitimate mid-series zeros (a quiet week in the middle) survive in the
+    # sparkline, but trailing zeros (no data yet for those weeks) are dropped.
+    first_active = w_cols.index(nonzero_idx[0])
+    last_active  = w_cols.index(nonzero_idx[-1])
+    populated = series.iloc[first_active:last_active + 1].tolist()
+    return populated[-n_weeks:]
