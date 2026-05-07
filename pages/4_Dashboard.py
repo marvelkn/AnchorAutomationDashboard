@@ -486,14 +486,18 @@ _sv_fmt  = f"Rp {_ytd_sv/1e9:,.1f} M"  if _ytd_sv >= 1e9 else f"Rp {_ytd_sv/1e6:
 _trx_fmt = f"{_ytd_trx/1e6:,.2f} M"    if _ytd_trx >= 1e6 else f"{_ytd_trx:,.0f}"
 
 kpi_row([
-    kpi_card(f"{_total_merchants:,}", "Merchants Tracked"),
-    kpi_card(_sv_fmt,                 "YTD Sales Volume"),
-    kpi_card(_trx_fmt,                "YTD Transactions"),
-    kpi_card(f"{_avg_onus*100:.1f}%", "Avg On-Us Ratio"),
+    # Page-level strip — hero=True so this row reads as the page's headline
+    # (largest type, elevated shadow). Per-tab boxes use the standard size,
+    # giving the user a clear two-tier visual hierarchy on every screen.
+    kpi_card(f"{_total_merchants:,}", "Merchants Tracked", hero=True),
+    kpi_card(_sv_fmt,                 "YTD Sales Volume", hero=True),
+    kpi_card(_trx_fmt,                "YTD Transactions", hero=True),
+    kpi_card(f"{_avg_onus*100:.1f}%", "Avg On-Us Ratio", hero=True),
     kpi_card(
         str(_high_risk_count),
         "High Risk Merchants",
         kind="danger" if _high_risk_count > 0 else "success",
+        hero=True,
     ),
 ])
 
@@ -555,10 +559,10 @@ CLAMP = CLUSTER_COLORS
 tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Overview",
     "Card Share",
-    "Weekly",
+    "Weekly Monitor",
     "Merchant Tiers",
-    tab_label_with_badge("Health", _high_risk_count),
-    "Anomaly",
+    tab_label_with_badge("Health Alerts", _high_risk_count),
+    "Anomaly Detection",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════

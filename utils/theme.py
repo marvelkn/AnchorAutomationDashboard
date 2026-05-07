@@ -218,12 +218,13 @@ def _make_css(p: dict) -> str:
     --fs-base:  0.92rem;
     --fs-md:    1.0rem;
     --fs-lg:    1.15rem;
-    --fs-xl:    1.4rem;
-    --fs-kpi:   2.6rem;          /* plan §4.3 — bumped from 2.2 */
+    --fs-xl:    1.5rem;          /* +0.1rem for better hierarchy */
+    --fs-kpi:   3.0rem;          /* user directive — clearer at-a-glance hierarchy */
+    --fs-kpi-lg: 3.4rem;         /* hero-tier KPI for the most critical numbers */
 
-    /* ── KPI typography refinements (plan §4.3) ── */
-    --kpi-letter-spacing: -0.02em;
-    --kpi-line-height:    1.05;
+    /* ── KPI typography refinements ── */
+    --kpi-letter-spacing: -0.025em;     /* slightly tighter at the larger size */
+    --kpi-line-height:    1.02;
 
     /* ── Font weights — 5 weight tokens ── */
     --fw-regular:  400;
@@ -500,19 +501,40 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     transform: translateY(-1px);
 }}
 .kpi-card .kpi-val {{
-    /* Plan §4.3 — bumped from 28px so the headline number reads as a headline. */
+    /* User directive — stronger hierarchy: the headline number must read as
+       a headline immediately on page load. */
     font-size: var(--fs-kpi); font-weight: var(--fw-bold);
     font-family: 'Roboto', sans-serif;
     color: var(--btn-text-pri); line-height: var(--kpi-line-height);
     font-variant-numeric: tabular-nums; letter-spacing: var(--kpi-letter-spacing);
 }}
 .kpi-card .kpi-lbl {{
-    font-size: 13px; font-weight: 500; color: var(--btn-text3);
-    font-family: 'Roboto', sans-serif; letter-spacing: -0.011em;
+    /* Bumped 13px → fs-xs (0.75rem) and weight 500 → 600 so the label reads
+       cleanly under the larger headline value. */
+    font-size: var(--fs-xs); font-weight: var(--fw-semibold);
+    color: var(--btn-text-sec);
+    font-family: 'Roboto', sans-serif;
+    text-transform: uppercase; letter-spacing: 1.2px;
 }}
-.kpi-card.danger  {{ border-top: 3px solid var(--btn-red); }}
-.kpi-card.success {{ border-top: 3px solid var(--btn-green); }}
-.kpi-card.accent  {{ border-top: 3px solid var(--btn-blue); }}
+.kpi-card.danger  {{ border-top: 3px solid var(--color-danger); }}
+.kpi-card.success {{ border-top: 3px solid var(--color-success); }}
+.kpi-card.accent  {{ border-top: 3px solid var(--color-info); }}
+
+/* Hero KPI card — used for the page-level strip at the very top of Overview.
+   Larger headline value than per-tab cards so the eye lands here first when
+   the page loads. Establishes the visual hierarchy directive. */
+.kpi-card.hero {{
+    padding: 28px 28px;
+    box-shadow: var(--shadow-elevated);
+}}
+.kpi-card.hero .kpi-val {{
+    font-size: var(--fs-kpi-lg);
+    font-weight: var(--fw-bold);
+}}
+.kpi-card.hero .kpi-lbl {{
+    font-size: var(--fs-sm);
+    margin-top: 6px;
+}}
 
 .tab-desc {{
     background: var(--btn-surface2); border-left: 4px solid var(--btn-gold-dim);
@@ -648,30 +670,50 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 }}
 
 /* ── Stats grid & Stat cards ── */
-.stats-grid {{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }}
+/* ── Unified metric box style — single source of truth ──
+   `.stat-card` (Card Share / Health Alerts / Anomaly tabs) and `.kpi-card`
+   (Weekly tab + new Daily Briefing) now share the SAME visual treatment:
+   layered navy-tinted shadow, hover lift, fs-kpi headline value with
+   tabular-nums and tight tracking. The colour-strip on `.stat-card`
+   stays — it's a useful at-a-glance cue. */
+.stats-grid {{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:22px; }}
 .stat-card {{
     background: var(--btn-surface); border: 1px solid var(--btn-border);
     border-radius: 20px; padding: 22px 24px;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.05); position: relative; overflow: hidden;
+    box-shadow: var(--shadow-card);
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column; gap: 8px;
+    transition: box-shadow .15s ease, transform .15s ease;
 }}
-.stat-card::before {{ content:''; position:absolute; top:0; left:0; right:0; height:2px; }}
-.stat-card.amber::before  {{ background: var(--btn-gold); }}
-.stat-card.blue::before   {{ background: var(--btn-blue); }}
-.stat-card.green::before  {{ background: var(--btn-green); }}
+.stat-card:hover {{
+    box-shadow: var(--shadow-elevated);
+    transform: translateY(-1px);
+}}
+/* 3-px top accent bar (was 2-px) so the colour cue actually reads at a glance */
+.stat-card::before {{ content:''; position:absolute; top:0; left:0; right:0; height:3px; }}
+.stat-card.amber::before  {{ background: var(--color-warning); }}
+.stat-card.blue::before   {{ background: var(--color-info); }}
+.stat-card.green::before  {{ background: var(--color-success); }}
 .stat-card.purple::before {{ background: var(--btn-purple); }}
-.stat-card.red::before    {{ background: var(--btn-red); }}
+.stat-card.red::before    {{ background: var(--color-danger); }}
+
 .stat-label {{
-    font-size: var(--fs-2xs); color: var(--btn-text3); text-transform: uppercase;
+    font-size: var(--fs-xs); color: var(--btn-text-sec); text-transform: uppercase;
     letter-spacing: 1.5px; font-weight: var(--fw-semibold);
     font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    margin-bottom: 8px;
+    margin-bottom: 4px;
 }}
 .stat-value {{
-    font-size: var(--fs-xl); font-weight: var(--fw-bold); color: var(--btn-text-pri);
+    /* Plan §4.3 — bumped to fs-kpi so this matches `.kpi-card .kpi-val`. */
+    font-size: var(--fs-kpi); font-weight: var(--fw-bold);
+    color: var(--btn-text-pri);
+    line-height: var(--kpi-line-height);
+    letter-spacing: var(--kpi-letter-spacing);
+    font-variant-numeric: tabular-nums;
     font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }}
 .stat-meta {{
-    font-size: var(--fs-2xs); color: var(--btn-text3); margin-top: 4px;
+    font-size: var(--fs-xs); color: var(--btn-text-sec); margin-top: 4px;
     font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }}
 
@@ -1032,8 +1074,20 @@ def styled_divider():
     )
 
 
-def kpi_card(value: str, label: str, kind: str = "default") -> str:
-    cls = f"kpi-card {kind}" if kind != "default" else "kpi-card"
+def kpi_card(value: str, label: str, kind: str = "default", *, hero: bool = False) -> str:
+    """Render a single KPI box.
+
+    `kind`:  "default" | "danger" | "success" | "accent" — paints the top accent bar.
+    `hero`:  set True for the page-level KPI strip at the very top of Overview;
+             uses a larger headline value (`--fs-kpi-lg`) and elevated shadow so
+             the eye lands here first on page load.
+    """
+    classes = ["kpi-card"]
+    if kind and kind != "default":
+        classes.append(kind)
+    if hero:
+        classes.append("hero")
+    cls = " ".join(classes)
     return f'<div class="{cls}"><div class="kpi-val">{value}</div><div class="kpi-lbl">{label}</div></div>'
 
 
