@@ -25,7 +25,7 @@ from utils.theme import (
     apply_theme, page_header, section_label, section_header, styled_divider,
     kpi_card, kpi_row, tab_desc, tab_label_with_badge, filter_pill,
     status_card, apply_plotly_theme, get_palette, stale_data_banner,
-    left_accent_card, status_chip_html, status_box,
+    left_accent_card, status_chip_html, status_box, hex_to_rgba,
     NAVY, GOLD, GOLD_DIM, BG, SURFACE, BORDER, TEXT_PRI, TEXT_SEC,
     GREEN, RED, AMBER, BLUE_ACC,
     CLUSTER_COLORS, PAYMENT_COLORS,
@@ -2375,13 +2375,15 @@ with tab4:
                             )
                         with _c2:
                             if _sparkline and len(_sparkline) >= 2:
+                                # Plotly only accepts 6-digit hex / named / rgba —
+                                # NOT 8-digit hex with alpha. Convert via helper.
                                 _spark = go.Figure(go.Scatter(
                                     x=list(range(len(_sparkline))),
                                     y=_sparkline,
                                     mode='lines',
                                     line=dict(color=_row_color, width=2),
                                     fill='tozeroy',
-                                    fillcolor=f"{_row_color}26",
+                                    fillcolor=hex_to_rgba(_row_color, 0.15),
                                     hovertemplate='Week %{x}: %{y:,.0f}<extra></extra>',
                                 ))
                                 _spark.update_layout(

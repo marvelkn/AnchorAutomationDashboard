@@ -1045,6 +1045,33 @@ def kpi_row(cards: list):
     )
 
 
+def hex_to_rgba(hex_color: str, alpha: float = 1.0) -> str:
+    """Convert a 6- or 8-digit hex color to an rgba() string.
+
+    Plotly accepts named colors, 6-digit hex (#RRGGBB), and rgb()/rgba()
+    strings — but NOT 8-digit hex (#RRGGBBAA) which CSS supports. So when
+    we want a tinted fill in a plotly chart we must build rgba() from a
+    6-digit hex + an alpha float.
+
+    Examples:
+        hex_to_rgba("#EF4444", 0.15)  -> "rgba(239,68,68,0.150)"
+        hex_to_rgba("#10B981", 0.5)   -> "rgba(16,185,129,0.500)"
+        hex_to_rgba("#10B98180")      -> "rgba(16,185,129,0.502)" (alpha from hex)
+    """
+    h = (hex_color or "").strip().lstrip("#")
+    if len(h) == 8:
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        a = int(h[6:8], 16) / 255.0
+    elif len(h) == 6:
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        a = max(0.0, min(1.0, float(alpha)))
+    else:
+        # Unrecognised — return the input unchanged so plotly's own validator
+        # can produce a clearer error message than this helper would.
+        return hex_color
+    return f"rgba({r},{g},{b},{a:.3f})"
+
+
 def tab_label_with_badge(label: str, count: int) -> str:
     """Plan §4.1 — add a numeric badge to a tab label so daily users see at a
     glance which tabs need attention. Streamlit's st.tabs() accepts plain text
