@@ -218,13 +218,19 @@ def _make_css(p: dict) -> str:
     --fs-base:  0.92rem;
     --fs-md:    1.0rem;
     --fs-lg:    1.15rem;
-    --fs-xl:    1.5rem;          /* +0.1rem for better hierarchy */
-    --fs-kpi:   3.0rem;          /* user directive — clearer at-a-glance hierarchy */
-    --fs-kpi-lg: 3.4rem;         /* hero-tier KPI for the most critical numbers */
+    --fs-xl:    1.5rem;
+    /* KPI sizes use clamp() so long currency strings (e.g. "Rp 1,926.1 M")
+       gracefully shrink in narrow / 5-column layouts instead of wrapping
+       to two lines and stretching the card height.
+         min  = floor on small viewports
+         pref = scales with viewport width
+         max  = the headline size on wide screens                             */
+    --fs-kpi:    clamp(1.6rem, 2.4vw, 2.0rem);   /* per-tab metric boxes      */
+    --fs-kpi-lg: clamp(1.8rem, 2.8vw, 2.4rem);   /* page-level hero strip     */
 
     /* ── KPI typography refinements ── */
-    --kpi-letter-spacing: -0.025em;     /* slightly tighter at the larger size */
-    --kpi-line-height:    1.02;
+    --kpi-letter-spacing: -0.02em;
+    --kpi-line-height:    1.05;
 
     /* ── Font weights — 5 weight tokens ── */
     --fw-regular:  400;
@@ -501,12 +507,16 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     transform: translateY(-1px);
 }}
 .kpi-card .kpi-val {{
-    /* User directive — stronger hierarchy: the headline number must read as
-       a headline immediately on page load. */
+    /* Headline KPI value — sized via clamp() in :root so long currency
+       strings shrink rather than wrap. nowrap + ellipsis is a defensive
+       safety net for truly extreme strings (e.g. trillions). */
     font-size: var(--fs-kpi); font-weight: var(--fw-bold);
     font-family: 'Roboto', sans-serif;
     color: var(--btn-text-pri); line-height: var(--kpi-line-height);
     font-variant-numeric: tabular-nums; letter-spacing: var(--kpi-letter-spacing);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }}
 .kpi-card .kpi-lbl {{
     /* Bumped 13px → fs-xs (0.75rem) and weight 500 → 600 so the label reads
@@ -704,13 +714,16 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     margin-bottom: 4px;
 }}
 .stat-value {{
-    /* Plan §4.3 — bumped to fs-kpi so this matches `.kpi-card .kpi-val`. */
+    /* Mirror of .kpi-card .kpi-val so all metric boxes look identical. */
     font-size: var(--fs-kpi); font-weight: var(--fw-bold);
     color: var(--btn-text-pri);
     line-height: var(--kpi-line-height);
     letter-spacing: var(--kpi-letter-spacing);
     font-variant-numeric: tabular-nums;
     font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }}
 .stat-meta {{
     font-size: var(--fs-xs); color: var(--btn-text-sec); margin-top: 4px;
