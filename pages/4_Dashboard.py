@@ -40,11 +40,6 @@ from utils.growth_analytics import (
     BASELINE_FLOORS, compose_urgency_score, compute_growth_signals,
     extract_recent_weeks,
 )
-from utils.scope import (
-    ALL_GROUPS_LABEL, TOTAL_GROUP_LABEL, TOTAL_PORTFOLIO_LABEL,
-    apply_scope, render_scope_controls, scope_breadcrumb_html,
-    responsive_chart_height,
-)
 from sqlalchemy import text
 
 # ── PAGE CONFIG ──────────────────────────────────────────────────────────────
@@ -509,34 +504,35 @@ kpi_row([
     ),
 ])
 
-# ── SCOPE — single source of truth in the sidebar ────────────────────────────
-# Controls live in the sidebar (always visible on desktop, accessed via the
-# hamburger on mobile). The page itself shows a sticky breadcrumb chip so the
-# active scope is visible while scrolling on every viewport.
-with st.sidebar:
-    st.markdown(
-        '<div class="scope-sidebar"><div class="scope-sidebar-title">Scope</div>',
-        unsafe_allow_html=True,
-    )
-    sel_group, sel_brand = render_scope_controls(df_card)
-    st.markdown('</div>', unsafe_allow_html=True)
+# ── PORTFOLIO FILTERS (directly above tabs) ───────────────────────────────────
+f_col1, f_col2 = st.columns(2)
 
-# Sticky breadcrumb — shown on the page on every viewport so the active scope
-# stays visible while scrolling. On mobile this doubles as a hint that the
-# Scope controls live in the (hamburger) sidebar.
-st.markdown(
-    f'<div class="scope-page-bar">{scope_breadcrumb_html(sel_group, sel_brand)}'
-    f'<span class="scope-page-bar-hint">Change in sidebar</span></div>',
-    unsafe_allow_html=True,
-)
+all_groups = ["ALL GROUPS"]
+if not df_card.empty:
+    all_groups += sorted(df_card['MERCHANT_GROUP'].unique().tolist())
+with f_col1:
+    sel_group = st.selectbox("Merchant Group", all_groups, key="sb_group")
 
-# ── Scoped filtered DataFrames ──────────────────────────────────────────────
-# Centralised via utils.scope.apply_scope so every tab can opt in cleanly.
-_filt_group = sel_group != ALL_GROUPS_LABEL
-_filt_brand = sel_brand not in (TOTAL_GROUP_LABEL, TOTAL_PORTFOLIO_LABEL)
+filtered_brands = ["TOTAL GROUP"]
+if sel_group != "ALL GROUPS" and not df_card.empty:
+    brands = df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR'].unique().tolist()
+    filtered_brands += sorted(brands)
+elif sel_group == "ALL GROUPS" and not df_card.empty:
+    filtered_brands = ["TOTAL PORTFOLIO"]
 
-df_card_filt      = apply_scope(df_card, sel_group, sel_brand)
-df_card_hist_filt = apply_scope(df_card_hist, sel_group, sel_brand)
+with f_col2:
+    sel_brand = st.selectbox("Merchant Brand (Anchor)", filtered_brands, key="sb_brand")
+
+# ── Scoped filtered DataFrames — ONLY for Card Share & Weekly Monitor ─────────
+# Macro tabs (Overview, Tiers, Health Alerts) always receive raw, unfiltered data.
+_filt_group = sel_group != "ALL GROUPS"
+_filt_brand = sel_brand not in ["TOTAL GROUP", "TOTAL PORTFOLIO"]
+
+df_card_filt      = df_card[df_card['MERCHANT_GROUP'] == sel_group].copy() if _filt_group else df_card.copy()
+df_card_hist_filt = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_group].copy() if _filt_group else df_card_hist.copy()
+if _filt_group and _filt_brand:
+    df_card_filt      = df_card_filt[df_card_filt['MERCHANT_ANCHOR'] == sel_brand]
+    df_card_hist_filt = df_card_hist_filt[df_card_hist_filt['MERCHANT_ANCHOR'] == sel_brand]
 
 # Weekly Monitor: df_mon_weekly.MERCHANT_GROUP may store brand names (= df_card.MERCHANT_ANCHOR)
 # OR the parent group name directly — handle both naming conventions.
