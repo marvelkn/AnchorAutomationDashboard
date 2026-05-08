@@ -539,11 +539,11 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .kpi-card.success {{ border-top: 3px solid var(--color-success); }}
 .kpi-card.accent  {{ border-top: 3px solid var(--color-info); }}
 
-/* Hero KPI card — used for the page-level strip at the very top of Overview.
-   Larger headline value than per-tab cards so the eye lands here first when
-   the page loads. Establishes the visual hierarchy directive. */
+/* Hero KPI card — page-level strip at the top of the dashboard. Larger
+   headline value than per-tab cards so the eye lands here first.
+   Padding compacted (1.25x -> 1.0x) to reclaim ~50px of vertical space. */
 .kpi-card.hero {{
-    padding: calc(var(--card-pad-y) * 1.25) var(--card-pad-x);
+    padding: var(--card-pad-y) var(--card-pad-x);
     box-shadow: var(--shadow-elevated);
 }}
 .kpi-card.hero .kpi-val {{
@@ -963,6 +963,171 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
 @media (max-width: 480px) {{
     .config-stat-grid {{ grid-template-columns: 1fr !important; }}
 }}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   DASHBOARD HEADER + SCOPE BAR  — compact, sticky, viewport-aware
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Compact dashboard page title (replaces ## H2 with smaller H3 to reclaim
+   vertical space). Clamp() keeps it readable across breakpoints. */
+.dashboard-page-title {{
+    font-size: clamp(1.05rem, 1.6vw, 1.4rem) !important;
+    font-weight: var(--fw-bold) !important;
+    color: var(--btn-text-pri) !important;
+    margin: 6px 0 8px 0 !important;
+    line-height: 1.25 !important;
+    letter-spacing: -0.01em;
+}}
+
+/* Sidebar Scope section — wraps the two selectboxes + Reset button. */
+.scope-sidebar {{
+    margin: 8px -1rem 12px -1rem;
+    padding: 12px 16px 14px 16px;
+    background: var(--btn-surface2);
+    border-top: 1px solid var(--btn-border);
+    border-bottom: 1px solid var(--btn-border);
+}}
+.scope-sidebar-title {{
+    font-size: var(--fs-2xs);
+    font-weight: var(--fw-bold);
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: var(--btn-text-sec);
+    margin-bottom: 8px;
+    padding-left: 2px;
+}}
+.scope-sidebar [data-testid="stSelectbox"] label {{
+    font-size: 0.72rem !important;
+    font-weight: var(--fw-semibold) !important;
+    color: var(--btn-text-sec) !important;
+    margin-bottom: 2px !important;
+}}
+.scope-sidebar [data-testid="stButton"] > button {{
+    margin-top: 6px !important;
+    padding: 4px 10px !important;
+    font-size: 0.78rem !important;
+    border-radius: 8px !important;
+}}
+
+/* Sticky page-level breadcrumb chip — visible on all viewports as the
+   "you are here" indicator for current scope. Sticks to the top of the
+   page block when scrolling. */
+.scope-page-bar {{
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 14px;
+    margin: 6px 0 14px 0;
+    border-radius: 12px;
+    background: var(--btn-surface);
+    border: 1px solid var(--btn-border);
+    box-shadow: var(--shadow-card);
+    backdrop-filter: saturate(140%) blur(6px);
+    -webkit-backdrop-filter: saturate(140%) blur(6px);
+}}
+.scope-page-bar-hint {{
+    font-size: var(--fs-2xs);
+    font-weight: var(--fw-semibold);
+    color: var(--btn-text-sec);
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    white-space: nowrap;
+}}
+
+.scope-breadcrumb {{
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+}}
+.scope-bc-label {{
+    font-size: var(--fs-2xs);
+    font-weight: var(--fw-bold);
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: var(--btn-gold);
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: rgba(184,134,11,0.10);
+    border: 1px solid var(--btn-gold-dim);
+}}
+.scope-bc-sep {{
+    color: var(--btn-text-sec);
+    opacity: 0.55;
+    font-size: 0.85rem;
+}}
+.scope-bc-val {{
+    font-size: 0.82rem;
+    font-weight: var(--fw-semibold);
+    color: var(--btn-text-pri);
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}}
+.scope-breadcrumb.is-active .scope-bc-label {{
+    background: rgba(59,130,246,0.12);
+    color: var(--color-info);
+    border-color: rgba(59,130,246,0.25);
+}}
+
+@media (max-width: 640px) {{
+    .scope-page-bar {{
+        padding: 6px 10px;
+        gap: 6px;
+    }}
+    .scope-page-bar-hint {{ display: none; }}
+    .scope-bc-val {{ max-width: 140px; font-size: 0.75rem; }}
+}}
+
+/* ── Merchant alert tile — flatten [4,3,2] columns at <=768px ──
+   The Health Alerts tab renders each merchant in a bordered container with
+   a [4,3,2] split. Below tablet width, stack the three columns vertically
+   so labels and the action link don't get squeezed unreadable. */
+@media (max-width: 768px) {{
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {{
+        flex: 1 1 100% !important;
+        min-width: 100% !important;
+        margin-bottom: 6px;
+    }}
+}}
+
+/* ── Cluster card flex grid — already wraps via inline style; harden it
+   against narrow viewports so cards don't squish below readable width. */
+@media (max-width: 480px) {{
+    .config-stat-grid + div [style*="display:flex"][style*="flex-wrap:wrap"] > div {{
+        min-width: 100% !important;
+    }}
+}}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COMFORT BREAKPOINT — large desktop (>=1400px)
+   On 13"+ laptops and external monitors, reclaim breathing room and bump
+   the hero KPI hierarchy so the page doesn't feel cramped at width.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 1400px) {{
+    :root {{
+        --card-pad-x:  1.75rem;
+        --card-pad-y:  1.5rem;
+        --grid-gap:    1.0rem;
+    }}
+    .kpi-card.hero .kpi-val {{
+        font-size: clamp(2.1rem, 2.6vw, 2.7rem);
+    }}
+    .dashboard-page-title {{
+        font-size: clamp(1.3rem, 1.5vw, 1.6rem) !important;
+    }}
+}}
+
+/* ── Swap-to-tabs wrapper used by utils.scope.mobile_swap_to_tabs() ──
+   Currently a marker class; reserved for future enhancement (e.g. flatten
+   the tabs into a side-by-side grid on desktop). */
+.swap-tabs-mobile {{ display: contents; }}
 </style>
 """
 
