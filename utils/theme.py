@@ -927,9 +927,9 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
 }}
 
 /* ── KPI hero strip — responsive flex grid ──
-   5 cards collapse: 5-up (>1100px) → 3-up (≤1100) → 2-up (≤768) → 1-up (≤480).
-   `min-width:0` is critical: without it, `.kpi-val { white-space:nowrap }`
-   forces each item's min-content past the viewport → horizontal scroll. */
+   5 cards collapse: 5-up (>1100px) -> 3-up (<=1100) -> 2-up (<=768) -> 1-up (<=480).
+   min-width:0 is critical: without it, .kpi-val white-space:nowrap forces
+   each item's min-content past the viewport -> horizontal scroll. */
 .kpi-row {{
     display: flex;
     flex-wrap: wrap;
