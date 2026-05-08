@@ -54,7 +54,7 @@ elif db_exists:
 else:
     _db_clr, _db_lbl, _db_sub = p["RED"], "Not Found", "Upload data to Neon or Staging"
 
-_db_dot = (f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
+_db_dot = (f'<span style="display:inline-block;width:var(--size-dot,8px);height:var(--size-dot,8px);border-radius:50%;'
            f'background:{_db_clr};margin-right:5px;vertical-align:middle;"></span>')
 
 # ── Navigation registry ────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ with st.sidebar:
             img_b64 = base64.b64encode(f.read()).decode()
         brand_icon_html = (
             f'<a href="/" style="display:block;text-decoration:none;" title="Go to Dashboard">'
-            f'<img src="data:image/png;base64,{img_b64}" style="display:block;width:58px;height:auto;">'
+            f'<img src="data:image/png;base64,{img_b64}" style="display:block;width:clamp(40px,7vw,58px);height:auto;">'
             f'</a>'
         )
     else:

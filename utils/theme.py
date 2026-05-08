@@ -238,6 +238,15 @@ def _make_css(p: dict) -> str:
     --fw-semibold: 600;
     --fw-bold:     700;
     --fw-black:    900;
+
+    /* ── Responsive spacing tokens — overridden per breakpoint ──
+       Using vars instead of hardcoded px lets every component respond
+       to viewport width by cascading a single token override. */
+    --card-pad-x:  1.5rem;
+    --card-pad-y:  1.375rem;
+    --grid-gap:    0.875rem;
+    --section-gap: 1rem;
+    --size-dot:    8px;
 }}
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -496,7 +505,7 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 
 .kpi-card {{
     background: var(--btn-surface); border: 1px solid var(--btn-border);
-    border-radius: 20px; padding: 22px 24px;
+    border-radius: 20px; padding: var(--card-pad-y) var(--card-pad-x);
     box-shadow: var(--shadow-card);                 /* plan §4.3 — layered navy-tinted */
     position: relative; overflow: hidden;
     display: flex; flex-direction: column; gap: 10px;
@@ -534,7 +543,7 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
    Larger headline value than per-tab cards so the eye lands here first when
    the page loads. Establishes the visual hierarchy directive. */
 .kpi-card.hero {{
-    padding: 28px 28px;
+    padding: calc(var(--card-pad-y) * 1.25) var(--card-pad-x);
     box-shadow: var(--shadow-elevated);
 }}
 .kpi-card.hero .kpi-val {{
@@ -686,10 +695,10 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
    layered navy-tinted shadow, hover lift, fs-kpi headline value with
    tabular-nums and tight tracking. The colour-strip on `.stat-card`
    stays — it's a useful at-a-glance cue. */
-.stats-grid {{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:22px; }}
+.stats-grid {{ display:grid; grid-template-columns:repeat(4,1fr); gap:var(--grid-gap); margin-bottom:22px; }}
 .stat-card {{
     background: var(--btn-surface); border: 1px solid var(--btn-border);
-    border-radius: 20px; padding: 22px 24px;
+    border-radius: 20px; padding: var(--card-pad-y) var(--card-pad-x);
     box-shadow: var(--shadow-card);
     position: relative; overflow: hidden;
     display: flex; flex-direction: column; gap: 8px;
@@ -813,6 +822,10 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
 
 /* ── Tablet (≤ 900px): wrap Streamlit columns so wide grids compress cleanly ── */
 @media (max-width: 900px) {{
+    :root {{
+        --card-pad-x: 1.1rem;
+        --grid-gap:   0.75rem;
+    }}
     [data-testid="stHorizontalBlock"] {{
         flex-wrap: wrap !important;
     }}
@@ -820,22 +833,44 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
         min-width: min(100%, 260px) !important;
         flex: 1 1 260px !important;
     }}
+    .kpi-card.hero .kpi-val {{ font-size: clamp(1.4rem, 2vw, 1.8rem) !important; }}
+    .page-header h1 {{ font-size: clamp(1.1rem, 2.5vw, 1.4rem); }}
 }}
 
 /* ── Tablet / large phone (≤ 768px): 2-col stat grids, smaller cards ── */
 @media (max-width: 768px) {{
+    :root {{
+        --card-pad-x: 0.9rem;
+        --card-pad-y: 0.75rem;
+        --grid-gap:   0.625rem;
+    }}
     .stats-grid {{ grid-template-columns: repeat(2, 1fr) !important; }}
     .pipeline-stepper {{ flex-wrap: wrap; gap: 8px; overflow-x: visible; }}
     .step-item {{ min-width: 80px !important; }}
-    .stat-card   {{ padding: 16px 18px; }}
     .stat-value  {{ font-size: 18px; }}
-    .kpi-card .kpi-val {{ font-size: 22px; }}
+    .kpi-card .kpi-val {{ font-size: clamp(1.2rem, 3.5vw, 1.6rem) !important; }}
     .card-body   {{ padding: 14px 16px; }}
     .card-header {{ padding: 12px 16px; }}
+    .section-label {{ font-size: 0.72rem; }}
+    .tab-desc {{ padding: 8px 12px; font-size: 0.8rem; }}
+    /* 4-col KPI strip → 2×2 grid at tablet */
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"]:nth-child(4)) > [data-testid="stColumn"] {{
+        flex: 1 1 calc(50% - var(--grid-gap)) !important;
+        min-width: calc(50% - var(--grid-gap)) !important;
+    }}
+    /* Tab buttons: smaller text */
+    [data-testid="stTabs"] [data-baseweb="tab"] {{
+        font-size: 0.78rem !important;
+        padding: 6px 10px !important;
+    }}
 }}
 
 /* ── Phone (≤ 640px): stack ALL Streamlit columns to full width ── */
 @media (max-width: 640px) {{
+    :root {{
+        --card-pad-x: 0.75rem;
+        --card-pad-y: 0.625rem;
+    }}
     [data-testid="stHorizontalBlock"] {{
         flex-direction: column !important;
     }}
@@ -844,22 +879,89 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
         flex: 1 1 100% !important;
         min-width: 0 !important;
     }}
+    .kpi-card .kpi-val {{ font-size: clamp(1.3rem, 5vw, 1.6rem) !important; }}
+    /* Tab bar: horizontal scroll so 6+ tabs don't overflow or wrap */
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {{
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+        flex-wrap: nowrap !important;
+    }}
+    [data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar {{ display: none; }}
+    [data-testid="stTabs"] [data-baseweb="tab"] {{
+        white-space: nowrap !important;
+        font-size: 0.72rem !important;
+        padding: 5px 9px !important;
+        min-width: unset !important;
+    }}
+    /* Allow Plotly containers to shrink below their Python-set height */
+    [data-testid="stPlotlyChart"] > div {{ min-height: 0 !important; }}
+    [data-testid="stMainBlockContainer"] {{ padding-left: 0.75rem !important; padding-right: 0.75rem !important; }}
 }}
 
 /* ── Small phone (≤ 480px): single-column stat grids, compact everything ── */
 @media (max-width: 480px) {{
+    :root {{
+        --card-pad-x: 0.6rem;
+        --card-pad-y: 0.5rem;
+        --grid-gap:   0.5rem;
+        --size-dot:   6px;
+    }}
     .stats-grid {{ grid-template-columns: 1fr !important; }}
     .step-item   {{ min-width: 60px !important; font-size: 0.7rem; }}
     .step-circle {{ width: 32px !important; height: 32px !important; font-size: 0.85rem !important; }}
     .step-label  {{ font-size: 0.65rem; }}
-    .stat-card   {{ padding: 12px 14px; }}
     .stat-value  {{ font-size: 16px; }}
-    .kpi-card .kpi-val {{ font-size: 18px; }}
-    .kpi-card    {{ padding: 16px 18px; }}
+    .kpi-card .kpi-val {{ font-size: clamp(1.1rem, 5vw, 1.4rem) !important; }}
     .card-body   {{ padding: 12px 14px; }}
     .card-header {{ padding: 10px 14px; }}
     .section-title {{ font-size: 13px; }}
     .prereq-row  {{ font-size: 0.82rem; }}
+    .page-header {{ padding: 10px 12px; }}
+    .page-header h1 {{ font-size: clamp(1rem, 5vw, 1.2rem); }}
+    .filter-pill {{ font-size: 0.7rem; padding: 3px 8px; }}
+    .status-badge {{ font-size: 0.7rem; padding: 3px 8px; }}
+    .info-chip {{ font-size: 0.7rem; padding: 3px 8px; }}
+    [data-testid="stPlotlyChart"] iframe {{ min-height: 160px !important; }}
+    [data-testid="stMainBlockContainer"] {{ padding-left: 0.5rem !important; padding-right: 0.5rem !important; }}
+}}
+
+/* ── KPI hero strip — responsive flex grid ──
+   5 cards collapse: 5-up (>1100px) → 3-up (≤1100) → 2-up (≤768) → 1-up (≤480).
+   `min-width:0` is critical: without it, `.kpi-val { white-space:nowrap }`
+   forces each item's min-content past the viewport → horizontal scroll. */
+.kpi-row {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+    width: 100%;
+}}
+.kpi-row-item {{
+    flex: 1 1 calc(20% - 10px);
+    min-width: 0;
+    display: flex;
+}}
+.kpi-row-item > .kpi-card {{ flex: 1; min-width: 0; }}
+@media (max-width: 1100px) {{
+    .kpi-row-item {{ flex: 1 1 calc(33.333% - 8px); }}
+}}
+@media (max-width: 768px) {{
+    .kpi-row {{ gap: 10px; }}
+    .kpi-row-item {{ flex: 1 1 calc(50% - 5px); }}
+}}
+@media (max-width: 480px) {{
+    .kpi-row {{ gap: 8px; }}
+    .kpi-row-item {{ flex: 1 1 100%; }}
+}}
+
+/* ── Config stat grid — responsive 3→2→1 col ── */
+.config-stat-grid {{ grid-template-columns: repeat(3, 1fr); gap: var(--grid-gap); }}
+@media (max-width: 768px) {{
+    .config-stat-grid {{ grid-template-columns: repeat(2, 1fr) !important; }}
+}}
+@media (max-width: 480px) {{
+    .config-stat-grid {{ grid-template-columns: 1fr !important; }}
 }}
 </style>
 """
@@ -1105,9 +1207,19 @@ def kpi_card(value: str, label: str, kind: str = "default", *, hero: bool = Fals
 
 
 def kpi_row(cards: list):
-    inner = "".join(f'<div style="flex:1;">{c}</div>' for c in cards)
+    """Render a horizontal KPI strip that wraps responsively.
+
+    Mobile bug fix: previously used `display:flex` + `flex:1` inline with no
+    wrap and no min-width:0. Since `.kpi-val` has `white-space:nowrap`, each
+    card's min-content was the full string width, forcing the container past
+    the viewport and producing horizontal scroll on phones. The `.kpi-row` /
+    `.kpi-row-item` classes (in _make_css) set flex-wrap + min-width:0 + a
+    per-breakpoint flex-basis, so 5 cards reflow to 3+2 / 2+2+1 / 1-per-row
+    as the viewport narrows.
+    """
+    inner = "".join(f'<div class="kpi-row-item">{c}</div>' for c in cards)
     st.markdown(
-        f'<div style="display:flex;gap:12px;margin-bottom:20px;">{inner}</div>',
+        f'<div class="kpi-row">{inner}</div>',
         unsafe_allow_html=True,
     )
 

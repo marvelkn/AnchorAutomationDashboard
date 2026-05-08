@@ -63,7 +63,7 @@ def _show_no_data_dialog():
             <div style="font-size:var(--fs-lg);font-weight:var(--fw-bold);margin-bottom:8px;">
                 The dashboard has no data to display.
             </div>
-            <div style="font-size:var(--fs-base);color:var(--btn-text-sec);line-height:1.6;max-width:480px;margin:0 auto 24px;">
+            <div style="font-size:var(--fs-base);color:var(--btn-text-sec);line-height:1.6;max-width:min(480px,100%);margin:0 auto 24px;">
                 The database is empty or was recently reset. Run the automated pipeline
                 to ingest Card Share &amp; Monitoring data before opening the dashboard.
             </div>
@@ -1110,7 +1110,7 @@ with tab0:
                                               labels={'Multiplier': 'Volume Multiplier (1.0 = Average)'})
                             fig_sea.add_hline(y=1.0, line_dash="dash", line_color=get_palette()['TEXT_SEC'], annotation_text="Baseline Avg (1.0x)")
                             fig_sea.update_traces(line=dict(width=3, color=get_palette()['GOLD']), marker=dict(size=8))
-                            fig_sea.update_layout(height=350, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
+                            fig_sea.update_layout(height=300, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
                             st.plotly_chart(fig_sea, use_container_width=True, theme=None)
                         else:
                             st.info(f"Insufficient historical Realisasi monthly data to chart statistical seasonality for {sel_merch}.")
@@ -1151,7 +1151,7 @@ with tab0:
                             )
                             fig_hw.update_traces(line=dict(width=2.5))
                             fig_hw.update_layout(
-                                height=350,
+                                height=300,
                                 **_chart_base(),
                                 xaxis=dict(**_xaxis(), tickangle=-45),
                                 yaxis=_yaxis(),
@@ -1314,7 +1314,7 @@ with tab1:
                         title=f"{sec_name} — Composition",
                     )
                     fig_s.update_layout(
-                        height=380, margin=dict(l=0, r=0, t=36, b=64),
+                        height=320, margin=dict(l=0, r=0, t=36, b=64),
                         xaxis=dict(tickangle=-30),
                         **_chart_base(),
                     )
@@ -1331,7 +1331,7 @@ with tab1:
                     ))
                     fig_l.update_layout(
                         title=f"{sec_name} — Total Trend",
-                        height=380, margin=dict(l=0, r=0, t=36, b=64),
+                        height=320, margin=dict(l=0, r=0, t=36, b=64),
                         xaxis=dict(tickangle=-30),
                         **_chart_base(),
                     )

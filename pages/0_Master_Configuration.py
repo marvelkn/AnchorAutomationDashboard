@@ -218,7 +218,7 @@ with tab_files:
             <div class="stat-meta">{mod_str}</div>
         </div>"""
     st.markdown(
-        f'<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">{cards_html}</div>',
+        f'<div class="stats-grid config-stat-grid">{cards_html}</div>',
         unsafe_allow_html=True,
     )
 
