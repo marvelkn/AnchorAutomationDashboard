@@ -247,6 +247,14 @@ def _make_css(p: dict) -> str:
     --grid-gap:    0.875rem;
     --section-gap: 1rem;
     --size-dot:    8px;
+
+    /* ── Mobile touch-target baseline ──
+       Minimum hit area for any interactive control. 44px = Apple HIG /
+       48dp Material floor. Overrides cascade per breakpoint below. */
+    --touch-min:   44px;
+    /* Height reserved at page bottom for the fixed mobile nav bar (Phase 1).
+       0 on desktop; set to the bar height inside the ≤768px breakpoint. */
+    --mobile-nav-h: 0px;
 }}
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1015,6 +1023,207 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
     }}
     .dashboard-page-title {{
         font-size: clamp(1.3rem, 1.5vw, 1.6rem) !important;
+    }}
+}}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MOBILE-FIRST OVERHAUL  (≤768px)
+   Appended last so these rules win source-order ties against the older,
+   retrofitted phone breakpoints above. Self-contained and reviewable as one
+   block. Desktop (>768px) is never matched by anything here.
+   ──────────────────────────────────────────────────────────────────────────
+   PHASE 0 — Foundation: readable type floor, comfortable spacing, 44px targets.
+   ════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {{
+    :root {{
+        /* Typography floor — body ≈15px, smallest label ≈11.5px, so nothing
+           on a phone needs pinch-zoom. Bumps the older 0.65–0.92rem scale. */
+        --fs-2xs:  0.72rem;
+        --fs-xs:   0.80rem;
+        --fs-sm:   0.86rem;
+        --fs-base: 0.95rem;
+        --fs-md:   1.02rem;
+        /* Comfortable card padding — overrides the ≤480px crush (was 0.5rem).
+           Whitespace is the minimalism; cards must not feel cramped. */
+        --card-pad-x: 1.05rem;
+        --card-pad-y: 1.05rem;
+        --grid-gap:   0.7rem;
+        --touch-min:  44px;
+    }}
+    /* Body-copy floor */
+    .stApp p, [data-testid="stMarkdown"] p, [data-testid="stMarkdown"] li {{
+        font-size: var(--fs-base);
+        line-height: 1.55;
+    }}
+    /* Touch-target baseline — primary interactive controls ≥44px tall */
+    [data-testid="stButton"] > button,
+    [data-testid="stDownloadButton"] > button,
+    [data-baseweb="select"] > div:first-child,
+    [data-testid="stTextInput"] input,
+    [data-testid="stNumberInput"] input,
+    [data-baseweb="input"] input {{
+        min-height: var(--touch-min) !important;
+    }}
+    /* Expander header — comfortable tap area */
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] details > summary {{
+        min-height: var(--touch-min) !important;
+        display: flex !important;
+        align-items: center !important;
+    }}
+}}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PHASE 1 — Navigation: fixed bottom tab bar + discoverable dashboard tab strip.
+   The bottom bar (keyed container `st-key-mobile_nav`, rendered in app.py) is
+   hidden on desktop and revealed only inside the ≤768px breakpoint.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Hidden by default — desktop never shows the bottom bar. */
+.st-key-mobile_nav {{ display: none; }}
+
+@media (max-width: 768px) {{
+    :root {{ --mobile-nav-h: 62px; }}
+
+    /* ── Fixed bottom tab bar ─────────────────────────────────────────────── */
+    .st-key-mobile_nav {{
+        display: block !important;
+        position: fixed !important;
+        left: 0 !important; right: 0 !important; bottom: 0 !important;
+        z-index: 999 !important;
+        background: var(--btn-sidebar) !important;
+        border-top: 1px solid var(--btn-border) !important;
+        box-shadow: 0 -2px 14px rgba(15,27,51,0.07) !important;
+        padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px)) 4px !important;
+    }}
+    /* Keep the link row horizontal — overrides the global ≤640px column-stack */
+    .st-key-mobile_nav [data-testid="stHorizontalBlock"] {{
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 0 !important;
+    }}
+    .st-key-mobile_nav [data-testid="stColumn"] {{
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        width: auto !important;
+    }}
+    /* Each page link → icon stacked over a short label */
+    .st-key-mobile_nav [data-testid="stPageLink"] {{ margin: 0 !important; }}
+    .st-key-mobile_nav [data-testid="stPageLink"] a {{
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 3px !important;
+        padding: 6px 2px !important;
+        min-height: 54px !important;
+        border-radius: 10px !important;
+        text-align: center !important;
+    }}
+    .st-key-mobile_nav [data-testid="stPageLink"] a p {{
+        font-size: 10.5px !important;
+        font-weight: 600 !important;
+        line-height: 1.1 !important;
+        margin: 0 !important;
+        white-space: nowrap !important;
+    }}
+    .st-key-mobile_nav [data-testid="stIconMaterial"] {{
+        font-size: 23px !important;
+        width: 23px !important; height: 23px !important;
+    }}
+    /* Active page — BTN blue accent on icon + label + pill background */
+    .st-key-mobile_nav [data-testid="stPageLink"] a[aria-current="page"] {{
+        background: var(--btn-surface2) !important;
+    }}
+    .st-key-mobile_nav [data-testid="stPageLink"] a[aria-current="page"] p,
+    .st-key-mobile_nav [data-testid="stPageLink"] a[aria-current="page"] [data-testid="stIconMaterial"] {{
+        color: var(--btn-blue) !important;
+    }}
+    /* Reserve space so page content is never hidden behind the fixed bar */
+    [data-testid="stMainBlockContainer"] {{
+        padding-bottom: calc(var(--mobile-nav-h) + 18px) !important;
+    }}
+
+    /* ── Dashboard tab strip — discoverable horizontal scroller ───────────── */
+    [data-testid="stTabs"] {{ position: relative !important; }}
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {{
+        overflow-x: auto !important;
+        flex-wrap: nowrap !important;
+        scrollbar-width: none !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding-right: 38px !important;   /* clear room under the fade/chevron */
+    }}
+    [data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar {{ display: none; }}
+    /* Restore a comfortable 44px touch target on every tab */
+    [data-testid="stTabs"] [data-baseweb="tab"] {{
+        min-height: 44px !important;
+        padding: 0 14px !important;
+        font-size: 0.82rem !important;
+        white-space: nowrap !important;
+    }}
+    /* Right-edge fade + chevron — signals the strip scrolls horizontally */
+    [data-testid="stTabs"]::after {{
+        content: "\\203A";
+        position: absolute !important;
+        top: 0; right: 0;
+        width: 40px; height: 54px;
+        display: flex; align-items: center; justify-content: flex-end;
+        padding-right: 10px;
+        font-size: 22px; font-weight: 700; line-height: 1;
+        color: var(--btn-text-sec);
+        background: linear-gradient(to right, transparent, var(--btn-bg) 65%);
+        pointer-events: none;
+        z-index: 2;
+    }}
+}}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PHASE 2 — Layout: KPI "2 hero + 3 mini" strip + chart / table safety nets.
+   ════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {{
+    /* ── KPI hero strip → 2 full-width heroes + a compact 3-up mini row ──
+       The dashboard renders exactly 5 hero KPI cards, in this order:
+         1 Merchants · 2 Sales Volume · 3 Transactions · 4 On-Us · 5 High Risk
+       Surface the two most decision-relevant (Sales Volume, High Risk) as
+       full-width heroes via flex `order`; compress the remaining three into a
+       3-up row so the eye lands on what matters without a 5-card scroll tower. */
+    .kpi-row {{ gap: 8px !important; }}
+    .kpi-row-item {{ flex: 1 1 calc(33.333% - 6px) !important; }}
+    .kpi-row-item:nth-child(2),
+    .kpi-row-item:nth-child(5) {{ flex: 1 1 100% !important; }}
+    .kpi-row-item:nth-child(2) {{ order: -2; }}
+    .kpi-row-item:nth-child(5) {{ order: -1; }}
+    /* Hero cards — confident headline */
+    .kpi-row-item:nth-child(2) .kpi-card .kpi-val,
+    .kpi-row-item:nth-child(5) .kpi-card .kpi-val {{
+        font-size: clamp(1.7rem, 7vw, 2.2rem) !important;
+    }}
+    /* Mini cards — smaller headline + tighter box */
+    .kpi-row-item:nth-child(1) .kpi-card,
+    .kpi-row-item:nth-child(3) .kpi-card,
+    .kpi-row-item:nth-child(4) .kpi-card {{
+        padding: 12px 10px !important;
+        gap: 4px !important;
+    }}
+    .kpi-row-item:nth-child(1) .kpi-card .kpi-val,
+    .kpi-row-item:nth-child(3) .kpi-card .kpi-val,
+    .kpi-row-item:nth-child(4) .kpi-card .kpi-val {{
+        font-size: clamp(1.0rem, 4.6vw, 1.3rem) !important;
+    }}
+
+    /* ── Charts — never overflow the viewport ── */
+    [data-testid="stPlotlyChart"],
+    [data-testid="stPlotlyChart"] > div {{
+        width: 100% !important;
+        min-height: 0 !important;
+    }}
+    [data-testid="stPlotlyChart"] .plot-container,
+    [data-testid="stPlotlyChart"] .svg-container {{ max-width: 100% !important; }}
+
+    /* ── Wide data tables — kept inside the card with smooth touch scroll ── */
+    [data-testid="stDataFrame"],
+    [data-testid="stTable"] {{
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
     }}
 }}
 

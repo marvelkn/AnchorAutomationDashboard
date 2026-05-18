@@ -9,11 +9,41 @@ if BASE_DIR not in sys.path:
 
 from utils.theme import apply_theme, theme_toggle_sidebar, get_palette, _nav_css
 
+
+def _render_mobile_nav(data_exists: bool):
+    """Render the fixed bottom navigation bar (mobile only).
+
+    Visible only at ≤768px — gated entirely by the `.st-key-mobile_nav` CSS in
+    utils/theme._make_css(). Mirrors the sidebar page registry but uses short,
+    phone-friendly labels. Must be rendered last in the DOM (after pg.run) so
+    the CSS can lift it out of flow with position:fixed. The sidebar nav stays
+    available as the secondary (drawer) surface.
+    """
+    if data_exists:
+        items = [
+            ("pages/4_Dashboard.py",            "Dashboard", ":material/bar_chart:"),
+            ("pages/00_Automated_Pipeline.py",  "Pipeline",  ":material/rocket_launch:"),
+            ("pages/01_Data_Editor.py",         "Records",   ":material/edit_document:"),
+            ("pages/05_PM_Manager.py",          "PM",        ":material/group:"),
+            ("pages/0_Master_Configuration.py", "Settings",  ":material/settings:"),
+        ]
+    else:
+        items = [
+            ("pages/00_Automated_Pipeline.py",  "Upload",   ":material/warning:"),
+            ("pages/0_Master_Configuration.py", "Settings", ":material/settings:"),
+        ]
+    with st.container(key="mobile_nav"):
+        cols = st.columns(len(items))
+        for col, (path, label, icon) in zip(cols, items):
+            col.page_link(path, label=label, icon=icon)
+
 st.set_page_config(
     page_title="BTN Anchor Dashboard",
     page_icon=os.path.join(BASE_DIR, "static", "btn_logo.png"),
     layout="wide",
-    initial_sidebar_state="expanded",
+    # "auto" → sidebar expanded on desktop, collapsed on phones/tablets so the
+    # content (and the new fixed bottom nav) is immediately visible on mobile.
+    initial_sidebar_state="auto",
 )
 
 # ── Session State Defaults — single initialization point ─────────────────────
@@ -187,6 +217,12 @@ with st.sidebar:
 
 # ── Run the registered page ────────────────────────────────────────────────────
 if pg is not None:
+    # ── Mobile bottom navigation bar (≤768px; CSS-gated in utils/theme) ──────────
+    # Rendered BEFORE pg.run() so it still appears even when a page calls
+    # st.stop() early. position:fixed lifts it out of flow regardless of DOM
+    # order, so placement here has no visual cost. Hidden on desktop via the
+    # .st-key-mobile_nav rule; the sidebar stays as the secondary drawer nav.
+    _render_mobile_nav(data_exists)
     pg.run()
 else:
     st.error("Please update Streamlit to >= 1.36 to use native navigation.")
