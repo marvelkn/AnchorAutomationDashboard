@@ -11,7 +11,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from sklearn.ensemble import IsolationForest
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
 try:
     from statsmodels.tsa.holtwinters import ExponentialSmoothing as HoltWinters
     _HW_AVAILABLE = True
@@ -41,6 +41,7 @@ from utils.growth_analytics import (
     BASELINE_FLOORS, compose_urgency_score, compute_growth_signals,
     extract_recent_weeks,
 )
+from utils import app_state
 from sqlalchemy import text
 
 # ── PAGE CONFIG ──────────────────────────────────────────────────────────────
@@ -467,6 +468,14 @@ def _hw_forecast(hist_df, periods_ahead=12):
 neon_url = os.getenv("DATABASE_URL")
 engine = _get_engine() if neon_url else None
 
+# Plan F1/F2/F5 — ensure the user-state side tables (triage, forecast log,
+# watchlist) exist. Wrapped defensively: a state-table failure must never
+# block the dashboard from rendering its core analytics.
+try:
+    app_state.ensure_state_tables(engine=engine)
+except Exception:
+    pass
+
 
 @st.cache_data(ttl=600, show_spinner="Loading dashboard data...")
 def _load_dashboard_data(neon_mode: bool):
@@ -599,13 +608,39 @@ _high_risk_count = int(_ml_kpi['CHURN_RISK'].str.contains('HIGH', na=False).sum(
 _sv_fmt  = f"Rp {_ytd_sv/1e9:,.1f} M"  if _ytd_sv >= 1e9 else f"Rp {_ytd_sv/1e6:,.0f} Jt"
 _trx_fmt = f"{_ytd_trx/1e6:,.2f} M"    if _ytd_trx >= 1e6 else f"{_ytd_trx:,.0f}"
 
+# Plan U3 — portfolio-wide monthly trend for the hero KPI sparklines + the
+# month-over-month delta. PROCESSED_CARD_HISTORY carries the monthly series;
+# YTD totals alone can't show direction, so we derive it here.
+def _mom_delta(values):
+    """Latest-vs-prior percent change for a monthly series, or None."""
+    s = [float(v) for v in values if pd.notna(v)]
+    if len(s) < 2 or s[-2] == 0:
+        return None
+    return (s[-1] - s[-2]) / s[-2] * 100.0
+
+_spark_sv, _spark_trx = None, None
+_delta_sv, _delta_trx = None, None
+if not df_card_hist.empty and 'TRX_MONTH' in df_card_hist.columns:
+    _port_monthly = (
+        df_card_hist.groupby('TRX_MONTH', as_index=False)
+        .agg(sv=('TOTAL_SV', 'sum'), trx=('TOTAL_TRX', 'sum'))
+        .sort_values('TRX_MONTH')
+    )
+    if len(_port_monthly) >= 2:
+        _spark_sv  = _port_monthly['sv'].tail(8).tolist()
+        _spark_trx = _port_monthly['trx'].tail(8).tolist()
+        _delta_sv  = _mom_delta(_port_monthly['sv'].tolist())
+        _delta_trx = _mom_delta(_port_monthly['trx'].tolist())
+
 kpi_row([
     # Page-level strip — hero=True so this row reads as the page's headline
     # (largest type, elevated shadow). Per-tab boxes use the standard size,
     # giving the user a clear two-tier visual hierarchy on every screen.
     kpi_card(f"{_total_merchants:,}", "Merchants Tracked", hero=True),
-    kpi_card(_sv_fmt,                 "YTD Sales Volume", hero=True),
-    kpi_card(_trx_fmt,                "YTD Transactions", hero=True),
+    kpi_card(_sv_fmt,                 "YTD Sales Volume", hero=True,
+             delta=_delta_sv, spark=_spark_sv),
+    kpi_card(_trx_fmt,                "YTD Transactions", hero=True,
+             delta=_delta_trx, spark=_spark_trx),
     kpi_card(f"{_avg_onus*100:.1f}%", "Avg On-Us Ratio", hero=True),
     kpi_card(
         str(_high_risk_count),
@@ -2751,10 +2786,30 @@ with tab4:
                     achievement_pct=_at_risk_inbox.get('ACHIEVEMENT_PCT', pd.Series(dtype=float)),
                     is_iforest_anomaly=_at_risk_inbox.get('IF_IS_ANOMALY', pd.Series(dtype=bool)),
                 ).values
-                _at_risk_inbox = _at_risk_inbox.sort_values('_URGENCY', ascending=False).head(7)
+                _at_risk_sorted = _at_risk_inbox.sort_values('_URGENCY', ascending=False)
 
-                section_label(f"Action Inbox — {len(_at_risk_inbox)} merchant(s) need attention")
-                st.caption("Sorted by composite urgency (risk score + Isolation-Forest confirmation + below-target bonus). Click **Open in PM Manager** to take action.")
+                # Plan F1 — persisted triage. Merchants the user acknowledged
+                # or snoozed drop out of the queue (snoozes resurface on expiry).
+                # The ML analytics are untouched — only what's shown here changes.
+                _triage_map = app_state.active_triage_map(engine=engine)
+                _is_triaged = _at_risk_sorted['MERCHANT_GROUP'].astype(str).isin(_triage_map)
+                _triaged_rows = _at_risk_sorted[_is_triaged]
+                _open_rows    = _at_risk_sorted[~_is_triaged]
+
+                _show_triaged = st.toggle(
+                    "Show acknowledged / snoozed merchants",
+                    value=False, key="t4_show_triaged",
+                    help="Triaged merchants are hidden from the queue. Turn this on to review or restore them.",
+                )
+                _at_risk_inbox = (_at_risk_sorted if _show_triaged else _open_rows).head(7)
+
+                section_label(f"Action Inbox — {len(_open_rows)} merchant(s) need attention")
+                _cap = ("Sorted by composite urgency (risk score + Isolation-Forest "
+                        "confirmation + below-target bonus). Acknowledge or snooze a "
+                        "merchant to clear it from the queue.")
+                if len(_triaged_rows) > 0:
+                    _cap += f"  &middot;  {len(_triaged_rows)} merchant(s) currently triaged."
+                st.caption(_cap)
 
                 for _, row in _at_risk_inbox.iterrows():
                     _merchant = row.get('MERCHANT_GROUP', '—')
@@ -2861,6 +2916,36 @@ with tab4:
                                     "Open the PM Manager page</div>",
                                     unsafe_allow_html=True,
                                 )
+                            # Plan F1 — triage controls. Persisted via app_state
+                            # so a decision survives reruns, sessions, and the
+                            # next pipeline run. Keys are sanitized merchant names.
+                            _safe_key = "".join(
+                                c if c.isalnum() else "_" for c in str(_merchant)
+                            )
+                            if _merchant in _triage_map:
+                                st.caption(f"Triaged &middot; {_triage_map[_merchant]}")
+                                if st.button("Restore to queue",
+                                             key=f"untri_{_safe_key}",
+                                             use_container_width=True):
+                                    app_state.clear_triage(_merchant, engine=engine)
+                                    st.rerun()
+                            else:
+                                _ack, _snz = st.columns(2)
+                                if _ack.button("Acknowledge", key=f"ack_{_safe_key}",
+                                               use_container_width=True,
+                                               help="Mark as reviewed — clears it from the queue."):
+                                    app_state.set_triage(
+                                        _merchant, app_state.TRIAGE_ACKNOWLEDGED,
+                                        engine=engine)
+                                    st.rerun()
+                                if _snz.button("Snooze 14d", key=f"snz_{_safe_key}",
+                                               use_container_width=True,
+                                               help="Hide for 14 days, then resurface automatically."):
+                                    app_state.set_triage(
+                                        _merchant, app_state.TRIAGE_SNOOZED,
+                                        snooze_until=date.today() + timedelta(days=14),
+                                        engine=engine)
+                                    st.rerun()
 
             st.markdown("")
 

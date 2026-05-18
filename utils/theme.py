@@ -547,6 +547,22 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .kpi-card.success {{ border-top: 3px solid var(--color-success); }}
 .kpi-card.accent  {{ border-top: 3px solid var(--color-info); }}
 
+/* KPI delta + sparkline (plan U3) — direction-aware change indicator and a
+   micro inline-SVG trend so each card answers "good or bad, and moving?". */
+.kpi-card .kpi-foot {{
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; margin-top: 2px;
+}}
+.kpi-card .kpi-delta {{
+    font-size: var(--fs-xs); font-weight: var(--fw-bold);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 3px;
+}}
+.kpi-card .kpi-delta.up   {{ color: var(--color-success); }}
+.kpi-card .kpi-delta.down {{ color: var(--color-danger); }}
+.kpi-card .kpi-delta.flat {{ color: var(--btn-text-sec); }}
+.kpi-card .kpi-spark {{ display: block; height: 26px; flex: 0 0 auto; }}
+
 /* Hero KPI card — page-level strip at the top of the dashboard. Larger
    headline value than per-tab cards so the eye lands here first.
    Padding compacted (1.25x -> 1.0x) to reclaim ~50px of vertical space. */
@@ -1467,13 +1483,57 @@ def styled_divider():
     )
 
 
-def kpi_card(value: str, label: str, kind: str = "default", *, hero: bool = False) -> str:
+def _sparkline_svg(values, *, stroke: str = "var(--btn-text-sec)",
+                   width: int = 84, height: int = 26) -> str:
+    """Inline-SVG micro line chart for a KPI card.
+
+    Returns an empty string for fewer than 2 usable points so the caller can
+    simply concatenate the result. preserveAspectRatio='none' lets the card
+    stretch the chart to its column width without distorting stroke weight.
+    """
+    clean = []
+    for v in (values or []):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if f == f:  # filter NaN
+            clean.append(f)
+    if len(clean) < 2:
+        return ""
+    lo, hi = min(clean), max(clean)
+    span = (hi - lo) or 1.0
+    pad = 2.0
+    step = (width - 2 * pad) / (len(clean) - 1)
+    pts = []
+    for i, v in enumerate(clean):
+        x = pad + i * step
+        y = height - pad - (v - lo) / span * (height - 2 * pad)
+        pts.append((x, y))
+    poly = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    lx, ly = pts[-1]
+    return (
+        f'<svg class="kpi-spark" viewBox="0 0 {width} {height}" '
+        f'preserveAspectRatio="none" aria-hidden="true">'
+        f'<polyline points="{poly}" fill="none" stroke="{stroke}" '
+        f'stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="2" fill="{stroke}"/></svg>'
+    )
+
+
+def kpi_card(value: str, label: str, kind: str = "default", *, hero: bool = False,
+             delta: float = None, delta_good: str = "up", spark: list = None) -> str:
     """Render a single KPI box.
 
     `kind`:  "default" | "danger" | "success" | "accent" — paints the top accent bar.
     `hero`:  set True for the page-level KPI strip at the very top of Overview;
              uses a larger headline value (`--fs-kpi-lg`) and elevated shadow so
              the eye lands here first on page load.
+    `delta`: optional period-over-period change as a percent. Renders an
+             arrow + value, colored green/red by whether the move is favorable.
+    `delta_good`: "up" or "down" — which direction of `delta` is a good outcome
+             (e.g. risk count uses "down"). Defaults to "up".
+    `spark`: optional list of numbers for a micro inline-SVG trend line.
     """
     classes = ["kpi-card"]
     if kind and kind != "default":
@@ -1481,7 +1541,33 @@ def kpi_card(value: str, label: str, kind: str = "default", *, hero: bool = Fals
     if hero:
         classes.append("hero")
     cls = " ".join(classes)
-    return f'<div class="{cls}"><div class="kpi-val">{value}</div><div class="kpi-lbl">{label}</div></div>'
+
+    dir_cls = None
+    delta_html = ""
+    if delta is not None:
+        try:
+            d = float(delta)
+        except (TypeError, ValueError):
+            d = None
+        if d is not None and d == d:
+            if abs(d) < 0.05:
+                dir_cls, arrow = "flat", "→"
+            else:
+                arrow = "▲" if d > 0 else "▼"
+                dir_cls = "up" if (d > 0) == (delta_good == "up") else "down"
+            delta_html = (
+                f'<span class="kpi-delta {dir_cls}">{arrow} {abs(d):.1f}%</span>'
+            )
+
+    _stroke_map = {"up": "var(--color-success)", "down": "var(--color-danger)",
+                   "flat": "var(--btn-text-sec)"}
+    spark_html = (_sparkline_svg(spark, stroke=_stroke_map.get(dir_cls, "var(--btn-text-sec)"))
+                  if spark else "")
+    foot = (f'<div class="kpi-foot">{delta_html}{spark_html}</div>'
+            if (delta_html or spark_html) else "")
+
+    return (f'<div class="{cls}"><div class="kpi-val">{value}</div>'
+            f'<div class="kpi-lbl">{label}</div>{foot}</div>')
 
 
 def kpi_row(cards: list):
