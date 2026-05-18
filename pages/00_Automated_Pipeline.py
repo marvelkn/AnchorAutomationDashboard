@@ -194,8 +194,10 @@ if cloud_mode_enabled:
 
                     with results_placeholder.container():
                         if result.get("status") == "complete":
+                            st.cache_data.clear()  # invalidate dashboard caches — data changed
                             st.success(f"Ingest complete · run `{result.get('run_id')}`")
                         elif result.get("status") == "partial_error":
+                            st.cache_data.clear()  # invalidate dashboard caches — data changed
                             st.warning(f"Partial success · run `{result.get('run_id')}`")
                         else:
                             st.error(f"Ingest failed: {result.get('error_message', 'unknown')}")
@@ -275,6 +277,7 @@ if cloud_mode_enabled:
                                 schema=(cloud_schema.strip() or "public"),
                             )
                         prog.progress(1.0, text="Done")
+                        st.cache_data.clear()  # invalidate dashboard caches — data changed
                         st.success(
                             f"Upsert complete · {affected:,} row(s) → `{cloud_schema}.{cloud_table}`."
                         )

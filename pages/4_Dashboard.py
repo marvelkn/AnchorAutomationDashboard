@@ -141,6 +141,27 @@ def table_exists(conn_or_engine, name, schema="public"):
             f"SELECT count(name) FROM sqlite_master WHERE type='table' AND name='{name}'", conn_or_engine
         ).iloc[0, 0] == 1
 
+
+@st.cache_resource
+def _get_engine():
+    """One pooled SQLAlchemy engine per app session (avoids per-rerun pool churn)."""
+    return build_engine()
+
+
+@st.cache_data(ttl=600)
+def _load_monthly_raw(neon_mode: bool):
+    """Cached load of the full PROCESSED_CARD_MONTHLY table."""
+    if neon_mode:
+        df = pd.read_sql_query("SELECT * FROM processed_card_monthly", _get_engine())
+        df.columns = [c.upper() for c in df.columns]
+    else:
+        conn = sqlite3.connect(PATH_DB)
+        try:
+            df = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_MONTHLY", conn)
+        finally:
+            conn.close()
+    return df
+
 # ── MACHINE LEARNING ENGINE ───────────────────────────────────────────────────
 @st.cache_data
 def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
@@ -444,39 +465,39 @@ def _hw_forecast(hist_df, periods_ahead=12):
 
 # ── DB LOAD (Cloud-Aware) ─────────────────────────────────────────────────────
 neon_url = os.getenv("DATABASE_URL")
-with st.spinner("Loading dashboard data..."):
-    if neon_url:
-        engine = build_engine()
-        has_card       = table_exists(engine, "PROCESSED_CARD_SHARE")
-        has_card_hist  = table_exists(engine, "PROCESSED_CARD_HISTORY")
-        has_mon        = table_exists(engine, "PROCESSED_MONITORING")
-        has_mon_weekly = table_exists(engine, "PROCESSED_MONITORING_WEEKLY")
-        has_tgt        = table_exists(engine, "TARGET")
+engine = _get_engine() if neon_url else None
 
-        df_card        = pd.read_sql_query("SELECT * FROM processed_card_share", engine) if has_card else pd.DataFrame()
-        df_card_hist   = pd.read_sql_query("SELECT * FROM processed_card_history", engine) if has_card_hist else pd.DataFrame()
-        df_mon         = pd.read_sql_query("SELECT * FROM processed_monitoring", engine) if has_mon else pd.DataFrame()
-        df_mon_weekly  = pd.read_sql_query("SELECT * FROM processed_monitoring_weekly", engine) if has_mon_weekly else pd.DataFrame()
-        df_target      = pd.read_sql_query("SELECT * FROM target", engine) if has_tgt else pd.DataFrame()
+
+@st.cache_data(ttl=600, show_spinner="Loading dashboard data...")
+def _load_dashboard_data(neon_mode: bool):
+    """Cached load of the 5 core dashboard tables + table-existence flags.
+
+    Runs once per cache window instead of on every Streamlit rerun — this is
+    the primary control on Neon network-transfer usage.
+    """
+    if neon_mode:
+        eng = _get_engine()
+        has_card       = table_exists(eng, "PROCESSED_CARD_SHARE")
+        has_card_hist  = table_exists(eng, "PROCESSED_CARD_HISTORY")
+        has_mon        = table_exists(eng, "PROCESSED_MONITORING")
+        has_mon_weekly = table_exists(eng, "PROCESSED_MONITORING_WEEKLY")
+        has_tgt        = table_exists(eng, "TARGET")
+
+        df_card        = pd.read_sql_query("SELECT * FROM processed_card_share", eng) if has_card else pd.DataFrame()
+        df_card_hist   = pd.read_sql_query("SELECT * FROM processed_card_history", eng) if has_card_hist else pd.DataFrame()
+        df_mon         = pd.read_sql_query("SELECT * FROM processed_monitoring", eng) if has_mon else pd.DataFrame()
+        df_mon_weekly  = pd.read_sql_query("SELECT * FROM processed_monitoring_weekly", eng) if has_mon_weekly else pd.DataFrame()
+        df_target      = pd.read_sql_query("SELECT * FROM target", eng) if has_tgt else pd.DataFrame()
 
         # Column normalization for Postgres (ensure uppercase for dashboard consistency)
         for df in [df_card, df_card_hist, df_mon, df_mon_weekly, df_target]:
             if len(df.columns) > 0:
                 df.columns = [c.upper() for c in df.columns]
 
-        has_monthly_tbl = table_exists(engine, "PROCESSED_CARD_MONTHLY")
-
-        # Show popup if Neon is connected but tables are empty (e.g. after a database reset)
-        if df_card.empty and df_mon.empty:
-            _show_no_data_dialog()
-            st.stop()
+        has_monthly_tbl = table_exists(eng, "PROCESSED_CARD_MONTHLY")
     else:
-        if not os.path.exists(PATH_DB):
-            st.warning("Database not found. Process files in the Processing pages first.")
-            st.stop()
-
+        conn = sqlite3.connect(PATH_DB)
         try:
-            conn = sqlite3.connect(PATH_DB)
             has_card       = table_exists(conn, "PROCESSED_CARD_SHARE")
             has_card_hist  = table_exists(conn, "PROCESSED_CARD_HISTORY")
             has_mon        = table_exists(conn, "PROCESSED_MONITORING")
@@ -489,31 +510,53 @@ with st.spinner("Loading dashboard data..."):
             df_mon_weekly  = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING_WEEKLY", conn) if has_mon_weekly else pd.DataFrame()
             df_target      = pd.read_sql_query("SELECT * FROM TARGET", conn) if has_tgt else pd.DataFrame()
             has_monthly_tbl = table_exists(conn, "PROCESSED_CARD_MONTHLY")
+        finally:
             conn.close()
-        except Exception as e:
-            st.error(
-                f"Failed to load dashboard data from `{os.path.basename(PATH_DB)}`: {e}. "
-                "Run the pipeline first, or check that the database file exists."
-            )
-            st.stop()
 
-    # ── BATCH METADATA & SIGNALS ─────────────────────────────────────────────
-    _last_update = "Unknown"
-    _show_new_badge = False
+    return (df_card, df_card_hist, df_mon, df_mon_weekly, df_target,
+            has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl)
+
+
+if neon_url:
+    (df_card, df_card_hist, df_mon, df_mon_weekly, df_target,
+     has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl) = _load_dashboard_data(True)
+
+    # Show popup if Neon is connected but tables are empty (e.g. after a database reset)
+    if df_card.empty and df_mon.empty:
+        _show_no_data_dialog()
+        st.stop()
+else:
+    if not os.path.exists(PATH_DB):
+        st.warning("Database not found. Process files in the Processing pages first.")
+        st.stop()
     try:
-        if neon_url:
-            _df_meta = pd.read_sql_query("SELECT * FROM app_metadata", engine)
-            _df_meta.columns = [c.upper() for c in _df_meta.columns]
-        elif os.path.exists(PATH_DB):
-            _conn_meta = sqlite3.connect(PATH_DB)
-            _df_meta = pd.read_sql_query("SELECT * FROM APP_METADATA", _conn_meta)
-            _conn_meta.close()
+        (df_card, df_card_hist, df_mon, df_mon_weekly, df_target,
+         has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl) = _load_dashboard_data(False)
+    except Exception as e:
+        st.error(
+            f"Failed to load dashboard data from `{os.path.basename(PATH_DB)}`: {e}. "
+            "Run the pipeline first, or check that the database file exists."
+        )
+        st.stop()
 
-        _meta_dict = dict(zip(_df_meta['KEY'], _df_meta['VALUE']))
-        _last_update = _meta_dict.get('LAST_DATA_UPDATE', 'Unknown')
-        _show_new_badge = _meta_dict.get('NEW_DATA_SIGNAL') == '1'
-    except Exception:
-        pass  # metadata is non-critical; dashboard continues with defaults
+# ── BATCH METADATA & SIGNALS ─────────────────────────────────────────────────
+# Intentionally uncached: tiny payload, and carries the live NEW_DATA_SIGNAL badge.
+_last_update = "Unknown"
+_show_new_badge = False
+try:
+    if neon_url:
+        _df_meta = pd.read_sql_query("SELECT * FROM app_metadata", engine)
+        _df_meta.columns = [c.upper() for c in _df_meta.columns]
+    elif os.path.exists(PATH_DB):
+        _conn_meta = sqlite3.connect(PATH_DB)
+        _df_meta = pd.read_sql_query("SELECT * FROM APP_METADATA", _conn_meta)
+        _conn_meta.close()
+
+    _meta_dict = dict(zip(_df_meta['KEY'], _df_meta['VALUE']))
+    _last_update = _meta_dict.get('LAST_DATA_UPDATE', 'Unknown')
+    _show_new_badge = _meta_dict.get('NEW_DATA_SIGNAL') == '1'
+except Exception:
+    pass  # metadata is non-critical; dashboard continues with defaults
 
 # ── HEADER ───────────────────────────────────────────────────────────────────
 header_col1, header_col2 = st.columns([0.78, 0.22])
@@ -534,6 +577,7 @@ with header_col2:
                     _conn_meta.execute("UPDATE APP_METADATA SET value = '0' WHERE key = 'NEW_DATA_SIGNAL'")
                     _conn_meta.commit()
                     _conn_meta.close()
+                st.cache_data.clear()
                 st.rerun()
             except: pass
 
@@ -1401,14 +1445,8 @@ with tab1:
 
     # Reconstruct Monthly Matrix from PROCESSED_CARD_MONTHLY
     if has_monthly_tbl:
-        if neon_url:
-            df_monthly_raw = pd.read_sql_query("SELECT * FROM processed_card_monthly", engine)
-            df_monthly_raw.columns = [c.upper() for c in df_monthly_raw.columns]
-        else:
-            conn = sqlite3.connect(PATH_DB)
-            df_monthly_raw = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_MONTHLY", conn)
-            conn.close()
-        
+        df_monthly_raw = _load_monthly_raw(bool(neon_url)).copy()
+
         # Apply Sidebar Filters to detailed monthly data
         if sel_group != "ALL GROUPS":
             df_monthly_raw = df_monthly_raw[df_monthly_raw['MERCHANT_GROUP'] == sel_group]
