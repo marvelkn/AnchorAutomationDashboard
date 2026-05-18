@@ -1296,19 +1296,6 @@ with tab0:
                                 marker=dict(size=6, color=_C_FORECAST),
                                 hovertemplate='<b>%{x}</b><br>Forecast: Rp %{y:,.2f} B<extra></extra>',
                             ), row=1, col=1)
-                            fig.add_vline(
-                                x=len(hist_lbl) - 1, line_dash='dot', line_width=1.5,
-                                line_color=_pal['TEXT_SEC'], row=1, col=1,
-                                annotation_text='FORECAST →', annotation_position='top right',
-                                annotation_font=dict(size=10, color=_pal['TEXT_SEC']),
-                            )
-                            fig.add_annotation(
-                                x=fc_lbl[-1], y=fc_v[-1], row=1, col=1,
-                                text=f"<b>Rp {fc_v[-1]:,.2f} B</b>",
-                                showarrow=True, arrowhead=0, arrowwidth=1,
-                                arrowcolor=_C_FORECAST, ax=0, ay=-30,
-                                font=dict(size=11, color=_C_FORECAST),
-                            )
 
                             # ── Panel B — cumulative vs FY target ──
                             _cur_year = datetime.now().year
@@ -1370,8 +1357,7 @@ with tab0:
                                 fig.add_annotation(
                                     x=fcum_lbl[-1], y=fcum_v[-1], row=2, col=1,
                                     text=f"<b>{cum_rate:.0f}% of target</b>",
-                                    showarrow=True, arrowhead=0, arrowwidth=1,
-                                    arrowcolor=end_color, ax=0, ay=-28,
+                                    showarrow=False, yshift=16,
                                     font=dict(size=11, color=end_color),
                                 )
 
