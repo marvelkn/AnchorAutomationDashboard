@@ -562,7 +562,8 @@ except Exception:
 header_col1, header_col2 = st.columns([0.78, 0.22])
 with header_col1:
     st.markdown(
-        '<h3 class="dashboard-page-title">BTN Anchor Merchant Decision Intelligence Platform</h3>',
+        '<div class="dashboard-page-eyebrow">Merchant Analytics</div>'
+        '<h3 class="dashboard-page-title">Merchant Decision Intelligence</h3>',
         unsafe_allow_html=True,
     )
 with header_col2:

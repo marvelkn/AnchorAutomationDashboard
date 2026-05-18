@@ -982,9 +982,23 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
     font-size: clamp(1.05rem, 1.6vw, 1.4rem) !important;
     font-weight: var(--fw-bold) !important;
     color: var(--btn-text-pri) !important;
-    margin: 6px 0 8px 0 !important;
+    margin: 2px 0 8px 0 !important;
     line-height: 1.25 !important;
     letter-spacing: -0.01em;
+}}
+
+/* Eyebrow / kicker above the dashboard title — a small uppercase label that
+   establishes a two-tier hierarchy (kicker + headline), matching the design
+   system's .eyebrow pattern. Sits tight above .dashboard-page-title. */
+.dashboard-page-eyebrow {{
+    font-size: 0.7rem;
+    font-weight: var(--fw-bold);
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--btn-text-sec);
+    margin: 4px 0 0 0;
+    line-height: 1.1;
+    font-family: 'Roboto', sans-serif;
 }}
 
 /* ── Merchant alert tile — flatten [4,3,2] columns at <=768px ──
