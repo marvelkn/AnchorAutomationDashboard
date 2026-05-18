@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from scipy import stats
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
@@ -99,6 +100,28 @@ def _xaxis():
 def _yaxis():
     p = _p()
     return dict(showgrid=True, gridcolor=p['BORDER'], color=p['TEXT_SEC'])
+
+_MONTH_ABBR = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+               'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+
+def _month_label(yyyymm):
+    """Convert an integer YYYYMM (e.g. 202405) to a short axis label ("MAY '24")."""
+    v = int(yyyymm)
+    y, m = v // 100, v % 100
+    if not 1 <= m <= 12:
+        return str(v)
+    return f"{_MONTH_ABBR[m - 1]} '{y % 100:02d}"
+
+def _next_months(last_yyyymm, n):
+    """Return the n calendar months (YYYYMM ints) following last_yyyymm."""
+    out = []
+    y, m = int(last_yyyymm) // 100, int(last_yyyymm) % 100
+    for _ in range(n):
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+        out.append(y * 100 + m)
+    return out
 
 # ── PATHS ────────────────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -332,47 +355,90 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
     return df
 
 
-def _hw_forecast(monthly_sv_series, periods_ahead=12):
+def _hw_forecast(hist_df, periods_ahead=12):
     """
-    Holt-Winters exponential smoothing on historical monthly SV.
-    Algorithm: Winters (1960). Decomposes series into level, trend, and optionally
-    seasonal components. Parameters optimized via MLE.
-    Falls back gracefully to {'success': False} if model fails or data is insufficient.
+    Holt-Winters exponential smoothing forecast on historical monthly Settlement Volume.
 
-    seasonal='add' with seasonal_periods=12 requires >= 24 data points for stable
-    estimation. With fewer months, uses Holt's Double Smoothing (trend only).
+    Builds a calendar-contiguous monthly series (gaps zero-filled) so the seasonal cycle
+    stays aligned to real months, then fits a damped-trend Holt-Winters model. Returns the
+    point forecast plus an 80% confidence band derived from in-sample residuals.
+
+    hist_df must contain columns TRX_MONTH (int YYYYMM) and TOTAL_SV. Falls back gracefully
+    to {'success': False, 'reason': ...} when the model cannot be fit, so the caller can
+    explain to the user why a statistical forecast is unavailable.
     """
-    result = {'forecast': None, 'projected_eoy': None, 'method': 'Estimated Run Rate', 'success': False}
+    result = {
+        'forecast': None, 'lower': None, 'upper': None, 'projected_eoy': None,
+        'method': 'Estimated Run Rate', 'success': False, 'reason': None,
+        'hist_months': None, 'hist_values': None,
+    }
     if not _HW_AVAILABLE:
+        result['reason'] = 'statsmodels is not installed'
         return result
-    series = pd.to_numeric(monthly_sv_series, errors='coerce').fillna(0)
-    series = series[series > 0]
-    if len(series) < 6:
+    if hist_df is None or len(hist_df) == 0 or 'TRX_MONTH' not in hist_df.columns:
+        result['reason'] = 'no historical volume data'
         return result
+
+    h = hist_df[['TRX_MONTH', 'TOTAL_SV']].copy()
+    h['TRX_MONTH'] = pd.to_numeric(h['TRX_MONTH'], errors='coerce')
+    h['TOTAL_SV']  = pd.to_numeric(h['TOTAL_SV'], errors='coerce').fillna(0)
+    h = h.dropna(subset=['TRX_MONTH'])
+    if h.empty:
+        result['reason'] = 'no historical volume data'
+        return result
+
+    yyyymm = h['TRX_MONTH'].astype(int)
+    periods = [pd.Period(year=int(v) // 100, month=int(v) % 100, freq='M') for v in yyyymm]
+    monthly = pd.Series(h['TOTAL_SV'].values, index=pd.PeriodIndex(periods, freq='M'))
+    monthly = monthly.groupby(level=0).sum().sort_index()
+    # Reindex onto a gap-free monthly range so Holt-Winters sees evenly-spaced months.
+    full_idx = pd.period_range(monthly.index.min(), monthly.index.max(), freq='M')
+    monthly = monthly.reindex(full_idx, fill_value=0.0)
+
+    nonzero = int((monthly > 0).sum())
+    if nonzero < 6:
+        result['reason'] = f'only {nonzero} active month(s) of history (6 required)'
+        return result
+
+    result['hist_months'] = [p.year * 100 + p.month for p in monthly.index]
+    result['hist_values'] = monthly.values.astype(float)
+
+    ts = monthly.copy()
+    ts.index = ts.index.to_timestamp()
+    ts = ts.asfreq('MS')
+
     try:
-        use_seasonal = len(series) >= 24
+        use_seasonal = nonzero >= 24 and len(ts) >= 24
         if use_seasonal:
             model = HoltWinters(
-                series.values, trend='add', seasonal='add',
+                ts, trend='add', damped_trend=True, seasonal='add',
                 seasonal_periods=12, initialization_method='estimated'
             )
-            method_label = 'AI Trend Forecast'
+            method_label = 'Holt-Winters (Seasonal)'
         else:
             model = HoltWinters(
-                series.values, trend='add', seasonal=None,
+                ts, trend='add', damped_trend=True, seasonal=None,
                 initialization_method='estimated'
             )
-            method_label = 'AI Trend Forecast'
+            method_label = 'Holt-Winters (Trend)'
         fit = model.fit(optimized=True, remove_bias=True)
-        forecast_values = np.maximum(fit.forecast(periods_ahead), 0)
+        point = np.maximum(np.asarray(fit.forecast(periods_ahead), dtype=float), 0)
+
+        # 80% confidence band: residual sigma widening with the square root of horizon.
+        resid = np.asarray(fit.resid, dtype=float)
+        resid = resid[np.isfinite(resid)]
+        sigma = float(np.std(resid)) if resid.size > 1 else 0.0
+        half  = 1.2816 * sigma * np.sqrt(np.arange(1, periods_ahead + 1))
+        lower = np.maximum(point - half, 0)
+        upper = point + half
+
         result.update({
-            'forecast': forecast_values,
-            'projected_eoy': float(np.sum(forecast_values)),
-            'method': method_label,
-            'success': True
+            'forecast': point, 'lower': lower, 'upper': upper,
+            'projected_eoy': float(np.sum(point)),
+            'method': method_label, 'success': True,
         })
-    except Exception:
-        pass
+    except Exception as exc:
+        result['reason'] = f'model fit failed ({type(exc).__name__})'
     return result
 
 
@@ -943,17 +1009,23 @@ with tab0:
                     # when all 12 months of current-year data are present.
                     _forecast_periods = _remaining_months if _remaining_months > 0 else 6
                     _hw_result = _hw_forecast(
-                        merch_hist.sort_values('TRX_MONTH')['TOTAL_SV'] if not merch_hist.empty else pd.Series([], dtype=float),
+                        merch_hist[['TRX_MONTH', 'TOTAL_SV']] if not merch_hist.empty else None,
                         periods_ahead=_forecast_periods
                     )
                     if _hw_result['success']:
                         proj_eoy          = ytd_actual + (_hw_result['projected_eoy'] if _remaining_months > 0 else 0)
                         _proj_method      = _hw_result['method']
                         _hw_forecast_vals = _hw_result['forecast']
+                        _hw_lower         = _hw_result['lower']
+                        _hw_upper         = _hw_result['upper']
+                        _hw_reason        = None
                     else:
                         proj_eoy          = (ytd_actual / active_weeks_count * 52) if active_weeks_count > 0 else 0
                         _proj_method      = 'Estimated Run Rate'
                         _hw_forecast_vals = None
+                        _hw_lower         = None
+                        _hw_upper         = None
+                        _hw_reason        = _hw_result['reason']
                     seasonality_str = "No historical seasonality data found."
                     season_df  = pd.DataFrame()
                     if not merch_hist.empty:
@@ -1118,50 +1190,180 @@ with tab0:
                         else:
                             st.info(f"Insufficient historical Realisasi monthly data to chart statistical seasonality for {sel_merch}.")
 
-                        # ── Holt-Winters Forecast Chart ───────────────────────
+                        # ── Volume Outlook — Forecast & Target Tracking ───────
                         if _hw_forecast_vals is not None and len(_hw_forecast_vals) > 0:
-                            hist_sv = merch_hist.sort_values('TRX_MONTH')[['TRX_MONTH', 'TOTAL_SV']].copy()
-                            hist_sv['Label'] = hist_sv['TRX_MONTH'].astype(str)
-                            hist_sv['Type']  = 'Historical'
+                            _pal        = _p()
+                            _C_ACTUAL   = _pal['GOLD']
+                            _C_FORECAST = '#1B59F8'   # BTN primary blue
+                            _band_rgba  = hex_to_rgba(_C_FORECAST, 0.13)
 
-                            # Generate future month labels (YYYYMM integers)
-                            last_month = int(hist_sv['TRX_MONTH'].max())
-                            future_months = []
-                            y_m, m_m = last_month // 100, last_month % 100
-                            for _ in range(len(_hw_forecast_vals)):
-                                m_m += 1
-                                if m_m > 12:
-                                    m_m = 1
-                                    y_m += 1
-                                future_months.append(y_m * 100 + m_m)
+                            # Gap-free history straight from the model (already
+                            # calendar-contiguous). Values plotted in Rp Billion.
+                            _full_m = list(_hw_result['hist_months'])
+                            _full_v = [float(v) / 1e9 for v in _hw_result['hist_values']]
+                            hist_m, hist_v = _full_m[-14:], _full_v[-14:]   # last 14 mo for readability
 
-                            fc_sv = pd.DataFrame({
-                                'TRX_MONTH': future_months,
-                                'TOTAL_SV':  _hw_forecast_vals,
-                                'Label':     [str(x) for x in future_months],
-                                'Type':      'Forecast'
-                            })
+                            fc_v  = [float(v) / 1e9 for v in np.asarray(_hw_forecast_vals)]
+                            lo_v  = [float(v) / 1e9 for v in np.asarray(_hw_lower)] if _hw_lower is not None else fc_v
+                            up_v  = [float(v) / 1e9 for v in np.asarray(_hw_upper)] if _hw_upper is not None else fc_v
+                            fc_m  = _next_months(hist_m[-1], len(fc_v))
 
-                            combined = pd.concat([hist_sv, fc_sv], ignore_index=True)
-                            fig_hw = px.line(
-                                combined, x='Label', y='TOTAL_SV', color='Type',
-                                title=f"AI Volume Forecast — {sel_merch}",
-                                labels={'TOTAL_SV': 'Settlement Volume (Rp)', 'Label': 'Month'},
-                                color_discrete_map={
-                                    'Historical': get_palette()['GOLD'],
-                                    'Forecast':   '#60A5FA'
-                                }
+                            hist_lbl = [_month_label(m) for m in hist_m]
+                            fc_lbl   = [_month_label(m) for m in fc_m]
+
+                            # Anchor forecast + band to the last actual so the line
+                            # reads as one continuous path with no visual gap.
+                            anc_x  = [hist_lbl[-1]] + fc_lbl
+                            anc_fc = [hist_v[-1]]   + fc_v
+                            anc_up = [hist_v[-1]]   + up_v
+                            anc_lo = [hist_v[-1]]   + lo_v
+
+                            fig = make_subplots(
+                                rows=2, cols=1, vertical_spacing=0.19,
+                                row_heights=[0.60, 0.40],
+                                subplot_titles=(
+                                    f"Monthly Volume Trajectory — {_proj_method}",
+                                    "Cumulative Progress vs FY 2026 Target",
+                                ),
                             )
-                            fig_hw.update_traces(line=dict(width=2.5))
-                            fig_hw.update_layout(
-                                height=300,
-                                **_chart_base(),
-                                xaxis=dict(**_xaxis(), tickangle=-45),
-                                yaxis=_yaxis(),
-                                legend=dict(orientation="h", y=1.1)
+                            for _ann in fig.layout.annotations:
+                                _ann.font = dict(size=13, color=_pal['TEXT_PRI'])
+                                _ann.x, _ann.xanchor = 0, 'left'
+
+                            # ── Panel A — monthly trajectory ──
+                            fig.add_trace(go.Scatter(
+                                x=anc_x, y=anc_up, mode='lines', line=dict(width=0),
+                                hoverinfo='skip', showlegend=False,
+                            ), row=1, col=1)
+                            fig.add_trace(go.Scatter(
+                                x=anc_x, y=anc_lo, mode='lines', line=dict(width=0),
+                                fill='tonexty', fillcolor=_band_rgba,
+                                name='80% confidence', hoverinfo='skip',
+                            ), row=1, col=1)
+                            fig.add_trace(go.Scatter(
+                                x=hist_lbl, y=hist_v, mode='lines+markers', name='Actual',
+                                line=dict(color=_C_ACTUAL, width=3),
+                                marker=dict(size=6, color=_C_ACTUAL),
+                                hovertemplate='<b>%{x}</b><br>Actual: Rp %{y:,.2f} B<extra></extra>',
+                            ), row=1, col=1)
+                            fig.add_trace(go.Scatter(
+                                x=anc_x, y=anc_fc, mode='lines+markers', name='Forecast',
+                                line=dict(color=_C_FORECAST, width=3, dash='dash'),
+                                marker=dict(size=6, color=_C_FORECAST),
+                                hovertemplate='<b>%{x}</b><br>Forecast: Rp %{y:,.2f} B<extra></extra>',
+                            ), row=1, col=1)
+                            fig.add_vline(
+                                x=len(hist_lbl) - 1, line_dash='dot', line_width=1.5,
+                                line_color=_pal['TEXT_SEC'], row=1, col=1,
+                                annotation_text='FORECAST →', annotation_position='top right',
+                                annotation_font=dict(size=10, color=_pal['TEXT_SEC']),
                             )
-                            st.plotly_chart(fig_hw, use_container_width=True, theme=None)
-                            st.caption(f"Forecast model: {_proj_method}. Blue = model projection for remaining months of the year.")
+                            fig.add_annotation(
+                                x=fc_lbl[-1], y=fc_v[-1], row=1, col=1,
+                                text=f"<b>Rp {fc_v[-1]:,.2f} B</b>",
+                                showarrow=True, arrowhead=0, arrowwidth=1,
+                                arrowcolor=_C_FORECAST, ax=0, ay=-30,
+                                font=dict(size=11, color=_C_FORECAST),
+                            )
+
+                            # ── Panel B — cumulative vs FY target ──
+                            _cur_year = datetime.now().year
+                            _cy = [(m, v) for m, v in zip(_full_m, _full_v) if m // 100 == _cur_year]
+                            cum_lbl, cum_v, _run = [], [], 0.0
+                            for m, v in _cy:
+                                _run += v
+                                cum_lbl.append(_month_label(m)); cum_v.append(_run)
+
+                            fcum_lbl, fcum_v = [], []
+                            if cum_lbl:
+                                fcum_lbl.append(cum_lbl[-1]); fcum_v.append(cum_v[-1])
+                            _run_fc = cum_v[-1] if cum_v else 0.0
+                            for m, v in zip(fc_m, fc_v):
+                                if m // 100 != _cur_year:
+                                    continue
+                                _run_fc += v
+                                fcum_lbl.append(_month_label(m)); fcum_v.append(_run_fc)
+
+                            proj_cum_end = fcum_v[-1] if fcum_v else (cum_v[-1] if cum_v else 0.0)
+                            fy_target_b  = fy_target / 1e9
+                            cum_rate     = (proj_cum_end / fy_target_b * 100) if fy_target_b > 0 else 0
+                            end_color    = (_pal['GREEN'] if cum_rate >= 100
+                                            else _pal['AMBER'] if cum_rate >= 80
+                                            else _pal['RED'])
+
+                            fig.add_trace(go.Scatter(
+                                x=cum_lbl, y=cum_v, mode='lines',
+                                line=dict(color=_C_ACTUAL, width=2.5),
+                                fill='tozeroy', fillcolor=hex_to_rgba(_C_ACTUAL, 0.15),
+                                hovertemplate='<b>%{x}</b><br>Cumulative actual: Rp %{y:,.2f} B<extra></extra>',
+                                showlegend=False,
+                            ), row=2, col=1)
+                            fig.add_trace(go.Scatter(
+                                x=fcum_lbl, y=fcum_v, mode='lines',
+                                line=dict(color=_C_FORECAST, width=2.5, dash='dash'),
+                                fill='tozeroy', fillcolor=hex_to_rgba(_C_FORECAST, 0.10),
+                                hovertemplate='<b>%{x}</b><br>Cumulative projected: Rp %{y:,.2f} B<extra></extra>',
+                                showlegend=False,
+                            ), row=2, col=1)
+                            if fy_target_b > 0:
+                                fig.add_hline(
+                                    y=fy_target_b, line_dash='dash', line_width=1.5,
+                                    line_color=_pal['TEXT_SEC'], row=2, col=1,
+                                    annotation_text=f"FY TARGET — Rp {fy_target_b:,.1f} B",
+                                    annotation_position='top left',
+                                    annotation_font=dict(size=10, color=_pal['TEXT_SEC']),
+                                )
+                            if fcum_lbl:
+                                fig.add_trace(go.Scatter(
+                                    x=[fcum_lbl[-1]], y=[fcum_v[-1]], mode='markers',
+                                    marker=dict(size=12, color=end_color,
+                                                line=dict(width=2, color=_pal['SURFACE'])),
+                                    hovertemplate=(f'<b>Projected year-end</b><br>'
+                                                   f'Rp %{{y:,.2f}} B<br>{cum_rate:.0f}% of target'
+                                                   f'<extra></extra>'),
+                                    showlegend=False,
+                                ), row=2, col=1)
+                                fig.add_annotation(
+                                    x=fcum_lbl[-1], y=fcum_v[-1], row=2, col=1,
+                                    text=f"<b>{cum_rate:.0f}% of target</b>",
+                                    showarrow=True, arrowhead=0, arrowwidth=1,
+                                    arrowcolor=end_color, ax=0, ay=-28,
+                                    font=dict(size=11, color=end_color),
+                                )
+
+                            fig.update_layout(
+                                height=560, **_chart_base(),
+                                margin=dict(l=10, r=24, t=58, b=24),
+                                hovermode='x unified',
+                                legend=dict(orientation='h', y=1.10, x=1, xanchor='right',
+                                            font=dict(size=11)),
+                            )
+                            fig.update_xaxes(
+                                patch=dict(**_xaxis(), categoryorder='array',
+                                           categoryarray=hist_lbl + fc_lbl),
+                                row=1, col=1)
+                            fig.update_xaxes(
+                                patch=dict(**_xaxis(), categoryorder='array',
+                                           categoryarray=cum_lbl + fcum_lbl[1:]),
+                                row=2, col=1)
+                            fig.update_yaxes(
+                                patch=dict(**_yaxis(), title_text='Volume (Rp Billion)'),
+                                row=1, col=1)
+                            fig.update_yaxes(
+                                patch=dict(**_yaxis(), title_text='Cumulative (Rp Billion)'),
+                                row=2, col=1)
+                            st.plotly_chart(fig, use_container_width=True, theme=None)
+                            st.caption(
+                                f"Model: {_proj_method}. Forecast basis: monthly card-settlement "
+                                f"history. Shaded band = 80% confidence range (widens with horizon). "
+                                f"Panel B tracks cumulative {_cur_year} volume against the FY target."
+                            )
+                        else:
+                            st.info(
+                                f"Statistical forecast unavailable for {sel_merch} "
+                                f"({_hw_reason or 'insufficient historical data'}). "
+                                f"The year-end projection above uses a linear run-rate estimate."
+                            )
 
 
 
