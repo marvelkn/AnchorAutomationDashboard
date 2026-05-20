@@ -1649,6 +1649,70 @@ def filter_pill(text: str):
     st.markdown(f'<div class="filter-pill">{text}</div>', unsafe_allow_html=True)
 
 
+def portfolio_filter_bar(df_card, scope_key: str):
+    """Merchant Group + Anchor Brand selectors for tabs that consume the
+    portfolio filter. ``scope_key`` must be unique per tab ("t1", "t2", ...)
+    so widget IDs don't collide; the user-facing selection is mirrored into
+    shared session-state fields ``pf_group`` / ``pf_brand`` so state persists
+    when the user switches between filter-aware tabs.
+
+    Returns (sel_group, sel_brand) read from the shared model.
+    """
+    st.session_state.setdefault("pf_group", "ALL GROUPS")
+    st.session_state.setdefault("pf_brand", "TOTAL PORTFOLIO")
+
+    all_groups = ["ALL GROUPS"]
+    if not df_card.empty and "MERCHANT_GROUP" in df_card.columns:
+        all_groups += sorted(df_card["MERCHANT_GROUP"].dropna().unique().tolist())
+
+    if st.session_state["pf_group"] not in all_groups:
+        st.session_state["pf_group"] = "ALL GROUPS"
+
+    group_widget_key = f"{scope_key}_pf_group"
+    brand_widget_key = f"{scope_key}_pf_brand"
+
+    def _sync_group():
+        st.session_state["pf_group"] = st.session_state[group_widget_key]
+        st.session_state["pf_brand"] = "TOTAL PORTFOLIO"
+
+    def _sync_brand():
+        st.session_state["pf_brand"] = st.session_state[brand_widget_key]
+
+    f1, f2 = st.columns(2)
+    with f1:
+        st.selectbox(
+            "Merchant Group",
+            all_groups,
+            index=all_groups.index(st.session_state["pf_group"]),
+            key=group_widget_key,
+            on_change=_sync_group,
+        )
+
+    sel_group = st.session_state["pf_group"]
+    if sel_group != "ALL GROUPS" and not df_card.empty and "MERCHANT_ANCHOR" in df_card.columns:
+        brands = (
+            df_card[df_card["MERCHANT_GROUP"] == sel_group]["MERCHANT_ANCHOR"]
+            .dropna().unique().tolist()
+        )
+        filtered_brands = ["TOTAL GROUP"] + sorted(brands)
+    else:
+        filtered_brands = ["TOTAL PORTFOLIO"]
+
+    if st.session_state["pf_brand"] not in filtered_brands:
+        st.session_state["pf_brand"] = filtered_brands[0]
+
+    with f2:
+        st.selectbox(
+            "Merchant Brand (Anchor)",
+            filtered_brands,
+            index=filtered_brands.index(st.session_state["pf_brand"]),
+            key=brand_widget_key,
+            on_change=_sync_brand,
+        )
+
+    return st.session_state["pf_group"], st.session_state["pf_brand"]
+
+
 def status_card(icon: str, label: str, value: str, kind: str = "ok") -> str:
     """Single status card HTML. kind: ok | err | warn"""
     return f"""<div class="status-strip {kind}">

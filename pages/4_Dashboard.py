@@ -25,6 +25,7 @@ if _BASE not in sys.path:
 from utils.theme import (
     apply_theme, page_header, section_label, section_header, styled_divider,
     kpi_card, kpi_row, tab_desc, tab_label_with_badge, filter_pill,
+    portfolio_filter_bar,
     status_card, apply_plotly_theme, get_palette, stale_data_banner,
     left_accent_card, status_chip_html, status_box, hex_to_rgba,
     NAVY, GOLD, GOLD_DIM, BG, SURFACE, BORDER, TEXT_PRI, TEXT_SEC,
@@ -650,48 +651,14 @@ kpi_row([
     ),
 ])
 
-# ── PORTFOLIO FILTERS (directly above tabs) ───────────────────────────────────
-f_col1, f_col2 = st.columns(2)
-
-all_groups = ["ALL GROUPS"]
-if not df_card.empty:
-    all_groups += sorted(df_card['MERCHANT_GROUP'].unique().tolist())
-with f_col1:
-    sel_group = st.selectbox("Merchant Group", all_groups, key="sb_group")
-
-filtered_brands = ["TOTAL GROUP"]
-if sel_group != "ALL GROUPS" and not df_card.empty:
-    brands = df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR'].unique().tolist()
-    filtered_brands += sorted(brands)
-elif sel_group == "ALL GROUPS" and not df_card.empty:
-    filtered_brands = ["TOTAL PORTFOLIO"]
-
-with f_col2:
-    sel_brand = st.selectbox("Merchant Brand (Anchor)", filtered_brands, key="sb_brand")
-
-# ── Scoped filtered DataFrames — ONLY for Card Share & Weekly Monitor ─────────
-# Macro tabs (Overview, Tiers, Health Alerts) always receive raw, unfiltered data.
-_filt_group = sel_group != "ALL GROUPS"
-_filt_brand = sel_brand not in ["TOTAL GROUP", "TOTAL PORTFOLIO"]
-
-df_card_filt      = df_card[df_card['MERCHANT_GROUP'] == sel_group].copy() if _filt_group else df_card.copy()
-df_card_hist_filt = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_group].copy() if _filt_group else df_card_hist.copy()
-if _filt_group and _filt_brand:
-    df_card_filt      = df_card_filt[df_card_filt['MERCHANT_ANCHOR'] == sel_brand]
-    df_card_hist_filt = df_card_hist_filt[df_card_hist_filt['MERCHANT_ANCHOR'] == sel_brand]
-
-# Weekly Monitor: df_mon_weekly.MERCHANT_GROUP may store brand names (= df_card.MERCHANT_ANCHOR)
-# OR the parent group name directly — handle both naming conventions.
-df_mon_weekly_filt = df_mon_weekly.copy()
-if _filt_group and not df_card.empty and not df_mon_weekly_filt.empty:
-    _group_brands = (
-        df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR']
-        .str.strip().str.upper().unique()
-    )
-    _mon_mg_upper = df_mon_weekly_filt['MERCHANT_GROUP'].str.strip().str.upper()
-    df_mon_weekly_filt = df_mon_weekly_filt[
-        _mon_mg_upper.isin(_group_brands) | (_mon_mg_upper == sel_group)
-    ]
+# Portfolio filter widgets used to live here as a "global" strip above the
+# tabs, but only Card Share (tab1) and Weekly Monitor (tab2) ever honored
+# them — the macro tabs (Overview / Tiers / Health / Anomaly) ignored the
+# selection. The widgets now render inside each filter-aware tab via
+# portfolio_filter_bar(), and the scoped df_*_filt frames are computed
+# inside those tab bodies. Shared state lives in st.session_state under
+# the keys pf_group / pf_brand, so a user's selection on Card Share
+# persists when they switch to Weekly Monitor.
 
 CLAMP = CLUSTER_COLORS
 
@@ -1437,7 +1404,16 @@ with tab0:
 # TAB 1 — CARD SHARE
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab1:
-    tab_desc("Monthly payment type breakdown — TRANSACTION / SALES VOLUME / FEE BASED INCOME. Data is sourced directly from the database and respects the sidebar Filters.")
+    sel_group, sel_brand = portfolio_filter_bar(df_card, scope_key="t1")
+    _filt_group = sel_group != "ALL GROUPS"
+    _filt_brand = sel_brand not in ("TOTAL GROUP", "TOTAL PORTFOLIO")
+    df_card_filt      = df_card[df_card['MERCHANT_GROUP'] == sel_group].copy() if _filt_group else df_card.copy()
+    df_card_hist_filt = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_group].copy() if _filt_group else df_card_hist.copy()
+    if _filt_group and _filt_brand:
+        df_card_filt      = df_card_filt[df_card_filt['MERCHANT_ANCHOR'] == sel_brand]
+        df_card_hist_filt = df_card_hist_filt[df_card_hist_filt['MERCHANT_ANCHOR'] == sel_brand]
+
+    tab_desc("Monthly payment type breakdown — TRANSACTION / SALES VOLUME / FEE BASED INCOME. Data is sourced directly from the database and respects the filters above.")
 
     # KPIs from DB (filtered by Merchant Group / Brand selection)
     if not df_card_filt.empty:
@@ -1908,6 +1884,23 @@ with tab1:
 # TAB 2 — WEEKLY MONITORING (reads from '2026' sheet directly)
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab2:
+    sel_group, sel_brand = portfolio_filter_bar(df_card, scope_key="t2")
+    _filt_group = sel_group != "ALL GROUPS"
+
+    # Weekly Monitor: df_mon_weekly.MERCHANT_GROUP may store brand names
+    # (= df_card.MERCHANT_ANCHOR) OR the parent group name directly — handle
+    # both naming conventions.
+    df_mon_weekly_filt = df_mon_weekly.copy()
+    if _filt_group and not df_card.empty and not df_mon_weekly_filt.empty:
+        _group_brands = (
+            df_card[df_card['MERCHANT_GROUP'] == sel_group]['MERCHANT_ANCHOR']
+            .str.strip().str.upper().unique()
+        )
+        _mon_mg_upper = df_mon_weekly_filt['MERCHANT_GROUP'].str.strip().str.upper()
+        df_mon_weekly_filt = df_mon_weekly_filt[
+            _mon_mg_upper.isin(_group_brands) | (_mon_mg_upper == sel_group)
+        ]
+
     # Tab rebuilt for at-a-glance clarity. Old layout buried the actual signals
     # (this week's volume, week-over-week change, who moved) under a 6-control
     # filter bar, a meaningless "Selected Year" KPI card, and a 52-column raw
