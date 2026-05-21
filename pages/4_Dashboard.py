@@ -1034,7 +1034,11 @@ with tab0:
                 # --- Deep Dive & Projection ---
                 section_label("Deep Dive & Projection (Specific Merchant)")
                 all_merch_ai = sorted(df_ai_wk['MERCHANT_GROUP'].unique().tolist())
-                _ai_default_idx = all_merch_ai.index(sel_group) if sel_group != "ALL GROUPS" and sel_group in all_merch_ai else 0
+                # sel_group only exists inside the Card Share / Weekly tabs;
+                # the Overview tab reads the shared portfolio filter from
+                # session_state, falling back to "ALL GROUPS" when unset.
+                _pf_group = st.session_state.get("pf_group", "ALL GROUPS")
+                _ai_default_idx = all_merch_ai.index(_pf_group) if _pf_group != "ALL GROUPS" and _pf_group in all_merch_ai else 0
                 sel_merch = st.selectbox("Select Merchant Entity to Profile:", all_merch_ai, index=_ai_default_idx, key="ai_sel_merch")
                 if sel_merch:
                     col_txt, col_graph = st.columns([1, 1], gap="large")
