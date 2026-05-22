@@ -2321,14 +2321,24 @@ with tab3:
             total_merchants = len(df_f)
             _pp3 = _p()
 
-            # ── Tier summary cards (HTML) + action table ────────────────────────
-            _cards_html = '<div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">'
-            _tbl_rows   = []
-            for seg in all_clusters:
-                n   = len(df_f[df_f['CLUSTER'] == seg])
-                pct = (n / total_merchants * 100) if total_merchants > 0 else 0
-                icon   = SEGMENT_ICONS.get(seg, '')
-                action = SEGMENT_ACTIONS.get(seg, "Review this group with your PM team.")
+            # ── Tier order: PREMIUM → REGULER → PASIF (stable, not alphabetical) ─
+            _TIER_RANK = ['ELITE', 'PREMIUM', 'REGULER', 'PASIF', 'DORMANT']
+            _ordered_clusters = (
+                [t for t in _TIER_RANK if t in all_clusters]
+                + [c for c in all_clusters if c not in _TIER_RANK]
+            )
+
+            # ── Tier summary cards with tier economics ──────────────────────────
+            total_fbi   = float(df_f['AVG_FBI'].sum()) if 'AVG_FBI' in df_f.columns else 0.0
+            _cards_html = '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">'
+            _conc_rows  = []
+            for seg in _ordered_clusters:
+                _seg_df   = df_f[df_f['CLUSTER'] == seg]
+                n         = len(_seg_df)
+                pct       = (n / total_merchants * 100) if total_merchants > 0 else 0
+                seg_fbi   = float(_seg_df['AVG_FBI'].sum()) if 'AVG_FBI' in _seg_df.columns else 0.0
+                fbi_share = (seg_fbi / total_fbi * 100) if total_fbi > 0 else 0
+                action    = SEGMENT_ACTIONS.get(seg, "Review this group with your PM team.")
                 high_in_seg = (
                     len(df_ml[(df_ml['CLUSTER'] == seg) & (df_ml['CHURN_RISK'] == 'HIGH RISK')])
                     if not df_ml.empty and 'CHURN_RISK' in df_ml.columns else 0
@@ -2339,232 +2349,114 @@ with tab3:
                     if high_in_seg > 0 else ''
                 )
                 _cards_html += (
-                    f'<div style="flex:1;min-width:150px;border-left:5px solid {c};'
-                    f'background:{c}14;border-radius:0 14px 14px 0;padding:16px 18px;">'
-                    f'<div class="kpi-label" style="color:{c};">{icon} {seg}</div>'
+                    f'<div style="flex:1;min-width:175px;border-left:5px solid {c};'
+                    f'background:{c}14;border-radius:0 20px 20px 0;padding:18px 20px;'
+                    f'box-shadow:0 5px 20px rgba(0,0,0,0.05);">'
+                    f'<div class="kpi-label" style="color:{c};">{seg}</div>'
                     f'<div class="kpi-value" style="margin:6px 0 2px;">{n}</div>'
                     f'<div class="kpi-meta" style="margin-bottom:8px;">{pct:.1f}% of fleet</div>'
-                    f'<div style="height:4px;border-radius:2px;background:{_pp3["BORDER"]};margin-bottom:8px;">'
+                    f'<div style="height:4px;border-radius:2px;background:{_pp3["BORDER"]};margin-bottom:14px;">'
                     f'<div style="width:{min(pct,100):.1f}%;height:100%;border-radius:2px;background:{c};"></div>'
                     f'</div>'
+                    f'<div style="font-weight:var(--fw-bold);font-size:15px;'
+                    f'color:{_pp3["TEXT_PRI"]};font-variant-numeric:tabular-nums;">'
+                    f'{fmt_currency_idr(seg_fbi)}</div>'
+                    f'<div class="kpi-meta">{fbi_share:.0f}% of portfolio fee income</div>'
                     f'{warn_chip}'
                     f'<div class="kpi-meta" style="margin-top:8px;line-height:1.55;">{action}</div>'
                     f'</div>'
                 )
-                _tbl_rows.append({
-                    'Tier':      f'{icon} {seg}',
-                    'Merchants': n,
-                    '% Fleet':   f'{pct:.1f}%',
-                    'High Risk': high_in_seg if high_in_seg > 0 else '—',
-                    'Recommended Action': action,
-                })
+                _conc_rows.append((seg, c, n, seg_fbi, fbi_share))
             _cards_html += '</div>'
             st.markdown(_cards_html, unsafe_allow_html=True)
 
-            _tier_tbl = pd.DataFrame(_tbl_rows)
-            st.dataframe(
-                _tier_tbl, hide_index=True, use_container_width=True,
-                column_config={
-                    'Tier':               st.column_config.TextColumn('Tier',               width='small'),
-                    'Merchants':          st.column_config.NumberColumn('Merchants',         width='small'),
-                    '% Fleet':            st.column_config.TextColumn('Fleet %',            width='small'),
-                    'High Risk':       st.column_config.TextColumn('High Risk',       width='small'),
-                    'Recommended Action': st.column_config.TextColumn('Recommended Action'),
-                }
-            )
-
-            # ── Cluster Cohesion — Silhouette Score + Davies-Bouldin Index ──────
-            section_label("Cluster Cohesion — How Trustworthy Are These 3 Tiers?")
-            if {'SILHOUETTE_SCORE', 'DB_SCORE'}.issubset(df_ml.columns) and len(df_ml) >= N_CLUSTERS:
-                sil = float(df_ml['SILHOUETTE_SCORE'].iloc[0])
-                dbi = float(df_ml['DB_SCORE'].iloc[0])
-
-                # Silhouette: −1..1, higher = better
-                if   sil > 0.5:  sil_q, sil_c = "Strong",   SUCCESS
-                elif sil > 0.25: sil_q, sil_c = "Moderate", WARNING
-                else:            sil_q, sil_c = "Weak",     DANGER
-                # Davies-Bouldin: 0+, lower = better
-                if   dbi < 0.8:  dbi_q, dbi_c = "Strong",   SUCCESS
-                elif dbi < 1.5:  dbi_q, dbi_c = "Moderate", WARNING
-                else:            dbi_q, dbi_c = "Weak",     DANGER
-
-                _cohesion_html = '<div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;">'
-                for _title, _val, _q, _c, _scale in [
-                    ("Silhouette Score",     f"{sil:.3f}", sil_q, sil_c, "Range −1 to 1 · higher is better"),
-                    ("Davies-Bouldin Index", f"{dbi:.3f}", dbi_q, dbi_c, "Range 0 and up · lower is better"),
-                ]:
-                    _cohesion_html += (
-                        f'<div style="flex:1;min-width:220px;border-left:5px solid {_c};'
-                        f'background:{_c}14;border-radius:0 14px 14px 0;padding:16px 18px;">'
-                        f'<div class="kpi-label">{_title}</div>'
-                        f'<div class="kpi-value" style="margin:6px 0 4px;color:{_c};">{_val}</div>'
-                        f'<div style="display:inline-block;background:{_c};color:#FFFFFF;'
-                        f'font-weight:var(--fw-semibold);font-size:11px;letter-spacing:0.04em;'
-                        f'padding:3px 12px;border-radius:999px;">{_q.upper()}</div>'
-                        f'<div class="kpi-meta" style="margin-top:8px;">{_scale}</div>'
-                        f'</div>'
+            # ── Value concentration bar — share of portfolio fee income ─────────
+            section_label("Fee Income Concentration")
+            if total_fbi > 0:
+                _conc_bar = ('<div style="display:flex;height:36px;border-radius:8px;'
+                             'overflow:hidden;margin-bottom:10px;">')
+                for seg, c, n, seg_fbi, fbi_share in _conc_rows:
+                    if fbi_share <= 0:
+                        continue
+                    _lbl = f'{fbi_share:.0f}%' if fbi_share >= 7 else ''
+                    _conc_bar += (
+                        f'<div style="width:{fbi_share:.2f}%;background:{c};display:flex;'
+                        f'align-items:center;justify-content:center;color:#FFFFFF;'
+                        f'font-weight:var(--fw-bold);font-size:12px;">{_lbl}</div>'
                     )
-                _cohesion_html += '</div>'
-                st.markdown(_cohesion_html, unsafe_allow_html=True)
+                _conc_bar += '</div>'
+                _conc_leg = '<div style="display:flex;gap:20px;flex-wrap:wrap;">'
+                for seg, c, n, seg_fbi, fbi_share in _conc_rows:
+                    _conc_leg += (
+                        f'<div style="display:flex;align-items:center;gap:7px;font-size:12px;'
+                        f'color:{_pp3["TEXT_SEC"]};">'
+                        f'<span style="width:11px;height:11px;border-radius:3px;'
+                        f'background:{c};display:inline-block;"></span>'
+                        f'<b style="color:{_pp3["TEXT_PRI"]};">{seg}</b> · '
+                        f'{fmt_currency_idr(seg_fbi)} · {n} merchants</div>'
+                    )
+                _conc_leg += '</div>'
+                st.markdown(_conc_bar + _conc_leg, unsafe_allow_html=True)
                 st.caption(
-                    "**Cluster cohesion** tells you how trustworthy the 3 merchant tiers are. "
-                    "The **Silhouette Score** checks whether each merchant sits comfortably inside "
-                    "its own tier rather than near a neighbouring one — *higher is better*. The "
-                    "**Davies-Bouldin Index** checks how much the tiers overlap each other — "
-                    "*lower is better*. When both look healthy, the tiers are genuinely distinct "
-                    "groups, not arbitrary cut-offs."
+                    "Each tier's slice of total portfolio fee income — a short "
+                    "bar means few merchants carry most of the revenue."
                 )
             else:
-                st.info("Not enough merchants to evaluate cluster cohesion — at least 3 are required.")
+                st.info("Fee income data unavailable for the current selection.")
 
-            st.markdown("")
-            sc1, sc2 = st.columns(2)
+            # ── Tier Map — Volume × Growth quadrants (full width) ───────────────
+            # 2D map: log-X volume × Y growth, sized by FBI, divided into named
+            # quadrants (STARS / CASH COWS / EMERGING / AT-RISK) by reference
+            # lines at the portfolio median volume and growth = 0.
+            section_label("Tier Map — Volume vs Growth (Log Scale)")
+            _tm = df_f.copy()
+            _tm = _tm[(_tm['AVG_SV'] > 0)]  # log axis needs positive x
+            _median_sv = float(_tm['AVG_SV'].median()) if not _tm.empty else 0.0
 
-            with sc1:
-                # ── Tier Separation (PCA projection) ────────────────────────────
-                # The 6 clustering features compressed onto 2 axes. Tight point
-                # clouds = cohesive tiers; non-overlapping clouds = well-separated
-                # tiers. Each tier shows its centroid (diamond) and a ±1σ cohesion
-                # ellipse — a smaller ellipse means a tighter, more cohesive group.
-                _pca = df_f[(df_f['PCA_X'] != 0) | (df_f['PCA_Y'] != 0)].copy()
-                if _pca.empty:
-                    st.info("Tier separation plot unavailable — at least 3 merchants are required.")
-                else:
-                    _v1 = float(df_ml['PCA_VAR1'].iloc[0])
-                    _v2 = float(df_ml['PCA_VAR2'].iloc[0])
-                    fig_pca = px.scatter(
-                        _pca, x='PCA_X', y='PCA_Y',
-                        color='CLUSTER', color_discrete_map=color_lookup,
-                        hover_name='MERCHANT_GROUP',
-                        hover_data={'PM': True, 'AVG_SV': ':,.0f',
-                                    'PCA_X': False, 'PCA_Y': False, 'CLUSTER': False},
-                        title="Merchant Tier Separation (PCA projection)",
-                        labels={'PCA_X': f'Component 1 ({_v1:.0f}% of variance)',
-                                'PCA_Y': f'Component 2 ({_v2:.0f}% of variance)'},
-                    )
-                    fig_pca.update_traces(marker=dict(size=11, opacity=0.85,
-                                                      line=dict(width=1, color='#FFFFFF')))
-
-                    # Per-tier cohesion ellipse (±1 std) + centroid marker.
-                    for _cl in all_clusters:
-                        _g = _pca[_pca['CLUSTER'] == _cl]
-                        if _g.empty:
-                            continue
-                        _cx, _cy = float(_g['PCA_X'].mean()), float(_g['PCA_Y'].mean())
-                        _sx = float(_g['PCA_X'].std(ddof=0)) or 0.30
-                        _sy = float(_g['PCA_Y'].std(ddof=0)) or 0.30
-                        _col = color_lookup.get(_cl, '#888888')
-                        fig_pca.add_shape(
-                            type='circle', xref='x', yref='y',
-                            x0=_cx - _sx, x1=_cx + _sx, y0=_cy - _sy, y1=_cy + _sy,
-                            line=dict(color=_col, width=1, dash='dot'),
-                            fillcolor=_col, opacity=0.10, layer='below',
-                        )
-                        fig_pca.add_trace(go.Scatter(
-                            x=[_cx], y=[_cy], mode='markers',
-                            marker=dict(symbol='diamond', size=16, color=_col,
-                                        line=dict(width=2, color='#FFFFFF')),
-                            name=f'{_cl} center', hoverinfo='skip', showlegend=False,
-                        ))
-
-                    fig_pca.update_layout(
-                        height=450, margin=dict(l=0, r=0, b=48, t=40),
-                        legend=dict(orientation='h', y=-0.18),
-                        **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis(),
-                    )
-                    st.plotly_chart(fig_pca, use_container_width=True, theme=None)
-
-            with sc2:
-                # Plan §3.5 — replace the gimmicky 3D scatter (3 dots in 3-space,
-                # impossible to read) with a 2D Tier Map: log-X volume × Y growth,
-                # sized by FBI, divided into named quadrants (STARS / CASH COWS /
-                # EMERGING / AT-RISK) by reference lines at the portfolio median
-                # volume and growth=0. One chart that encodes everything.
-                _tm = df_f.copy()
-                _tm = _tm[(_tm['AVG_SV'] > 0)]  # log axis needs positive x
-                _median_sv = float(_tm['AVG_SV'].median()) if not _tm.empty else 0.0
-
-                fig_sc = px.scatter(
-                    _tm,
-                    x='AVG_SV', y='SV_GROWTH_CLIPPED',
-                    color='CLUSTER', size='AVG_FBI', size_max=28,
-                    hover_name='MERCHANT_GROUP',
-                    hover_data={'PM': True, 'ACHIEVEMENT_PCT': ':.1f',
-                                'AVG_SV': ':,.0f', 'AVG_FBI': ':,.0f',
-                                'SV_GROWTH_CLIPPED': ':.2f'},
-                    color_discrete_map=color_lookup,
-                    log_x=True,
-                    title="Merchant Tier Map — Volume × Growth (log scale)",
-                    labels={'AVG_SV': 'Monthly Volume (IDR, log)',
-                            'SV_GROWTH_CLIPPED': 'Growth Trend'},
-                )
-
-                # Quadrant reference lines + corner labels for the four named zones.
-                fig_sc.add_hline(y=0, line_dash='dot', line_color=TEXT_SEC, opacity=0.5)
-                if _median_sv > 0:
-                    fig_sc.add_vline(x=_median_sv, line_dash='dot', line_color=TEXT_SEC, opacity=0.5)
-                # Annotations are positioned by paper-coords so they sit in the
-                # corners of the plot regardless of data range.
-                fig_sc.add_annotation(xref='paper', yref='paper', x=0.99, y=0.97,
-                                      text="<b>STARS</b><br>high vol · growing",
-                                      showarrow=False, align='right',
-                                      font=dict(size=10, color=SUCCESS), opacity=0.85)
-                fig_sc.add_annotation(xref='paper', yref='paper', x=0.99, y=0.03,
-                                      text="<b>CASH COWS</b><br>high vol · flat/decline",
-                                      showarrow=False, align='right',
-                                      font=dict(size=10, color=INFO), opacity=0.85)
-                fig_sc.add_annotation(xref='paper', yref='paper', x=0.01, y=0.97,
-                                      text="<b>EMERGING</b><br>low vol · growing",
-                                      showarrow=False, align='left',
-                                      font=dict(size=10, color=WARNING), opacity=0.85)
-                fig_sc.add_annotation(xref='paper', yref='paper', x=0.01, y=0.03,
-                                      text="<b>AT-RISK</b><br>low vol · declining",
-                                      showarrow=False, align='left',
-                                      font=dict(size=10, color=DANGER), opacity=0.85)
-
-                fig_sc.update_layout(
-                    height=450, margin=dict(l=0, r=0, b=48, t=40),
-                    **_chart_base(),
-                    xaxis=_xaxis(),
-                    yaxis=_yaxis(),
-                )
-                st.plotly_chart(fig_sc, use_container_width=True, theme=None)
-
-            section_label("Tier Characteristic Profile")
-            radar_m = ['AVG_SV','AVG_FBI','RASIO_ONUS','ACHIEVEMENT_PCT','WEEKS_ACTIVE']
-            _radar_labels = {
-                'AVG_SV':         'Monthly Volume',
-                'AVG_FBI':        'Fee Income',
-                'RASIO_ONUS':     'On-Us Share',
-                'ACHIEVEMENT_PCT':'Target Achievement',
-                'WEEKS_ACTIVE':   'Activity Weeks',
-            }
-            cm = df_f.groupby('CLUSTER')[radar_m].mean()
-            norm = (cm - cm.min()) / (cm.max() - cm.min() + 1e-9)
-            norm.columns = [_radar_labels[c] for c in norm.columns]
-            fig_r = go.Figure()
-            for clust in all_clusters:
-                if clust in norm.index:
-                    fig_r.add_trace(go.Bar(
-                        y=list(norm.columns),
-                        x=norm.loc[clust].tolist(),
-                        name=clust,
-                        orientation='h',
-                        marker_color=color_lookup.get(clust, '#888'),
-                        hovertemplate='<b>%{fullData.name}</b><br>%{y}: %{x:.2f}<extra></extra>',
-                    ))
-            _pp = _p()
-            fig_r.update_layout(
-                barmode='group',
-                height=430,
-                margin=dict(l=190, r=60, t=50, b=60),
-                title="How each merchant tier scores across key business metrics",
-                xaxis=dict(title="Normalised Score (0–1)", range=[0, 1], **_xaxis()),
-                yaxis=dict(title="", automargin=True, **_yaxis()),
-                legend=dict(orientation='h', y=-0.18),
-                **_chart_base(),
+            fig_sc = px.scatter(
+                _tm,
+                x='AVG_SV', y='SV_GROWTH_CLIPPED',
+                color='CLUSTER', size='AVG_FBI', size_max=30,
+                hover_name='MERCHANT_GROUP',
+                hover_data={'PM': True, 'ACHIEVEMENT_PCT': ':.1f',
+                            'AVG_SV': ':,.0f', 'AVG_FBI': ':,.0f',
+                            'SV_GROWTH_CLIPPED': ':.2f'},
+                color_discrete_map=color_lookup,
+                log_x=True,
+                labels={'AVG_SV': 'Monthly Volume (IDR, log)',
+                        'SV_GROWTH_CLIPPED': 'Growth Trend'},
             )
-            st.plotly_chart(fig_r, use_container_width=True, theme=None)
+
+            # Quadrant reference lines + corner labels for the four named zones.
+            fig_sc.add_hline(y=0, line_dash='dot', line_color=TEXT_SEC, opacity=0.5)
+            if _median_sv > 0:
+                fig_sc.add_vline(x=_median_sv, line_dash='dot', line_color=TEXT_SEC, opacity=0.5)
+            # Annotations are positioned by paper-coords so they sit in the
+            # corners of the plot regardless of data range.
+            fig_sc.add_annotation(xref='paper', yref='paper', x=0.99, y=0.97,
+                                  text="<b>STARS</b><br>high vol · growing",
+                                  showarrow=False, align='right',
+                                  font=dict(size=10, color=SUCCESS), opacity=0.85)
+            fig_sc.add_annotation(xref='paper', yref='paper', x=0.99, y=0.03,
+                                  text="<b>CASH COWS</b><br>high vol · flat/decline",
+                                  showarrow=False, align='right',
+                                  font=dict(size=10, color=INFO), opacity=0.85)
+            fig_sc.add_annotation(xref='paper', yref='paper', x=0.01, y=0.97,
+                                  text="<b>EMERGING</b><br>low vol · growing",
+                                  showarrow=False, align='left',
+                                  font=dict(size=10, color=WARNING), opacity=0.85)
+            fig_sc.add_annotation(xref='paper', yref='paper', x=0.01, y=0.03,
+                                  text="<b>AT-RISK</b><br>low vol · declining",
+                                  showarrow=False, align='left',
+                                  font=dict(size=10, color=DANGER), opacity=0.85)
+
+            fig_sc.update_layout(
+                height=480, margin=dict(l=0, r=0, b=48, t=30),
+                **_chart_base(),
+                xaxis=_xaxis(),
+                yaxis=_yaxis(),
+            )
+            st.plotly_chart(fig_sc, use_container_width=True, theme=None)
 
             if 'PM' in df_f.columns:
                 section_label("Account Manager × Merchant Tier Breakdown")
@@ -2585,31 +2477,6 @@ with tab3:
             if not tiers_present:
                 st.info("No merchants match the current filters.")
             else:
-                # ── Tier distribution bar chart ─────────────────────────────
-                # At-a-glance view of how the shown merchants split across the
-                # three tiers — counts come from df_f so the bars stay in sync
-                # with the sub-tab labels and the PM / cluster filters.
-                _tier_counts = [len(df_f[df_f['CLUSTER'] == t]) for t in tiers_present]
-                _tier_total  = sum(_tier_counts) or 1
-                # Reverse so PREMIUM sits at the top of the horizontal bars.
-                _bar_tiers = list(reversed(tiers_present))
-                _bar_vals  = list(reversed(_tier_counts))
-                fig_dist = go.Figure(go.Bar(
-                    x=_bar_vals, y=_bar_tiers, orientation='h',
-                    marker_color=[color_lookup.get(t, '#888888') for t in _bar_tiers],
-                    text=[f"{v}  ·  {v / _tier_total * 100:.0f}%" for v in _bar_vals],
-                    textposition='auto',
-                    hovertemplate='<b>%{y}</b><br>%{x} merchants<extra></extra>',
-                ))
-                fig_dist.update_layout(
-                    height=260, margin=dict(l=0, r=10, t=44, b=24),
-                    title="Merchant distribution across tiers", showlegend=False,
-                    xaxis=dict(title="Merchants", **_xaxis()),
-                    yaxis=dict(title="", automargin=True, **_yaxis()),
-                    **_chart_base(),
-                )
-                st.plotly_chart(fig_dist, use_container_width=True, theme=None)
-
                 tier_tabs = st.tabs([
                     f"{t} ({len(df_f[df_f['CLUSTER'] == t])})" for t in tiers_present
                 ])
@@ -2652,6 +2519,108 @@ with tab3:
                             f"merchants_{_tier.lower()}.csv", "text/csv",
                             key=f"t3_tier_csv_{_tier}",
                         )
+
+            # ── Cluster Diagnostics — methodology appendix (collapsed) ──────────
+            with st.expander("Cluster Diagnostics — Methodology"):
+                # Cohesion — Silhouette Score + Davies-Bouldin Index
+                section_label("Cluster Cohesion — How Trustworthy Are These 3 Tiers?")
+                if {'SILHOUETTE_SCORE', 'DB_SCORE'}.issubset(df_ml.columns) and len(df_ml) >= N_CLUSTERS:
+                    sil = float(df_ml['SILHOUETTE_SCORE'].iloc[0])
+                    dbi = float(df_ml['DB_SCORE'].iloc[0])
+
+                    # Silhouette: −1..1, higher = better
+                    if   sil > 0.5:  sil_q, sil_c = "Strong",   SUCCESS
+                    elif sil > 0.25: sil_q, sil_c = "Moderate", WARNING
+                    else:            sil_q, sil_c = "Weak",     DANGER
+                    # Davies-Bouldin: 0+, lower = better
+                    if   dbi < 0.8:  dbi_q, dbi_c = "Strong",   SUCCESS
+                    elif dbi < 1.5:  dbi_q, dbi_c = "Moderate", WARNING
+                    else:            dbi_q, dbi_c = "Weak",     DANGER
+
+                    _cohesion_html = '<div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;">'
+                    for _title, _val, _q, _c, _scale in [
+                        ("Silhouette Score",     f"{sil:.3f}", sil_q, sil_c, "Range −1 to 1 · higher is better"),
+                        ("Davies-Bouldin Index", f"{dbi:.3f}", dbi_q, dbi_c, "Range 0 and up · lower is better"),
+                    ]:
+                        _cohesion_html += (
+                            f'<div style="flex:1;min-width:220px;border-left:5px solid {_c};'
+                            f'background:{_c}14;border-radius:0 14px 14px 0;padding:16px 18px;">'
+                            f'<div class="kpi-label">{_title}</div>'
+                            f'<div class="kpi-value" style="margin:6px 0 4px;color:{_c};">{_val}</div>'
+                            f'<div style="display:inline-block;background:{_c};color:#FFFFFF;'
+                            f'font-weight:var(--fw-semibold);font-size:11px;letter-spacing:0.04em;'
+                            f'padding:3px 12px;border-radius:999px;">{_q.upper()}</div>'
+                            f'<div class="kpi-meta" style="margin-top:8px;">{_scale}</div>'
+                            f'</div>'
+                        )
+                    _cohesion_html += '</div>'
+                    st.markdown(_cohesion_html, unsafe_allow_html=True)
+                    st.caption(
+                        "**Cluster cohesion** tells you how trustworthy the 3 merchant tiers are. "
+                        "The **Silhouette Score** checks whether each merchant sits comfortably inside "
+                        "its own tier rather than near a neighbouring one — *higher is better*. The "
+                        "**Davies-Bouldin Index** checks how much the tiers overlap each other — "
+                        "*lower is better*. When both look healthy, the tiers are genuinely distinct "
+                        "groups, not arbitrary cut-offs."
+                    )
+                else:
+                    st.info("Not enough merchants to evaluate cluster cohesion — at least 3 are required.")
+
+                # Tier Separation (PCA projection) — 6 clustering features
+                # compressed onto 2 axes; each tier shows a centroid (diamond)
+                # and a ±1σ cohesion ellipse.
+                section_label("Tier Separation (PCA Projection)")
+                _pca = df_f[(df_f['PCA_X'] != 0) | (df_f['PCA_Y'] != 0)].copy()
+                if _pca.empty:
+                    st.info("Tier separation plot unavailable — at least 3 merchants are required.")
+                else:
+                    _v1 = float(df_ml['PCA_VAR1'].iloc[0])
+                    _v2 = float(df_ml['PCA_VAR2'].iloc[0])
+                    fig_pca = px.scatter(
+                        _pca, x='PCA_X', y='PCA_Y',
+                        color='CLUSTER', color_discrete_map=color_lookup,
+                        hover_name='MERCHANT_GROUP',
+                        hover_data={'PM': True, 'AVG_SV': ':,.0f',
+                                    'PCA_X': False, 'PCA_Y': False, 'CLUSTER': False},
+                        labels={'PCA_X': f'Component 1 ({_v1:.0f}% of variance)',
+                                'PCA_Y': f'Component 2 ({_v2:.0f}% of variance)'},
+                    )
+                    fig_pca.update_traces(marker=dict(size=11, opacity=0.85,
+                                                      line=dict(width=1, color='#FFFFFF')))
+
+                    # Per-tier cohesion ellipse (±1 std) + centroid marker.
+                    for _cl in all_clusters:
+                        _g = _pca[_pca['CLUSTER'] == _cl]
+                        if _g.empty:
+                            continue
+                        _cx, _cy = float(_g['PCA_X'].mean()), float(_g['PCA_Y'].mean())
+                        _sx = float(_g['PCA_X'].std(ddof=0)) or 0.30
+                        _sy = float(_g['PCA_Y'].std(ddof=0)) or 0.30
+                        _col = color_lookup.get(_cl, '#888888')
+                        fig_pca.add_shape(
+                            type='circle', xref='x', yref='y',
+                            x0=_cx - _sx, x1=_cx + _sx, y0=_cy - _sy, y1=_cy + _sy,
+                            line=dict(color=_col, width=1, dash='dot'),
+                            fillcolor=_col, opacity=0.10, layer='below',
+                        )
+                        fig_pca.add_trace(go.Scatter(
+                            x=[_cx], y=[_cy], mode='markers',
+                            marker=dict(symbol='diamond', size=16, color=_col,
+                                        line=dict(width=2, color='#FFFFFF')),
+                            name=f'{_cl} center', hoverinfo='skip', showlegend=False,
+                        ))
+
+                    fig_pca.update_layout(
+                        height=450, margin=dict(l=0, r=0, b=48, t=20),
+                        legend=dict(orientation='h', y=-0.18),
+                        **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis(),
+                    )
+                    st.plotly_chart(fig_pca, use_container_width=True, theme=None)
+                    st.caption(
+                        "The 6 clustering features compressed onto 2 axes. Tight, "
+                        "non-overlapping point clouds mean the tiers are well separated; "
+                        "each diamond marks a tier centre with a ±1σ cohesion ellipse."
+                    )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — CHURN & RISK
