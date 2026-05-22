@@ -12,6 +12,7 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score, davies_bouldin_score
 from sklearn.ensemble import IsolationForest
 import os
+import pickle
 from datetime import datetime, date, timedelta
 try:
     from statsmodels.tsa.holtwinters import ExponentialSmoothing as HoltWinters
@@ -151,19 +152,86 @@ def _get_engine():
     return build_engine()
 
 
-@st.cache_data(ttl=600)
-def _load_monthly_raw(neon_mode: bool):
-    """Cached load of the full PROCESSED_CARD_MONTHLY table."""
-    if neon_mode:
-        df = pd.read_sql_query("SELECT * FROM processed_card_monthly", _get_engine())
-        df.columns = [c.upper() for c in df.columns]
-    else:
-        conn = sqlite3.connect(PATH_DB)
-        try:
-            df = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_MONTHLY", conn)
-        finally:
-            conn.close()
-    return df
+# ── DB TRANSFER CONTROL — version probe + local snapshot fallback ─────────────
+# The processed tables change only when the pipeline runs. The heavy loaders are
+# keyed on a cheap LAST_DATA_UPDATE probe so a full table pull happens only when
+# the data genuinely changed — not on a fixed timer. A pickled snapshot of the
+# last good load keeps the dashboard online (read-only) when Neon is unreachable.
+_SNAPSHOT_DIR  = os.path.join(BASE_DIR, "data", "snapshot")
+_SNAPSHOT_FILE = os.path.join(_SNAPSHOT_DIR, "dashboard_snapshot.pkl")
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _get_data_version(neon_mode: bool) -> str:
+    """Cheap probe of app_metadata.LAST_DATA_UPDATE — used as the cache key for
+    the heavy loaders so a full table pull happens only when data changed."""
+    try:
+        if neon_mode:
+            df = pd.read_sql_query(
+                "SELECT value FROM app_metadata WHERE key = 'LAST_DATA_UPDATE'",
+                _get_engine(),
+            )
+        else:
+            if not os.path.exists(PATH_DB):
+                return "no-db"
+            conn = sqlite3.connect(PATH_DB)
+            try:
+                df = pd.read_sql_query(
+                    "SELECT value FROM APP_METADATA WHERE key = 'LAST_DATA_UPDATE'",
+                    conn,
+                )
+            finally:
+                conn.close()
+        return str(df["value"].iloc[0]) if not df.empty else "none"
+    except Exception:
+        return "unknown"
+
+
+def _write_snapshot(result: tuple) -> None:
+    """Best-effort: persist the last successful dashboard load to local disk."""
+    try:
+        os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+        payload = {
+            "as_of": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "result": result,
+        }
+        with open(_SNAPSHOT_FILE, "wb") as fh:
+            pickle.dump(payload, fh)
+    except Exception:
+        pass  # snapshot is a safety net; it must never block the live load
+
+
+def _read_snapshot():
+    """Return (result_tuple, as_of_str) from the local snapshot, or (None, None)."""
+    try:
+        with open(_SNAPSHOT_FILE, "rb") as fh:
+            payload = pickle.load(fh)
+        return payload["result"], payload["as_of"]
+    except Exception:
+        return None, None
+
+
+@st.cache_data(ttl=86400)
+def _load_monthly_raw(neon_mode: bool, data_version: str):
+    """Cached load of the full PROCESSED_CARD_MONTHLY table.
+
+    Keyed on data_version so it refetches only when the pipeline writes new
+    data; the 24h ttl is just a safety net. Returns an empty frame if the
+    database is unreachable so the monthly view degrades instead of crashing.
+    """
+    try:
+        if neon_mode:
+            df = pd.read_sql_query("SELECT * FROM processed_card_monthly", _get_engine())
+            df.columns = [c.upper() for c in df.columns]
+        else:
+            conn = sqlite3.connect(PATH_DB)
+            try:
+                df = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_MONTHLY", conn)
+            finally:
+                conn.close()
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 # ── MACHINE LEARNING ENGINE ───────────────────────────────────────────────────
 # Fixed model parameters — locked per academic review (no longer user-adjustable).
@@ -498,33 +566,50 @@ except Exception:
     pass
 
 
-@st.cache_data(ttl=600, show_spinner="Loading dashboard data...")
-def _load_dashboard_data(neon_mode: bool):
+@st.cache_data(ttl=86400, show_spinner="Loading dashboard data...")
+def _load_dashboard_data(neon_mode: bool, data_version: str):
     """Cached load of the 5 core dashboard tables + table-existence flags.
 
-    Runs once per cache window instead of on every Streamlit rerun — this is
-    the primary control on Neon network-transfer usage.
+    Keyed on data_version: a full pull happens only when the pipeline writes
+    new data, not on a fixed timer — the primary control on Neon transfer.
+    On a Neon failure (e.g. transfer quota exceeded) the last good load is
+    served from a local snapshot so the dashboard stays online read-only.
+
+    Returns the 11 data values plus a load_meta dict describing the source.
     """
     if neon_mode:
-        eng = _get_engine()
-        has_card       = table_exists(eng, "PROCESSED_CARD_SHARE")
-        has_card_hist  = table_exists(eng, "PROCESSED_CARD_HISTORY")
-        has_mon        = table_exists(eng, "PROCESSED_MONITORING")
-        has_mon_weekly = table_exists(eng, "PROCESSED_MONITORING_WEEKLY")
-        has_tgt        = table_exists(eng, "TARGET")
+        try:
+            eng = _get_engine()
+            has_card       = table_exists(eng, "PROCESSED_CARD_SHARE")
+            has_card_hist  = table_exists(eng, "PROCESSED_CARD_HISTORY")
+            has_mon        = table_exists(eng, "PROCESSED_MONITORING")
+            has_mon_weekly = table_exists(eng, "PROCESSED_MONITORING_WEEKLY")
+            has_tgt        = table_exists(eng, "TARGET")
 
-        df_card        = pd.read_sql_query("SELECT * FROM processed_card_share", eng) if has_card else pd.DataFrame()
-        df_card_hist   = pd.read_sql_query("SELECT * FROM processed_card_history", eng) if has_card_hist else pd.DataFrame()
-        df_mon         = pd.read_sql_query("SELECT * FROM processed_monitoring", eng) if has_mon else pd.DataFrame()
-        df_mon_weekly  = pd.read_sql_query("SELECT * FROM processed_monitoring_weekly", eng) if has_mon_weekly else pd.DataFrame()
-        df_target      = pd.read_sql_query("SELECT * FROM target", eng) if has_tgt else pd.DataFrame()
+            df_card        = pd.read_sql_query("SELECT * FROM processed_card_share", eng) if has_card else pd.DataFrame()
+            df_card_hist   = pd.read_sql_query("SELECT * FROM processed_card_history", eng) if has_card_hist else pd.DataFrame()
+            df_mon         = pd.read_sql_query("SELECT * FROM processed_monitoring", eng) if has_mon else pd.DataFrame()
+            df_mon_weekly  = pd.read_sql_query("SELECT * FROM processed_monitoring_weekly", eng) if has_mon_weekly else pd.DataFrame()
+            df_target      = pd.read_sql_query("SELECT * FROM target", eng) if has_tgt else pd.DataFrame()
 
-        # Column normalization for Postgres (ensure uppercase for dashboard consistency)
-        for df in [df_card, df_card_hist, df_mon, df_mon_weekly, df_target]:
-            if len(df.columns) > 0:
-                df.columns = [c.upper() for c in df.columns]
+            # Column normalization for Postgres (ensure uppercase for dashboard consistency)
+            for df in [df_card, df_card_hist, df_mon, df_mon_weekly, df_target]:
+                if len(df.columns) > 0:
+                    df.columns = [c.upper() for c in df.columns]
 
-        has_monthly_tbl = table_exists(eng, "PROCESSED_CARD_MONTHLY")
+            has_monthly_tbl = table_exists(eng, "PROCESSED_CARD_MONTHLY")
+
+            result = (df_card, df_card_hist, df_mon, df_mon_weekly, df_target,
+                      has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl)
+            _write_snapshot(result)
+            return result + ({"source": "neon", "as_of": None},)
+        except Exception:
+            # Neon unreachable (e.g. transfer quota exceeded) — fall back to the
+            # last good snapshot so the dashboard stays online read-only.
+            snapshot, as_of = _read_snapshot()
+            if snapshot is None:
+                raise
+            return snapshot + ({"source": "snapshot", "as_of": as_of},)
     else:
         conn = sqlite3.connect(PATH_DB)
         try:
@@ -543,13 +628,15 @@ def _load_dashboard_data(neon_mode: bool):
         finally:
             conn.close()
 
-    return (df_card, df_card_hist, df_mon, df_mon_weekly, df_target,
-            has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl)
+        result = (df_card, df_card_hist, df_mon, df_mon_weekly, df_target,
+                  has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl)
+        return result + ({"source": "local", "as_of": None},)
 
 
 if neon_url:
     (df_card, df_card_hist, df_mon, df_mon_weekly, df_target,
-     has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl) = _load_dashboard_data(True)
+     has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl,
+     _load_meta) = _load_dashboard_data(True, _get_data_version(True))
 
     # Show popup if Neon is connected but tables are empty (e.g. after a database reset)
     if df_card.empty and df_mon.empty:
@@ -561,13 +648,23 @@ else:
         st.stop()
     try:
         (df_card, df_card_hist, df_mon, df_mon_weekly, df_target,
-         has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl) = _load_dashboard_data(False)
+         has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl,
+         _load_meta) = _load_dashboard_data(False, _get_data_version(False))
     except Exception as e:
         st.error(
             f"Failed to load dashboard data from `{os.path.basename(PATH_DB)}`: {e}. "
             "Run the pipeline first, or check that the database file exists."
         )
         st.stop()
+
+# Read-only fallback banner — shown when Neon was unreachable and the dashboard
+# is being served from the last saved local snapshot instead.
+if _load_meta.get("source") == "snapshot":
+    st.warning(
+        "Live database unavailable — showing the last saved data from "
+        f"{_load_meta.get('as_of') or 'an earlier session'}. "
+        "Figures are read-only until the connection is restored."
+    )
 
 # ── BATCH METADATA & SIGNALS ─────────────────────────────────────────────────
 # Intentionally uncached: tiny payload, and carries the live NEW_DATA_SIGNAL badge.
@@ -1467,7 +1564,7 @@ with tab1:
 
     # Reconstruct Monthly Matrix from PROCESSED_CARD_MONTHLY
     if has_monthly_tbl:
-        df_monthly_raw = _load_monthly_raw(bool(neon_url)).copy()
+        df_monthly_raw = _load_monthly_raw(bool(neon_url), _get_data_version(bool(neon_url))).copy()
 
         # Apply Sidebar Filters to detailed monthly data
         if sel_group != "ALL GROUPS":
