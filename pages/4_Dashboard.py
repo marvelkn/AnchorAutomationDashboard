@@ -2585,6 +2585,31 @@ with tab3:
             if not tiers_present:
                 st.info("No merchants match the current filters.")
             else:
+                # ── Tier distribution bar chart ─────────────────────────────
+                # At-a-glance view of how the shown merchants split across the
+                # three tiers — counts come from df_f so the bars stay in sync
+                # with the sub-tab labels and the PM / cluster filters.
+                _tier_counts = [len(df_f[df_f['CLUSTER'] == t]) for t in tiers_present]
+                _tier_total  = sum(_tier_counts) or 1
+                # Reverse so PREMIUM sits at the top of the horizontal bars.
+                _bar_tiers = list(reversed(tiers_present))
+                _bar_vals  = list(reversed(_tier_counts))
+                fig_dist = go.Figure(go.Bar(
+                    x=_bar_vals, y=_bar_tiers, orientation='h',
+                    marker_color=[color_lookup.get(t, '#888888') for t in _bar_tiers],
+                    text=[f"{v}  ·  {v / _tier_total * 100:.0f}%" for v in _bar_vals],
+                    textposition='auto',
+                    hovertemplate='<b>%{y}</b><br>%{x} merchants<extra></extra>',
+                ))
+                fig_dist.update_layout(
+                    height=260, margin=dict(l=0, r=10, t=44, b=24),
+                    title="Merchant distribution across tiers", showlegend=False,
+                    xaxis=dict(title="Merchants", **_xaxis()),
+                    yaxis=dict(title="", automargin=True, **_yaxis()),
+                    **_chart_base(),
+                )
+                st.plotly_chart(fig_dist, use_container_width=True, theme=None)
+
                 tier_tabs = st.tabs([
                     f"{t} ({len(df_f[df_f['CLUSTER'] == t])})" for t in tiers_present
                 ])
