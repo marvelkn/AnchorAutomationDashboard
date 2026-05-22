@@ -2575,34 +2575,58 @@ with tab3:
                 fig_stk.update_layout(height=380, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
                 st.plotly_chart(fig_stk, use_container_width=True, theme=None)
 
-            with st.expander("View ML Results Table"):
-                show_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','RISK_SCORE',
-                                         'AVG_SV','AVG_FBI','ACHIEVEMENT_PCT',
-                                         'WEEKS_ACTIVE','ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH'] if c in df_f.columns]
-                _ml_view = df_f[show_cols].sort_values('RISK_SCORE', ascending=False).reset_index(drop=True)
+            # ── Per-tier merchant lists ─────────────────────────────────────────
+            # Explicit "who is in each tier" view — one sub-tab per tier so the
+            # full PREMIUM / REGULER / PASIF merchant list is visible at a glance.
+            section_label("Merchants in Each Tier")
+            TIER_ORDER = ['PREMIUM', 'REGULER', 'PASIF']
+            tiers_present = [t for t in TIER_ORDER if t in df_f['CLUSTER'].unique()]
 
-                # Plan §3.6 — replace raw 6-decimal numbers with human-readable formats.
-                # ACHIEVEMENT_PCT in this dataset is already in percent form (0–100+),
-                # not a 0–1 fraction, so use scale=False.
-                _ml_format_dict = {
-                    'RISK_SCORE':      lambda x: f"{x:.1f}" if pd.notna(x) else "—",
-                    'AVG_SV':          fmt_currency_idr,
-                    'AVG_FBI':         fmt_currency_idr,
-                    'ACHIEVEMENT_PCT': lambda x: fmt_pct(x, decimals=1, scale=False),
-                    'WEEKS_ACTIVE':    lambda x: f"{int(x)}" if pd.notna(x) else "—",
-                    'ZSCORE_SV':       fmt_zscore,
-                    'ZSCORE_FBI':      fmt_zscore,
-                    'ZSCORE_GROWTH':   fmt_zscore,
-                }
-                _ml_format_dict = {k: v for k, v in _ml_format_dict.items() if k in _ml_view.columns}
+            if not tiers_present:
+                st.info("No merchants match the current filters.")
+            else:
+                tier_tabs = st.tabs([
+                    f"{t} ({len(df_f[df_f['CLUSTER'] == t])})" for t in tiers_present
+                ])
+                for _tt, _tier in zip(tier_tabs, tiers_present):
+                    with _tt:
+                        _seg = (df_f[df_f['CLUSTER'] == _tier]
+                                .sort_values('AVG_SV', ascending=False)
+                                .reset_index(drop=True))
 
-                # Diverging red/white/green heatmap on Z-score columns so the eye
-                # can scan the table without reading every digit (plan §3.6).
-                _zscore_cols = [c for c in ('ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH') if c in _ml_view.columns]
-                _styled = _ml_view.style.format(_ml_format_dict)
-                if _zscore_cols:
-                    _styled = _styled.map(zscore_cell_style, subset=_zscore_cols)
-                st.dataframe(_styled, use_container_width=True, hide_index=True)
+                        # Essentials-only view with friendly headers. Columns stay
+                        # numeric underneath so interactive sorting works; Styler
+                        # handles display formatting via the shared helpers.
+                        _rename = {
+                            'MERCHANT_GROUP':  'Merchant',
+                            'PM':              'PM',
+                            'AVG_SV':          'Monthly Volume',
+                            'ACHIEVEMENT_PCT': 'Achievement',
+                            'RISK_SCORE':      'Risk Score',
+                        }
+                        _disp_cols = [c for c in _rename if c in _seg.columns]
+                        _disp = _seg[_disp_cols].rename(columns=_rename)
+                        _tier_fmt = {
+                            'Monthly Volume': fmt_currency_idr,
+                            'Achievement':    lambda x: fmt_pct(x, decimals=1, scale=False),
+                            'Risk Score':     lambda x: f"{x:.1f}" if pd.notna(x) else "—",
+                        }
+                        _tier_fmt = {k: v for k, v in _tier_fmt.items() if k in _disp.columns}
+                        st.dataframe(
+                            _disp.style.format(_tier_fmt),
+                            use_container_width=True, hide_index=True,
+                        )
+
+                        # CSV keeps the CLUSTER column so the export is self-describing.
+                        _csv_cols = [c for c in ['MERCHANT_GROUP', 'PM', 'CLUSTER',
+                                                 'AVG_SV', 'ACHIEVEMENT_PCT', 'RISK_SCORE']
+                                     if c in _seg.columns]
+                        st.download_button(
+                            "Download CSV",
+                            _seg[_csv_cols].to_csv(index=False, encoding='utf-8-sig'),
+                            f"merchants_{_tier.lower()}.csv", "text/csv",
+                            key=f"t3_tier_csv_{_tier}",
+                        )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — CHURN & RISK
