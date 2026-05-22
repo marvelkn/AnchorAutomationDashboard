@@ -8,7 +8,8 @@ from plotly.subplots import make_subplots
 from scipy import stats
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
+from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score, davies_bouldin_score
 from sklearn.ensemble import IsolationForest
 import os
 from datetime import datetime, date, timedelta
@@ -165,19 +166,25 @@ def _load_monthly_raw(neon_mode: bool):
     return df
 
 # ── MACHINE LEARNING ENGINE ───────────────────────────────────────────────────
+# Fixed model parameters — locked per academic review (no longer user-adjustable).
+N_CLUSTERS = 3      # K-Means merchant tiers: PREMIUM / REGULER / PASIF
+Z_THRESH   = -1.2   # z-score breach threshold for anomaly → MEDIUM RISK upgrade
+
 @st.cache_data
-def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
+def run_ml(df_c, df_m, df_t=None):
     """
     BTN Anchor ML Pipeline v2:
     1. Merge Card Share + Monitoring
     2. Feature Engineering — AVG_SV/FBI normalized by actual WEEKS_ACTIVE (not fixed /12)
-    3. K-Means++ Clustering — composite multi-metric cluster ranking (SV + achievement + growth)
+    3. K-Means++ Clustering — fixed K=3 merchant tiers, composite multi-metric ranking
     4. Modified Z-Score (MAD) — robust anomaly detection, resistant to outliers in small portfolios
     5. Composite Risk Score 0–100 — weighted: Growth 40%, SV 30%, FBI 20%, Achievement 10%
     6. Three-tier CHURN_RISK — HIGH (≥60) / MEDIUM (30–59) / STABLE (<30)
-    7. Silhouette Score — cluster separation quality metric
+    7. Cohesion metrics — Silhouette Score + Davies-Bouldin Index
+    8. PCA 2-D projection — for the tier-separation scatter plot
     """
-    ML_COLS = ['MERCHANT_GROUP', 'CLUSTER', 'CHURN_RISK', 'RISK_SCORE', 'SILHOUETTE_SCORE',
+    ML_COLS = ['MERCHANT_GROUP', 'CLUSTER', 'CHURN_RISK', 'RISK_SCORE',
+               'SILHOUETTE_SCORE', 'DB_SCORE', 'PCA_X', 'PCA_Y', 'PCA_VAR1', 'PCA_VAR2',
                'PM', 'WEEKS_ACTIVE', 'SV_GROWTH_RATE', 'ACHIEVEMENT_PCT', 'AVG_SV', 'AVG_FBI',
                'ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH', 'SV_GROWTH_CLIPPED',
                'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS',
@@ -240,13 +247,28 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
     X['AVG_FBI'] = np.log1p(X['AVG_FBI'])
 
     df['SILHOUETTE_SCORE'] = 0.0
+    df['DB_SCORE']         = 0.0
+    df['PCA_X']            = 0.0
+    df['PCA_Y']            = 0.0
+    df['PCA_VAR1']         = 0.0
+    df['PCA_VAR2']         = 0.0
     df['RISK_SCORE']       = 0.0
 
     try:
-        if len(df) >= k_clusters:
+        if len(df) >= N_CLUSTERS:
             X_s = StandardScaler().fit_transform(X)
-            km  = KMeans(n_clusters=k_clusters, init='k-means++', n_init=20, random_state=42)
+            km  = KMeans(n_clusters=N_CLUSTERS, init='k-means++', n_init=20, random_state=42)
             df['CLUSTER_RAW'] = km.fit_predict(X_s)
+
+            # PCA 2-D projection — compresses the 6 scaled clustering features onto
+            # two axes so the tier separation can be drawn as a scatter plot. Uses
+            # the exact same X_s that K-Means clustered on, so the picture is honest.
+            pca    = PCA(n_components=2, random_state=42)
+            coords = pca.fit_transform(X_s)
+            df['PCA_X'] = coords[:, 0]
+            df['PCA_Y'] = coords[:, 1]
+            df['PCA_VAR1'] = round(float(pca.explained_variance_ratio_[0]) * 100, 1)
+            df['PCA_VAR2'] = round(float(pca.explained_variance_ratio_[1]) * 100, 1)
 
             # Multi-metric composite ranking: normalize each metric across clusters
             # then weight: SV 60%, Achievement 25%, Growth 15%
@@ -259,18 +281,16 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
             cs['COMPOSITE'] = 0.60 * cs['AVG_SV'] + 0.25 * cs['ACHIEVEMENT_PCT'] + 0.15 * cs['SV_GROWTH_CLIPPED']
             rank = {c: i for i, c in enumerate(cs['COMPOSITE'].sort_values(ascending=False).index)}
 
-            lbl_maps = {
-                3: {0: 'PREMIUM', 1: 'REGULER', 2: 'PASIF'},
-                4: {0: 'ELITE', 1: 'PREMIUM', 2: 'REGULER', 3: 'PASIF'},
-                5: {0: 'ELITE', 1: 'PREMIUM', 2: 'REGULER', 3: 'PASIF', 4: 'DORMANT'}
-            }
-            lbl = lbl_maps.get(k_clusters, {i: f'TIER {i+1}' for i in range(k_clusters)})
+            # Fixed 3-tier labels — K is locked at 3, ranked best→worst by COMPOSITE.
+            lbl = {0: 'PREMIUM', 1: 'REGULER', 2: 'PASIF'}
             df['CLUSTER'] = df['CLUSTER_RAW'].map(lambda c: lbl[rank[c]])
 
-            # Silhouette score: measures how well-separated the clusters are
-            # Range: -1 to 1 | >0.5 = strong | 0.25–0.5 = moderate | <0.25 = weak
+            # Cohesion metrics — how cohesive (tight) and well-separated the tiers are.
+            #   Silhouette Score: -1 to 1 | >0.5 strong | 0.25–0.5 moderate | <0.25 weak (higher better)
+            #   Davies-Bouldin Index: 0 and up | <0.8 strong | 0.8–1.5 moderate | >1.5 weak (lower better)
             if len(df) >= 2:
                 df['SILHOUETTE_SCORE'] = round(float(silhouette_score(X_s, df['CLUSTER_RAW'])), 4)
+                df['DB_SCORE']         = round(float(davies_bouldin_score(X_s, df['CLUSTER_RAW'])), 4)
 
             # ── 4a. Isolation Forest — Multivariate Anomaly Detection ─────────
             # Liu et al. (2008): builds n_estimators random trees; anomalies need
@@ -356,12 +376,12 @@ def run_ml(df_c, df_m, df_t=None, k_clusters=3, z_thresh=-1.5):
             return 'STABLE'
         df['CHURN_RISK'] = df['RISK_SCORE'].apply(_risk_tier)
 
-        # ── z_thresh override: any z-score breach upgrades STABLE → MEDIUM RISK ──
-        if z_thresh is not None and len(df) > 1:
+        # ── Z_THRESH override: any z-score breach upgrades STABLE → MEDIUM RISK ──
+        if len(df) > 1:
             zscore_breach = (
-                (df['ZSCORE_SV']     < z_thresh) |
-                (df['ZSCORE_FBI']    < z_thresh) |
-                (df['ZSCORE_GROWTH'] < z_thresh)
+                (df['ZSCORE_SV']     < Z_THRESH) |
+                (df['ZSCORE_FBI']    < Z_THRESH) |
+                (df['ZSCORE_GROWTH'] < Z_THRESH)
             )
             df.loc[zscore_breach & (df['CHURN_RISK'] == 'STABLE'), 'CHURN_RISK'] = 'MEDIUM RISK'
 
@@ -603,7 +623,7 @@ _ytd_sv          = df_card['TOTAL_SV'].sum()                    if not df_card.e
 _ytd_trx         = df_card['TOTAL_TRX'].sum()                   if not df_card.empty and 'TOTAL_TRX'       in df_card.columns else 0
 _avg_onus        = df_card['RASIO_ONUS'].mean()                 if not df_card.empty and 'RASIO_ONUS'      in df_card.columns else 0
 
-_ml_kpi = run_ml(df_card, df_mon, df_target, z_thresh=-1.2) if (has_card and has_mon) else pd.DataFrame()
+_ml_kpi = run_ml(df_card, df_mon, df_target) if (has_card and has_mon) else pd.DataFrame()
 _high_risk_count = int(_ml_kpi['CHURN_RISK'].str.contains('HIGH', na=False).sum()) if not _ml_kpi.empty and 'CHURN_RISK' in _ml_kpi.columns else 0
 
 _sv_fmt  = f"Rp {_ytd_sv/1e9:,.1f} M"  if _ytd_sv >= 1e9 else f"Rp {_ytd_sv/1e6:,.0f} Jt"
@@ -2256,13 +2276,8 @@ with tab3:
     if not (has_card and has_mon):
         st.warning("Merchant segmentation requires **both** Card Share and Monitoring data to be processed first.")
     else:
-        with st.expander("Advanced: Adjust Segmentation Granularity", expanded=False):
-            k_val = st.slider("Number of Groups", min_value=3, max_value=5, value=3,
-                              help="3 = broad view (fewer, larger groups). 5 = detailed view (more precise tiers). Start with 3 if you're unsure.")
-        if 'k_val' not in dir():
-            k_val = 3
         with st.spinner("Analyzing merchant performance tiers..."):
-            df_ml = run_ml(df_card, df_mon, df_target, k_clusters=k_val)
+            df_ml = run_ml(df_card, df_mon, df_target)
 
         if df_ml.empty:
             st.info("No data available for Machine Learning analysis. Please ensure the database has been populated.")
@@ -2275,7 +2290,7 @@ with tab3:
             with mc1:
                 sel_pm_ml = st.multiselect("Filter by PM", all_pm_ml, default=all_pm_ml, key="t3_pm")
             with mc2:
-                sel_clust = st.multiselect("Show Clusters", all_clusters, default=all_clusters, key=f"t3_clust_{k_val}")
+                sel_clust = st.multiselect("Show Clusters", all_clusters, default=all_clusters, key="t3_clust")
 
             df_f = df_ml[df_ml['CLUSTER'].isin(sel_clust)]
             if sel_pm_ml and 'PM' in df_f.columns:
@@ -2358,35 +2373,106 @@ with tab3:
                 }
             )
 
-            # ── Grouping Confidence (business-friendly silhouette translation) ──
-            if 'SILHOUETTE_SCORE' in df_ml.columns:
+            # ── Cluster Cohesion — Silhouette Score + Davies-Bouldin Index ──────
+            section_label("Cluster Cohesion — How Trustworthy Are These 3 Tiers?")
+            if {'SILHOUETTE_SCORE', 'DB_SCORE'}.issubset(df_ml.columns) and len(df_ml) >= N_CLUSTERS:
                 sil = float(df_ml['SILHOUETTE_SCORE'].iloc[0])
-                if sil > 0.5:
-                    sil_label, sil_color = "High — Groups are well-defined and distinct", SUCCESS
-                elif sil > 0.25:
-                    sil_label, sil_color = "Moderate — Groups are reasonable; consider adjusting granularity", WARNING
-                else:
-                    sil_label, sil_color = "Low — Groups overlap; try a different grouping level", DANGER
-                st.markdown(
-                    f"""<div style="padding:10px 16px;border-radius:10px;border:1px solid {sil_color};
-                        background:{sil_color}18;margin-bottom:12px;">
-                        <b>Grouping Confidence:</b>
-                        <span style="color:{sil_color};font-weight:var(--fw-bold);font-size:var(--fs-md);margin-left:8px;">{sil_label}</span>
-                    </div>""",
-                    unsafe_allow_html=True
+                dbi = float(df_ml['DB_SCORE'].iloc[0])
+
+                # Silhouette: −1..1, higher = better
+                if   sil > 0.5:  sil_q, sil_c = "Strong",   SUCCESS
+                elif sil > 0.25: sil_q, sil_c = "Moderate", WARNING
+                else:            sil_q, sil_c = "Weak",     DANGER
+                # Davies-Bouldin: 0+, lower = better
+                if   dbi < 0.8:  dbi_q, dbi_c = "Strong",   SUCCESS
+                elif dbi < 1.5:  dbi_q, dbi_c = "Moderate", WARNING
+                else:            dbi_q, dbi_c = "Weak",     DANGER
+
+                _cohesion_html = '<div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;">'
+                for _title, _val, _q, _c, _scale in [
+                    ("Silhouette Score",     f"{sil:.3f}", sil_q, sil_c, "Range −1 to 1 · higher is better"),
+                    ("Davies-Bouldin Index", f"{dbi:.3f}", dbi_q, dbi_c, "Range 0 and up · lower is better"),
+                ]:
+                    _cohesion_html += (
+                        f'<div style="flex:1;min-width:220px;border-left:5px solid {_c};'
+                        f'background:{_c}14;border-radius:0 14px 14px 0;padding:16px 18px;">'
+                        f'<div class="kpi-label">{_title}</div>'
+                        f'<div class="kpi-value" style="margin:6px 0 4px;color:{_c};">{_val}</div>'
+                        f'<div style="display:inline-block;background:{_c};color:#FFFFFF;'
+                        f'font-weight:var(--fw-semibold);font-size:11px;letter-spacing:0.04em;'
+                        f'padding:3px 12px;border-radius:999px;">{_q.upper()}</div>'
+                        f'<div class="kpi-meta" style="margin-top:8px;">{_scale}</div>'
+                        f'</div>'
+                    )
+                _cohesion_html += '</div>'
+                st.markdown(_cohesion_html, unsafe_allow_html=True)
+                st.caption(
+                    "**Cluster cohesion** tells you how trustworthy the 3 merchant tiers are. "
+                    "The **Silhouette Score** checks whether each merchant sits comfortably inside "
+                    "its own tier rather than near a neighbouring one — *higher is better*. The "
+                    "**Davies-Bouldin Index** checks how much the tiers overlap each other — "
+                    "*lower is better*. When both look healthy, the tiers are genuinely distinct "
+                    "groups, not arbitrary cut-offs."
                 )
+            else:
+                st.info("Not enough merchants to evaluate cluster cohesion — at least 3 are required.")
 
             st.markdown("")
             sc1, sc2 = st.columns(2)
 
             with sc1:
-                counts = df_f['CLUSTER'].value_counts().reset_index()
-                counts.columns = ['CLUSTER','COUNT']
-                fig_pie = px.pie(counts, names='CLUSTER', values='COUNT', hole=0.45,
-                                 title=f'Merchant Segmentation (K={k_val})',
-                                 color='CLUSTER', color_discrete_map=color_lookup)
-                fig_pie.update_layout(height=450, **_chart_base())
-                st.plotly_chart(fig_pie, use_container_width=True, theme=None)
+                # ── Tier Separation (PCA projection) ────────────────────────────
+                # The 6 clustering features compressed onto 2 axes. Tight point
+                # clouds = cohesive tiers; non-overlapping clouds = well-separated
+                # tiers. Each tier shows its centroid (diamond) and a ±1σ cohesion
+                # ellipse — a smaller ellipse means a tighter, more cohesive group.
+                _pca = df_f[(df_f['PCA_X'] != 0) | (df_f['PCA_Y'] != 0)].copy()
+                if _pca.empty:
+                    st.info("Tier separation plot unavailable — at least 3 merchants are required.")
+                else:
+                    _v1 = float(df_ml['PCA_VAR1'].iloc[0])
+                    _v2 = float(df_ml['PCA_VAR2'].iloc[0])
+                    fig_pca = px.scatter(
+                        _pca, x='PCA_X', y='PCA_Y',
+                        color='CLUSTER', color_discrete_map=color_lookup,
+                        hover_name='MERCHANT_GROUP',
+                        hover_data={'PM': True, 'AVG_SV': ':,.0f',
+                                    'PCA_X': False, 'PCA_Y': False, 'CLUSTER': False},
+                        title="Merchant Tier Separation (PCA projection)",
+                        labels={'PCA_X': f'Component 1 ({_v1:.0f}% of variance)',
+                                'PCA_Y': f'Component 2 ({_v2:.0f}% of variance)'},
+                    )
+                    fig_pca.update_traces(marker=dict(size=11, opacity=0.85,
+                                                      line=dict(width=1, color='#FFFFFF')))
+
+                    # Per-tier cohesion ellipse (±1 std) + centroid marker.
+                    for _cl in all_clusters:
+                        _g = _pca[_pca['CLUSTER'] == _cl]
+                        if _g.empty:
+                            continue
+                        _cx, _cy = float(_g['PCA_X'].mean()), float(_g['PCA_Y'].mean())
+                        _sx = float(_g['PCA_X'].std(ddof=0)) or 0.30
+                        _sy = float(_g['PCA_Y'].std(ddof=0)) or 0.30
+                        _col = color_lookup.get(_cl, '#888888')
+                        fig_pca.add_shape(
+                            type='circle', xref='x', yref='y',
+                            x0=_cx - _sx, x1=_cx + _sx, y0=_cy - _sy, y1=_cy + _sy,
+                            line=dict(color=_col, width=1, dash='dot'),
+                            fillcolor=_col, opacity=0.10, layer='below',
+                        )
+                        fig_pca.add_trace(go.Scatter(
+                            x=[_cx], y=[_cy], mode='markers',
+                            marker=dict(symbol='diamond', size=16, color=_col,
+                                        line=dict(width=2, color='#FFFFFF')),
+                            name=f'{_cl} center', hoverinfo='skip', showlegend=False,
+                        ))
+
+                    fig_pca.update_layout(
+                        height=450, margin=dict(l=0, r=0, b=48, t=40),
+                        legend=dict(orientation='h', y=-0.18),
+                        **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis(),
+                    )
+                    st.plotly_chart(fig_pca, use_container_width=True, theme=None)
 
             with sc2:
                 # Plan §3.5 — replace the gimmicky 3D scatter (3 dots in 3-space,
@@ -2527,17 +2613,9 @@ with tab4:
     if not (has_card and has_mon):
         st.warning("Health alerts require both Card Share and Monitoring data.")
     else:
-        with st.expander("Advanced: Adjust Detection Sensitivity", expanded=False):
-            z_col, _ = st.columns([1, 2])
-            z_thresh_val = z_col.slider(
-                "Detection Sensitivity",
-                min_value=-3.0, max_value=-0.5, value=-1.2, step=0.1,
-                help="Higher sensitivity (closer to -0.5) flags more merchants for review. Lower (-2.0 or below) flags only the most extreme outliers.",
-            )
-        if 'z_thresh_val' not in dir():
-            z_thresh_val = -1.2
-        
-        df_churn_all = run_ml(df_card, df_mon, df_target, z_thresh=z_thresh_val)
+        z_thresh_val = Z_THRESH  # detection threshold locked (no longer user-adjustable)
+
+        df_churn_all = run_ml(df_card, df_mon, df_target)
         
         if df_churn_all.empty:
             st.info("No data available for Churn and Risk analysis.")
