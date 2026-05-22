@@ -211,13 +211,35 @@ def _read_snapshot():
         return None, None
 
 
+_MONTHLY_SNAPSHOT_FILE = os.path.join(_SNAPSHOT_DIR, "monthly_snapshot.pkl")
+
+
+def _write_monthly_snapshot(df) -> None:
+    """Best-effort: persist the last good PROCESSED_CARD_MONTHLY pull to disk."""
+    try:
+        os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+        with open(_MONTHLY_SNAPSHOT_FILE, "wb") as fh:
+            pickle.dump(df, fh)
+    except Exception:
+        pass
+
+
+def _read_monthly_snapshot():
+    """Return the monthly DataFrame from the local snapshot, or None."""
+    try:
+        with open(_MONTHLY_SNAPSHOT_FILE, "rb") as fh:
+            return pickle.load(fh)
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=86400)
 def _load_monthly_raw(neon_mode: bool, data_version: str):
     """Cached load of the full PROCESSED_CARD_MONTHLY table.
 
     Keyed on data_version so it refetches only when the pipeline writes new
-    data; the 24h ttl is just a safety net. Returns an empty frame if the
-    database is unreachable so the monthly view degrades instead of crashing.
+    data; the 24h ttl is just a safety net. On a DB failure it falls back to a
+    local snapshot, or an empty frame, so the monthly view degrades gracefully.
     """
     try:
         if neon_mode:
@@ -229,9 +251,11 @@ def _load_monthly_raw(neon_mode: bool, data_version: str):
                 df = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_MONTHLY", conn)
             finally:
                 conn.close()
+        _write_monthly_snapshot(df)
         return df
     except Exception:
-        return pd.DataFrame()
+        snap = _read_monthly_snapshot()
+        return snap if snap is not None else pd.DataFrame()
 
 # ── MACHINE LEARNING ENGINE ───────────────────────────────────────────────────
 # Fixed model parameters — locked per academic review (no longer user-adjustable).
@@ -1563,8 +1587,19 @@ with tab1:
         </div>""", unsafe_allow_html=True)
 
     # Reconstruct Monthly Matrix from PROCESSED_CARD_MONTHLY
-    if has_monthly_tbl:
-        df_monthly_raw = _load_monthly_raw(bool(neon_url), _get_data_version(bool(neon_url))).copy()
+    df_monthly_raw = (
+        _load_monthly_raw(bool(neon_url), _get_data_version(bool(neon_url))).copy()
+        if has_monthly_tbl else pd.DataFrame()
+    )
+    # Guard: in offline/snapshot mode the monthly frame may be empty or missing
+    # its key columns — skip the section gracefully instead of raising KeyError.
+    _monthly_ok = (
+        has_monthly_tbl and not df_monthly_raw.empty
+        and {'TRX_MONTH', 'YEAR', 'MERCHANT_GROUP', 'MERCHANT_ANCHOR'}.issubset(df_monthly_raw.columns)
+    )
+    if has_monthly_tbl and not _monthly_ok:
+        st.info("Monthly payment-type breakdown is unavailable while the live database is offline.")
+    if _monthly_ok:
 
         # Apply Sidebar Filters to detailed monthly data
         if sel_group != "ALL GROUPS":
