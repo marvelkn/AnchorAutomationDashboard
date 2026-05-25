@@ -255,6 +255,37 @@ def _read_wm_anomaly_snapshot():
         return None
 
 
+def _load_from_uploaded_db(db_bytes: bytes) -> str:
+    """Validate uploaded SQLite bytes and save to a temp file. Returns the temp path.
+
+    Raises ValueError if required processed tables are missing.
+    Caller must copy the returned path to PATH_DB then unlink it.
+    """
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        tmp.write(db_bytes)
+        tmp_path = tmp.name
+    required = {
+        "PROCESSED_CARD_SHARE", "PROCESSED_CARD_HISTORY", "PROCESSED_CARD_MONTHLY",
+        "PROCESSED_MONITORING_WEEKLY", "TARGET",
+    }
+    try:
+        with sqlite3.connect(tmp_path) as con:
+            tables = {r[0].upper() for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()}
+        missing = required - tables
+        if missing:
+            raise ValueError(f"Missing tables: {', '.join(sorted(missing))}")
+    except ValueError:
+        os.unlink(tmp_path)
+        raise
+    except Exception as e:
+        os.unlink(tmp_path)
+        raise ValueError(f"Could not read database: {e}") from e
+    return tmp_path
+
+
 @st.cache_data(ttl=86400)
 def _load_monthly_raw(neon_mode: bool, data_version: str):
     """Cached load of the full PROCESSED_CARD_MONTHLY table.
@@ -649,12 +680,37 @@ def _load_dashboard_data(neon_mode: bool, data_version: str):
                       has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl)
             _write_snapshot(result)
             return result + ({"source": "neon", "as_of": None},)
-        except Exception:
-            # Neon unreachable (e.g. transfer quota exceeded) — fall back to the
-            # last good snapshot so the dashboard stays online read-only.
+        except Exception as neon_err:
+            # Tier 2: Neon unreachable — try local staging.db if it exists on disk.
+            if os.path.exists(PATH_DB):
+                try:
+                    _conn_local = sqlite3.connect(PATH_DB)
+                    try:
+                        _has_card        = table_exists(_conn_local, "PROCESSED_CARD_SHARE")
+                        _has_card_hist   = table_exists(_conn_local, "PROCESSED_CARD_HISTORY")
+                        _has_mon         = table_exists(_conn_local, "PROCESSED_MONITORING")
+                        _has_mon_weekly  = table_exists(_conn_local, "PROCESSED_MONITORING_WEEKLY")
+                        _has_tgt         = table_exists(_conn_local, "TARGET")
+                        _df_card         = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_SHARE", _conn_local) if _has_card else pd.DataFrame()
+                        _df_card_hist    = pd.read_sql_query("SELECT * FROM PROCESSED_CARD_HISTORY", _conn_local) if _has_card_hist else pd.DataFrame()
+                        _df_mon          = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING", _conn_local) if _has_mon else pd.DataFrame()
+                        _df_mon_weekly   = pd.read_sql_query("SELECT * FROM PROCESSED_MONITORING_WEEKLY", _conn_local) if _has_mon_weekly else pd.DataFrame()
+                        _df_target       = pd.read_sql_query("SELECT * FROM TARGET", _conn_local) if _has_tgt else pd.DataFrame()
+                        _has_monthly_tbl = table_exists(_conn_local, "PROCESSED_CARD_MONTHLY")
+                    finally:
+                        _conn_local.close()
+                    _local_result = (
+                        _df_card, _df_card_hist, _df_mon, _df_mon_weekly, _df_target,
+                        _has_card, _has_card_hist, _has_mon, _has_mon_weekly, _has_tgt, _has_monthly_tbl,
+                    )
+                    _write_snapshot(_local_result)
+                    return _local_result + ({"source": "local_db", "as_of": None},)
+                except Exception:
+                    pass  # fall through to snapshot
+            # Tier 3: snapshot (read-only, last committed state).
             snapshot, as_of = _read_snapshot()
             if snapshot is None:
-                raise
+                raise neon_err
             return snapshot + ({"source": "snapshot", "as_of": as_of},)
     else:
         conn = sqlite3.connect(PATH_DB)
@@ -703,14 +759,44 @@ else:
         )
         st.stop()
 
-# Read-only fallback banner — shown when Neon was unreachable and the dashboard
-# is being served from the last saved local snapshot instead.
-if _load_meta.get("source") == "snapshot":
+# Source-aware banners — differentiate between read-only snapshot and live local DB.
+_meta_source = _load_meta.get("source")
+if _meta_source == "snapshot":
     st.warning(
-        "Live database unavailable — showing the last saved data from "
+        "Live database unavailable — showing the last saved snapshot from "
         f"{_load_meta.get('as_of') or 'an earlier session'}. "
-        "Figures are read-only until the connection is restored."
+        "Figures are read-only. Upload a fresh database in the sidebar to refresh."
     )
+elif _meta_source == "local_db":
+    st.info(
+        "Neon is currently offline. Showing data from your local database. "
+        "Data is stored on this machine only."
+    )
+
+# ── OFFLINE DB REFRESH — sidebar panel (visible only when Neon is unavailable) ─
+if _meta_source in ("snapshot", "local_db"):
+    with st.sidebar:
+        st.divider()
+        with st.expander("Refresh with Local Database", expanded=False):
+            st.info(
+                "Neon is currently unavailable. Any database you upload "
+                "will be **stored locally** on this machine only."
+            )
+            _uploaded_db = st.file_uploader(
+                "Upload staging.db", type=["db", "sqlite"], key="offline_db_upload",
+            )
+            if _uploaded_db is not None:
+                if st.button("Apply & Refresh Dashboard", key="offline_db_apply"):
+                    with st.spinner("Validating and loading…"):
+                        try:
+                            import shutil as _shutil
+                            _tmp_path = _load_from_uploaded_db(_uploaded_db.read())
+                            _shutil.copy2(_tmp_path, PATH_DB)
+                            os.unlink(_tmp_path)
+                            st.cache_data.clear()
+                            st.rerun()
+                        except ValueError as _upload_err:
+                            st.error(f"Invalid database: {_upload_err}")
 
 # ── BATCH METADATA & SIGNALS ─────────────────────────────────────────────────
 # Intentionally uncached: tiny payload, and carries the live NEW_DATA_SIGNAL badge.
