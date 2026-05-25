@@ -773,6 +773,23 @@ elif _meta_source == "local_db":
         "Data is stored on this machine only."
     )
 
+# TEMP DIAGNOSTIC — remove once new Neon project is confirmed live.
+# Reveals the host the process is actually reading + the resolved data source,
+# without ever printing the password.
+with st.sidebar.expander("DB connection debug", expanded=False):
+    _url = os.getenv("DATABASE_URL") or ""
+    if _url:
+        try:
+            from urllib.parse import urlparse as _urlparse
+            _host = _urlparse(_url).hostname or "<unparseable>"
+        except Exception:
+            _host = "<parse-error>"
+        st.caption(f"DATABASE_URL host: `{_host}`")
+        st.caption(f"URL length: {len(_url)} chars")
+    else:
+        st.caption("DATABASE_URL: **NOT SET** in this process")
+    st.caption(f"Resolved source: `{_meta_source or 'neon'}`")
+
 # ── OFFLINE DB REFRESH — sidebar panel (visible only when Neon is unavailable) ─
 if _meta_source in ("snapshot", "local_db"):
     with st.sidebar:
