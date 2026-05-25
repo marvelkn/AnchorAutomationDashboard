@@ -233,6 +233,28 @@ def _read_monthly_snapshot():
         return None
 
 
+_WM_ANOMALY_SNAPSHOT_FILE = os.path.join(_SNAPSHOT_DIR, "wm_anomaly_snapshot.pkl")
+
+
+def _write_wm_anomaly_snapshot(df) -> None:
+    """Best-effort: persist the last good WEEKLY_MONITOR (year=2026) pull."""
+    try:
+        os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+        with open(_WM_ANOMALY_SNAPSHOT_FILE, "wb") as fh:
+            pickle.dump(df, fh)
+    except Exception:
+        pass
+
+
+def _read_wm_anomaly_snapshot():
+    """Return the cached WEEKLY_MONITOR DataFrame, or None."""
+    try:
+        with open(_WM_ANOMALY_SNAPSHOT_FILE, "rb") as fh:
+            return pickle.load(fh)
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=86400)
 def _load_monthly_raw(neon_mode: bool, data_version: str):
     """Cached load of the full PROCESSED_CARD_MONTHLY table.
@@ -3373,10 +3395,16 @@ with tab5:
     @st.cache_data
     def _load_wm_anomaly():
         if neon_url:
-            if not table_exists(engine, "WEEKLY_MONITOR"):
-                return pd.DataFrame()
-            df = pd.read_sql_query("SELECT * FROM weekly_monitor WHERE year=2026", engine)
-            df.columns = [c.upper() for c in df.columns]
+            try:
+                if not table_exists(engine, "WEEKLY_MONITOR"):
+                    return pd.DataFrame()
+                df = pd.read_sql_query("SELECT * FROM weekly_monitor WHERE year=2026", engine)
+                df.columns = [c.upper() for c in df.columns]
+                _write_wm_anomaly_snapshot(df)
+                return df
+            except Exception:
+                snap = _read_wm_anomaly_snapshot()
+                return snap if snap is not None else pd.DataFrame()
         else:
             if not os.path.exists(PATH_DB):
                 return pd.DataFrame()
@@ -3386,7 +3414,7 @@ with tab5:
                 return pd.DataFrame()
             df = pd.read_sql_query("SELECT * FROM WEEKLY_MONITOR WHERE YEAR=2026", _conn)
             _conn.close()
-        return df
+            return df
 
     _df_wm = _load_wm_anomaly()
 
