@@ -2459,19 +2459,28 @@ with tab2:
             section_label("Recent 12-week heatmap — top 10 merchants by YTD")
             _ytd_per_merch = df_metric[W_COLS_DB].sum(axis=1)
             _top10_idx = _ytd_per_merch.sort_values(ascending=False).head(10).index
-            _last12 = W_COLS_DB[-12:]
+            # Use last 12 *populated* weeks so future empty weeks don't wash out the chart.
+            _last12 = _populated[-12:] if len(_populated) >= 1 else W_COLS_DB[-12:]
             _heat_df = df_metric.loc[_top10_idx, ['MERCHANT_GROUP'] + _last12].set_index('MERCHANT_GROUP')
 
             if _heat_df.empty:
                 st.caption("Not enough top-merchant data for a heatmap yet.")
             else:
+                # Row-wise z-score: shows each merchant's week-over-week variation regardless
+                # of their absolute volume (avoids the all-same-color problem).
+                _heat_vals = _heat_df.astype(float)
+                _heat_norm = _heat_vals.apply(
+                    lambda row: (row - row.mean()) / row.std() if row.std() > 0 else row * 0.0,
+                    axis=1,
+                )
                 fig_heat = px.imshow(
-                    _heat_df.values,
+                    _heat_norm.values,
                     x=[w[1:].lstrip('0') or '0' for w in _last12],
                     y=_heat_df.index.tolist(),
-                    color_continuous_scale='Viridis',
+                    color_continuous_scale='RdYlGn',
+                    color_continuous_midpoint=0,
                     aspect='auto',
-                    labels={'x': 'Week', 'y': 'Merchant', 'color': _DIM_LABELS.get(sel_metric, sel_metric)},
+                    labels={'x': 'Week', 'y': 'Merchant', 'color': 'vs avg (σ)'},
                 )
                 fig_heat.update_layout(
                     height=max(220, 36 * len(_heat_df) + 100),
@@ -2697,15 +2706,6 @@ with tab3:
                 yaxis=_yaxis(),
             )
             st.plotly_chart(fig_sc, use_container_width=True, theme=None)
-
-            if 'PM' in df_f.columns:
-                section_label("Account Manager × Merchant Tier Breakdown")
-                pm_cl = df_f.groupby(['PM','CLUSTER']).size().reset_index(name='COUNT')
-                fig_stk = px.bar(pm_cl, x='PM', y='COUNT', color='CLUSTER',
-                                 barmode='stack', title="Merchant Tier Distribution per Account Manager",
-                                 color_discrete_map=color_lookup)
-                fig_stk.update_layout(height=380, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-                st.plotly_chart(fig_stk, use_container_width=True, theme=None)
 
             # ── Per-tier merchant lists ─────────────────────────────────────────
             # Explicit "who is in each tier" view — one sub-tab per tier so the
