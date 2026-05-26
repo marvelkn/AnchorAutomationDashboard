@@ -834,97 +834,29 @@ try:
 except Exception:
     pass  # metadata is non-critical; dashboard continues with defaults
 
-# ── TEMP DIAGNOSTICS (remove after pipeline freshness issue resolved) ────────
-# Mirrors the dashboard's own freshness + YoY-growth reads so the user can see,
-# at a glance, whether "updated 15h ago" / "No established merchants this month"
-# is a data problem, a metadata-row staleness problem, or a cache problem.
-with st.expander("Diagnostics — data freshness & growth coverage", expanded=False):
-    import sqlite3 as _sqlite3
-    _diag_cols = st.columns([1, 1])
-
-    # (a) APP_METADATA — what the freshness chip is reading
-    with _diag_cols[0]:
-        st.markdown("**APP_METADATA contents**")
-        try:
-            if neon_url:
-                _meta_df = pd.read_sql_query("SELECT * FROM app_metadata", engine)
-            else:
-                _c = _sqlite3.connect(PATH_DB)
-                _meta_df = pd.read_sql_query("SELECT * FROM APP_METADATA", _c)
-                _c.close()
-            st.dataframe(_meta_df, use_container_width=True, hide_index=True)
-            if os.path.exists(PATH_DB):
-                st.caption(
-                    "File mtime: "
-                    + datetime.fromtimestamp(os.path.getmtime(PATH_DB))
-                        .strftime('%Y-%m-%d %H:%M:%S')
-                )
-            else:
-                st.caption("SQLite file not found")
-        except Exception as _e:
-            st.error(f"Failed to read APP_METADATA: {_e}")
-
-    # (b) PROCESSED_CARD_HISTORY — date coverage that drives the growth tables
-    with _diag_cols[1]:
-        st.markdown("**PROCESSED_CARD_HISTORY coverage**")
-        try:
-            if neon_url:
-                _cov = pd.read_sql_query(
-                    "SELECT MIN(trx_month) AS min_m, MAX(trx_month) AS max_m, "
-                    "COUNT(DISTINCT trx_month) AS n_months, COUNT(*) AS n_rows "
-                    "FROM processed_card_history", engine,
-                )
-                _months = pd.read_sql_query(
-                    "SELECT trx_month, COUNT(*) AS rows FROM processed_card_history "
-                    "GROUP BY trx_month ORDER BY trx_month", engine,
-                )
-            else:
-                _c = _sqlite3.connect(PATH_DB)
-                _cov = pd.read_sql_query(
-                    "SELECT MIN(TRX_MONTH) AS min_m, MAX(TRX_MONTH) AS max_m, "
-                    "COUNT(DISTINCT TRX_MONTH) AS n_months, COUNT(*) AS n_rows "
-                    "FROM PROCESSED_CARD_HISTORY", _c,
-                )
-                _months = pd.read_sql_query(
-                    "SELECT TRX_MONTH, COUNT(*) AS rows FROM PROCESSED_CARD_HISTORY "
-                    "GROUP BY TRX_MONTH ORDER BY TRX_MONTH", _c,
-                )
-                _c.close()
-            st.dataframe(_cov, use_container_width=True, hide_index=True)
-
-            _max_m = int(_cov.iloc[0]["max_m"]) if pd.notna(_cov.iloc[0]["max_m"]) else None
-            if _max_m is not None:
-                _yr, _mo = _max_m // 100, _max_m % 100
-                _prev_m  = (_yr - 1) * 100 + _mo
-                _curr_rows = int(_months.loc[_months.iloc[:, 0] == _max_m, "rows"].sum())
-                _prev_rows = int(_months.loc[_months.iloc[:, 0] == _prev_m, "rows"].sum())
-                st.write(
-                    f"Current month (max): **{_max_m}** → {_curr_rows} rows  \n"
-                    f"YoY previous month:  **{_prev_m}** → {_prev_rows} rows  \n"
-                    f"Established floor (TOTAL_SV): **Rp 1,000,000,000**"
-                )
-                if _prev_rows == 0:
-                    st.warning(
-                        f"No rows for {_prev_m}. Growth tables WILL be empty — "
-                        f"the comparison is year-ago same month, not last month."
-                    )
-            with st.expander("Rows per TRX_MONTH"):
-                st.dataframe(_months, use_container_width=True, hide_index=True)
-        except Exception as _e:
-            st.error(f"Failed to read PROCESSED_CARD_HISTORY: {_e}")
-
-    st.markdown("**Cache controls**")
-    _cc1, _cc2 = st.columns(2)
-    if _cc1.button("Clear st.cache_data", help="Drops all @st.cache_data results."):
-        st.cache_data.clear()
-        st.success("cache_data cleared. Rerunning…")
-        st.rerun()
-    if _cc2.button("Clear cache_data + cache_resource",
-                   help="Also drops the pooled DB engine."):
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        st.success("All caches cleared. Rerunning…")
-        st.rerun()
+# Pipeline doesn't always refresh APP_METADATA.LAST_DATA_UPDATE on upload, so
+# fall back to the SQLite file's mtime when it's newer (or when the row is
+# missing). The file's mtime updates automatically every time the DB is
+# replaced, making the chip self-correcting without pipeline cooperation.
+try:
+    if not neon_url and os.path.exists(PATH_DB):
+        _file_ts = datetime.fromtimestamp(os.path.getmtime(PATH_DB))
+        _file_str = _file_ts.strftime("%Y-%m-%d %H:%M:%S")
+        _row_ts = None
+        if _last_update and _last_update != "Unknown":
+            try:
+                _row_ts = datetime.fromisoformat(_last_update.replace("Z", "+00:00"))
+                if _row_ts.tzinfo:
+                    _row_ts = _row_ts.replace(tzinfo=None)
+            except ValueError:
+                try:
+                    _row_ts = datetime.strptime(_last_update, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    _row_ts = None
+        if _row_ts is None or _file_ts > _row_ts:
+            _last_update = _file_str
+except Exception:
+    pass
 
 # ── HEADER ───────────────────────────────────────────────────────────────────
 # Freshness state, derived once, used by both the persistent chip and the
@@ -2092,20 +2024,25 @@ with tab1:
             try:
                 curr_yr = int(str(max_month)[:4])
                 curr_mo = int(str(max_month)[4:])
-                prev_yr = curr_yr - 1
-                prev_month = int(f"{prev_yr}{curr_mo:02d}")
-                
+                # True month-over-month: previous calendar month with January rollback.
+                if curr_mo == 1:
+                    prev_yr, prev_mo = curr_yr - 1, 12
+                else:
+                    prev_yr, prev_mo = curr_yr, curr_mo - 1
+                prev_month = int(f"{prev_yr}{prev_mo:02d}")
+                fy_prev_yr = curr_yr - 1
+
                 MONTH_ABB = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
                 col_curr = f"{MONTH_ABB[curr_mo-1]}-{str(curr_yr)[2:]}"
-                col_prev = f"{MONTH_ABB[curr_mo-1]}-{str(prev_yr)[2:]}"
-                col_fy_prev = f"FY-{str(prev_yr)[2:]}"
-                
+                col_prev = f"{MONTH_ABB[prev_mo-1]}-{str(prev_yr)[2:]}"
+                col_fy_prev = f"FY-{str(fy_prev_yr)[2:]}"
+
                 gh1, gh2 = st.columns([3, 1])
                 with gh1:
-                    section_label("Top & Bottom Merchant Growth (MoM YoY)")
-                    _freshness_txt = f"Comparing **{col_curr}** vs **{col_prev}** (year-ago same month)"
+                    section_label("Top & Bottom Merchant Growth (MoM)")
+                    _freshness_txt = f"Comparing **{col_curr}** vs **{col_prev}** (previous month)"
                     if _last_update != 'Unknown':
-                        _freshness_txt += f" | Last pipeline run: **{_last_update}**"
+                        _freshness_txt += f" | Last data update: **{_last_update}**"
                     st.caption(_freshness_txt)
                     st.caption("Growth rates are point-in-time comparisons from the last data ingestion. Run the pipeline to refresh.")
                 with gh2:
@@ -2121,8 +2058,8 @@ with tab1:
                 df_curr = df_card_hist[df_card_hist['TRX_MONTH'] == max_month].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_curr)
                 # Previous month
                 df_prev = df_card_hist[df_card_hist['TRX_MONTH'] == prev_month].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_prev)
-                # FY Previous
-                df_fy = df_card_hist[df_card_hist['YEAR'] == prev_yr].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_fy_prev)
+                # FY Previous (prior full calendar year, separate from MoM prev_yr)
+                df_fy = df_card_hist[df_card_hist['YEAR'] == fy_prev_yr].groupby('MERCHANT_GROUP')[m_col].sum().reset_index(name=col_fy_prev)
                 
                 df_growth = pd.merge(df_curr, df_prev, on='MERCHANT_GROUP', how='outer')
                 df_growth = pd.merge(df_growth, df_fy, on='MERCHANT_GROUP', how='outer').fillna(0)
