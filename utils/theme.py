@@ -1017,6 +1017,58 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
     font-family: 'Roboto', sans-serif;
 }}
 
+/* ── Passive freshness indicator (replaces the old NEW DATA button) ──
+   Status pill aligned to the right of the dashboard page title. Three
+   age-based variants. Non-interactive at every layer (pointer-events,
+   cursor, no hover state) so it can never be mistaken for a button. */
+.dashboard-header-row {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 4px;
+}}
+
+.fresh-chip {{
+    display: inline-flex;
+    align-items: center;
+    height: 26px;
+    padding: 0 12px 0 10px;
+    border-radius: 999px;
+    font: 500 12px/1 'Roboto', sans-serif;
+    letter-spacing: 0.02em;
+    color: rgba(0, 0, 0, 0.70);
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+    cursor: default;
+    border: 1px solid transparent;
+}}
+
+.fresh-chip__dot {{
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+    flex: 0 0 8px;
+}}
+
+.fresh-chip--fresh   {{ background: rgba(47, 234, 155, 0.10); }}
+.fresh-chip--fresh   .fresh-chip__dot {{ background: #2FEA9B; }}
+
+.fresh-chip--recent  {{ background: rgba(255, 191, 26, 0.10); }}
+.fresh-chip--recent  .fresh-chip__dot {{ background: #FFBF1A; }}
+
+.fresh-chip--stale   {{ background: rgba(229, 24, 55, 0.08); color: rgba(0, 0, 0, 0.80); }}
+.fresh-chip--stale   .fresh-chip__dot {{ background: #E51837; }}
+
+.fresh-chip--unknown {{ background: rgba(0, 0, 0, 0.04); color: rgba(0, 0, 0, 0.50); }}
+.fresh-chip--unknown .fresh-chip__dot {{ background: #9098A3; }}
+
+@media (max-width: 768px) {{
+    .dashboard-header-row {{ flex-direction: column; align-items: flex-start; gap: 8px; }}
+}}
+
 /* ── Merchant alert tile — flatten [4,3,2] columns at <=768px ──
    The Health Alerts tab renders each merchant in a bordered container with
    a [4,3,2] split. Below tablet width, stack the three columns vertically

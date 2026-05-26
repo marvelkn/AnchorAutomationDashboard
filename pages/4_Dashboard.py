@@ -835,28 +835,76 @@ except Exception:
     pass  # metadata is non-critical; dashboard continues with defaults
 
 # ── HEADER ───────────────────────────────────────────────────────────────────
-header_col1, header_col2 = st.columns([0.78, 0.22])
-with header_col1:
-    st.markdown(
-        '<div class="dashboard-page-eyebrow">Merchant Analytics</div>'
-        '<h3 class="dashboard-page-title">Merchant Decision Intelligence</h3>',
-        unsafe_allow_html=True,
-    )
-with header_col2:
-    if _show_new_badge:
-        if st.button("NEW DATA", help=f"Last updated: {_last_update}. Click to clear.", type="primary"):
-            try:
-                if neon_url:
-                    with engine.begin() as _conn_m:
-                        _conn_m.execute(text("UPDATE app_metadata SET value = '0' WHERE key = 'NEW_DATA_SIGNAL'"))
-                else:
-                    _conn_meta = sqlite3.connect(PATH_DB)
-                    _conn_meta.execute("UPDATE APP_METADATA SET value = '0' WHERE key = 'NEW_DATA_SIGNAL'")
-                    _conn_meta.commit()
-                    _conn_meta.close()
-                st.cache_data.clear()
-                st.rerun()
-            except: pass
+# Freshness state, derived once, used by both the persistent chip and the
+# one-time toast. The chip is purely passive (pointer-events: none in CSS);
+# the toast acknowledges the *event* of a fresh ingestion and auto-dismisses.
+def _freshness_state(last_update_str: str) -> tuple[str, str, str]:
+    """Return (variant, relative_label, absolute_label) for the freshness chip."""
+    if not last_update_str or last_update_str == "Unknown":
+        return ("unknown", "Freshness unknown", "Last pipeline run: unknown")
+    ts = None
+    try:
+        ts = datetime.fromisoformat(last_update_str.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            ts = datetime.strptime(last_update_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return ("unknown", "Freshness unknown", f"Last pipeline run: {last_update_str}")
+    now = datetime.now(ts.tzinfo) if ts.tzinfo else datetime.now()
+    delta = now - ts
+    hours = delta.total_seconds() / 3600
+    days = delta.days
+    if hours < 1:
+        rel = "Updated just now"
+    elif hours < 24:
+        rel = f"Updated {int(hours)}h ago"
+    else:
+        rel = f"Updated {days}d ago"
+    variant = "fresh" if hours < 24 else ("recent" if days <= 7 else "stale")
+    abs_label = f"Last pipeline run: {ts.strftime('%d %b %Y %H:%M')} WIB"
+    return (variant, rel, abs_label)
+
+_variant, _rel_label, _abs_label = _freshness_state(_last_update)
+
+st.markdown(
+    f"""
+    <div class="dashboard-header-row">
+      <div>
+        <div class="dashboard-page-eyebrow">Merchant Analytics</div>
+        <h3 class="dashboard-page-title">Merchant Decision Intelligence</h3>
+      </div>
+      <span class="fresh-chip fresh-chip--{_variant}"
+            role="status" aria-live="polite"
+            title="{_abs_label}">
+        <span class="fresh-chip__dot" aria-hidden="true"></span>
+        {_rel_label}
+      </span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# One-time toast on the first view after a fresh ingestion. The persistent
+# chip is the steady-state indicator; this just acknowledges the *event* and
+# consumes NEW_DATA_SIGNAL so the toast doesn't replay on later sessions.
+if _show_new_badge and not st.session_state.get("_seen_new_data_signal"):
+    st.toast(f"New data ingested · {_last_update}")
+    st.session_state["_seen_new_data_signal"] = True
+    try:
+        if neon_url:
+            with engine.begin() as _conn_m:
+                _conn_m.execute(text(
+                    "UPDATE app_metadata SET value = '0' WHERE key = 'NEW_DATA_SIGNAL'"
+                ))
+        else:
+            _conn_meta = sqlite3.connect(PATH_DB)
+            _conn_meta.execute(
+                "UPDATE APP_METADATA SET value = '0' WHERE key = 'NEW_DATA_SIGNAL'"
+            )
+            _conn_meta.commit()
+            _conn_meta.close()
+    except Exception:
+        pass  # non-critical — the chip remains informative without the flag
 
 # ── Stale Data Banner ─────────────────────────────────────────────────────────
 # Only relevant in local mode — Neon data has no local file age to check
