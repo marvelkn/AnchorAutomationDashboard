@@ -454,13 +454,6 @@ with cloud_tab_maintenance:
                     st.warning(f"VACUUM requires psycopg2 direct connection: {_verr}")
 
     # ── Danger Zone: Neon reset ──────────────────────────────────────────────
-    st.markdown(
-        f"""<div style='margin-top:24px;padding:2px;border-radius:14px;
-            background:linear-gradient(135deg, {DANGER}, {DANGER}88);'>
-            <div style='background:var(--btn-surface);border-radius:12px;padding:4px;'>
-            </div></div>""",
-        unsafe_allow_html=True,
-    )
     with st.expander("⚠ Danger Zone — Reset Neon Cloud Database", expanded=False):
         st.error(
             "**This will permanently PURGE ALL DATA** from business, raw, and audit "

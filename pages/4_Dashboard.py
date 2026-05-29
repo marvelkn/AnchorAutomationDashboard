@@ -2023,43 +2023,6 @@ with tab1:
                     else:
                         st.info("No established merchants this month.")
 
-                # New / Re-activated and Dropped-off lists — separate from the bars
-                # because % growth is meaningless for these (small or zero baseline).
-                _scol_l, _scol_r = st.columns(2)
-                with _scol_l:
-                    section_label(f"New & Re-activated (top 10 by {metric_sel})")
-                    if not df_new_react.empty:
-                        _new_show = df_new_react.sort_values(col_curr, ascending=False).head(10)[
-                            ['MERCHANT_GROUP', col_curr, col_prev, 'Delta']
-                        ]
-                        st.dataframe(
-                            _new_show.style.format(_table_formatters).hide(axis="index"),
-                            use_container_width=True, hide_index=True,
-                        )
-                        st.caption(
-                            f"Merchants whose **{col_prev}** baseline was below the activity floor. "
-                            f"Their percentage growth would be a data artifact, so they're listed "
-                            f"by absolute current-period value instead."
-                        )
-                    else:
-                        st.caption("No newly active merchants this month.")
-
-                with _scol_r:
-                    section_label(f"Dropped Off (top 10 by prior {metric_sel})")
-                    if not df_dropped.empty:
-                        _drop_show = df_dropped.sort_values(col_prev, ascending=False).head(10)[
-                            ['MERCHANT_GROUP', col_prev, col_fy_prev]
-                        ]
-                        st.dataframe(
-                            _drop_show.style.format(_table_formatters).hide(axis="index"),
-                            use_container_width=True, hide_index=True,
-                        )
-                        st.caption(
-                            f"Merchants who had real activity in **{col_prev}** but zero in **{col_curr}**. "
-                            f"Investigate before treating as a decline — it may be a data gap."
-                        )
-                    else:
-                        st.caption("No merchants dropped off this month.")
             except Exception as e:
                 st.error(f"Growth calculation failed: {e}")
 
@@ -3245,31 +3208,73 @@ with tab4:
                 if not _if_flagged.empty and all(c in _if_flagged.columns for c in _if_lofo_cols):
                     section_label("What's Driving the Alerts? — Key Risk Factors Across Portfolio")
                     st.caption(f"Analyzing {len(_if_flagged)} flagged merchant(s). Higher bars = the metric most responsible for triggering alerts. Use this to guide where your team should focus.")
+
                     _fleet_lofo = _if_flagged[list(_if_lofo_cols.keys())].mean().rename(_if_lofo_cols)
                     _fleet_lofo_df = _fleet_lofo.reset_index()
                     _fleet_lofo_df.columns = ['Feature', 'Avg Contribution']
                     _fleet_lofo_df = _fleet_lofo_df.sort_values('Avg Contribution', ascending=True)
-                    _fl_colors = ['#F87171' if v > 0 else '#34D399' for v in _fleet_lofo_df['Avg Contribution']]
+
+                    # Normalize to share-of-total-pressure so the axis reads as a
+                    # human-friendly percentage instead of raw 4-decimal deltas.
+                    _total_abs = float(_fleet_lofo_df['Avg Contribution'].abs().sum()) or 1.0
+                    _fleet_lofo_df['Share'] = _fleet_lofo_df['Avg Contribution'] / _total_abs * 100
+
+                    _fl_colors = [DANGER if v > 0 else SUCCESS for v in _fleet_lofo_df['Avg Contribution']]
                     fig_fleet_lofo = go.Figure(go.Bar(
-                        x=_fleet_lofo_df['Avg Contribution'],
+                        x=_fleet_lofo_df['Share'],
                         y=_fleet_lofo_df['Feature'],
                         orientation='h',
-                        marker_color=_fl_colors,
-                        marker_line_width=0,
-                        text=[f"{v:+.4f}" for v in _fleet_lofo_df['Avg Contribution']],
-                        textposition='auto',
-                        textfont=dict(size=11),
-                        hovertemplate='<b>%{y}</b><br>Avg LOFO Delta: <b>%{x:+.4f}</b><extra></extra>',
+                        marker=dict(color=_fl_colors, line_width=0, opacity=0.85),
+                        text=[f"{v:+.1f}%" for v in _fleet_lofo_df['Share']],
+                        textposition='outside',
+                        textfont=dict(size=13, color=_p()['TEXT_PRI']),
+                        cliponaxis=False,
+                        customdata=_fleet_lofo_df['Avg Contribution'].values,
+                        hovertemplate=(
+                            '<b>%{y}</b><br>'
+                            'Share of alert pressure: <b>%{x:+.1f}%</b><br>'
+                            'Raw LOFO Δ: %{customdata:+.4f}'
+                            '<extra></extra>'
+                        ),
                     ))
                     _pp4b = _p()
+                    _x_pad = max(abs(_fleet_lofo_df['Share'].min()), abs(_fleet_lofo_df['Share'].max())) * 1.25 + 5
                     fig_fleet_lofo.update_layout(
-                        title='Which Business Metric Is Driving the Most Alerts?',
-                        height=320,
-                        margin=dict(l=200, r=100, t=44, b=32),
-                        xaxis=dict(title='Avg Anomaly Score Delta', showgrid=False,
-                                   tickfont=dict(color=_pp4b['TEXT_SEC'])),
-                        yaxis=dict(showgrid=False, automargin=True, tickfont=dict(color=_pp4b['TEXT_PRI'])),
+                        height=440,
+                        margin=dict(l=160, r=80, t=20, b=40),
+                        bargap=0.35,
+                        xaxis=dict(
+                            title=dict(text='Share of Alert Pressure (%)',
+                                       font=dict(color=_pp4b['TEXT_SEC'], size=12)),
+                            showgrid=False, zeroline=False,
+                            range=[-_x_pad, _x_pad],
+                            tickfont=dict(color=_pp4b['TEXT_SEC'], size=11),
+                            ticksuffix='%',
+                        ),
+                        yaxis=dict(
+                            showgrid=False, automargin=True,
+                            tickfont=dict(color=_pp4b['TEXT_PRI'], size=13),
+                        ),
                         **_chart_base(),
+                    )
+                    fig_fleet_lofo.add_vline(
+                        x=0, line_color=_pp4b['TEXT_SEC'], line_width=1, opacity=0.4
+                    )
+
+                    # Subtle legend strip so the user reads color → meaning without
+                    # the chart needing a separate Plotly legend.
+                    st.markdown(
+                        f'<div style="display:flex;gap:18px;align-items:center;'
+                        f'font-size:var(--fs-xs);color:var(--btn-text-sec);'
+                        f'margin:4px 0 10px;letter-spacing:0.3px;">'
+                        f'<span><span style="display:inline-block;width:10px;height:10px;'
+                        f'border-radius:2px;background:{DANGER};margin-right:6px;'
+                        f'vertical-align:middle;"></span>Pushes toward alert</span>'
+                        f'<span><span style="display:inline-block;width:10px;height:10px;'
+                        f'border-radius:2px;background:{SUCCESS};margin-right:6px;'
+                        f'vertical-align:middle;"></span>Pulls away from alert</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
                     )
                     st.plotly_chart(fig_fleet_lofo, use_container_width=True, theme=None)
 

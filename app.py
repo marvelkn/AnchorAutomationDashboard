@@ -108,9 +108,17 @@ with st.sidebar:
     if os.path.exists(LOGO_PATH):
         with open(LOGO_PATH, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode()
+        # Streamlit's markdown sanitizer forces target="_blank" on every <a>,
+        # which would launch the dashboard in a new tab. Using href="javascript:void(0)"
+        # neutralizes that target and routes the click through an onclick handler
+        # that navigates the top-level window in place.
         brand_icon_html = (
-            f'<a href="/" style="display:block;text-decoration:none;" title="Go to Dashboard">'
-            f'<img src="data:image/png;base64,{img_b64}" style="display:block;width:clamp(40px,7vw,58px);height:auto;">'
+            f'<a href="javascript:void(0)" '
+            f'onclick="window.top.location.href=\'/\'; return false;" '
+            f'style="display:block;text-decoration:none;cursor:pointer;" '
+            f'title="Go to Dashboard">'
+            f'<img src="data:image/png;base64,{img_b64}" '
+            f'style="display:block;width:clamp(40px,7vw,58px);height:auto;">'
             f'</a>'
         )
     else:

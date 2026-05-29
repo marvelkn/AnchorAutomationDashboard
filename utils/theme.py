@@ -518,22 +518,34 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     position: relative; overflow: hidden;
     display: flex; flex-direction: column; gap: 10px;
     transition: box-shadow .15s ease, transform .15s ease;
+    min-width: 0;  /* let inner value span shrink inside flex parents */
 }}
 .kpi-card:hover {{
     box-shadow: var(--shadow-elevated);
     transform: translateY(-1px);
 }}
 .kpi-card .kpi-val {{
-    /* Headline KPI value — sized via clamp() in :root so long currency
-       strings shrink rather than wrap. nowrap + ellipsis is a defensive
-       safety net for truly extreme strings (e.g. trillions). */
+    /* Headline KPI value. The Python-side helper (kpi_card) inspects len(value)
+       and appends a `kpi-val--lg` / `kpi-val--xl` modifier for medium / long
+       strings, so trillion-range currency formats downsize gracefully instead
+       of being clipped. nowrap stays — digits must not wrap mid-number. */
     font-size: var(--fs-kpi); font-weight: var(--fw-bold);
     font-family: 'Roboto', sans-serif;
     color: var(--btn-text-pri); line-height: var(--kpi-line-height);
     font-variant-numeric: tabular-nums; letter-spacing: var(--kpi-letter-spacing);
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    max-width: 100%;
+}}
+/* Length-aware downscale: medium (~9-12 chars) and long (13+ chars) strings.
+   Applied to both per-tab and hero variants; the .hero overrides below pick up
+   slightly larger sizes so the page-level strip stays visually dominant. */
+.kpi-card .kpi-val--lg {{
+    font-size: clamp(1.2rem, 2.0vw, 1.7rem);
+    letter-spacing: 0;
+}}
+.kpi-card .kpi-val--xl {{
+    font-size: clamp(1.0rem, 1.6vw, 1.4rem);
+    letter-spacing: -0.5px;
 }}
 .kpi-card .kpi-lbl {{
     /* Bumped 13px → fs-xs (0.75rem) and weight 500 → 600 so the label reads
@@ -573,6 +585,12 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .kpi-card.hero .kpi-val {{
     font-size: var(--fs-kpi-lg);
     font-weight: var(--fw-bold);
+}}
+.kpi-card.hero .kpi-val--lg {{
+    font-size: clamp(1.4rem, 2.4vw, 2.0rem);
+}}
+.kpi-card.hero .kpi-val--xl {{
+    font-size: clamp(1.2rem, 2.0vw, 1.7rem);
 }}
 .kpi-card.hero .kpi-lbl {{
     font-size: var(--fs-sm);
@@ -1618,7 +1636,19 @@ def kpi_card(value: str, label: str, kind: str = "default", *, hero: bool = Fals
     foot = (f'<div class="kpi-foot">{delta_html}{spark_html}</div>'
             if (delta_html or spark_html) else "")
 
-    return (f'<div class="{cls}"><div class="kpi-val">{value}</div>'
+    # Length-aware downscale: short values keep the default --fs-kpi(-lg),
+    # medium (9-12 chars) shrink to --lg, long (13+) shrink to --xl. Prevents
+    # the trillion-range currency strings ("Rp 2,094.1 M") from being clipped
+    # by their container — see corresponding CSS in _make_css().
+    _vlen = len(str(value))
+    if _vlen <= 8:
+        _size_cls = ""
+    elif _vlen <= 12:
+        _size_cls = " kpi-val--lg"
+    else:
+        _size_cls = " kpi-val--xl"
+
+    return (f'<div class="{cls}"><div class="kpi-val{_size_cls}">{value}</div>'
             f'<div class="kpi-lbl">{label}</div>{foot}</div>')
 
 
