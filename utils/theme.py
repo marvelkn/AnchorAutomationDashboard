@@ -373,7 +373,7 @@ div[data-testid="stSidebarNav"] {{
     border: 1px solid var(--btn-border) !important;
     border-radius: 12px !important;
     padding: 16px !important;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.2) !important;
+    box-shadow: var(--shadow-card) !important;   /* token — was harsh fixed black */
 }}
 [data-testid="metric-container"] label {{
     color: var(--btn-text-sec) !important; font-size: var(--fs-xs) !important;
@@ -519,6 +519,7 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     display: flex; flex-direction: column; gap: 10px;
     transition: box-shadow .15s ease, transform .15s ease;
     min-width: 0;  /* let inner value span shrink inside flex parents */
+    container-type: inline-size;  /* enable cqi units → value scales to CARD width */
 }}
 .kpi-card:hover {{
     box-shadow: var(--shadow-elevated);
@@ -529,7 +530,13 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
        and appends a `kpi-val--lg` / `kpi-val--xl` modifier for medium / long
        strings, so trillion-range currency formats downsize gracefully instead
        of being clipped. nowrap stays — digits must not wrap mid-number. */
-    font-size: var(--fs-kpi); font-weight: var(--fw-bold);
+    /* cqi units scale the headline to the CARD's own width, not the viewport,
+       so a 5-up narrow card downsizes long strings instead of clipping them.
+       The preceding vw line is a fallback for browsers without container-query
+       unit support (pre-2023); they ignore the cqi line. */
+    font-size: clamp(1.0rem, 2.2vw, 2.0rem);
+    font-size: clamp(1.0rem, 15cqi, 2.0rem);
+    font-weight: var(--fw-bold);
     font-family: 'Roboto', sans-serif;
     color: var(--btn-text-pri); line-height: var(--kpi-line-height);
     font-variant-numeric: tabular-nums; letter-spacing: var(--kpi-letter-spacing);
@@ -540,11 +547,13 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
    Applied to both per-tab and hero variants; the .hero overrides below pick up
    slightly larger sizes so the page-level strip stays visually dominant. */
 .kpi-card .kpi-val--lg {{
-    font-size: clamp(1.2rem, 2.0vw, 1.7rem);
+    font-size: clamp(0.9rem, 1.8vw, 1.7rem);
+    font-size: clamp(0.9rem, 12cqi, 1.7rem);
     letter-spacing: 0;
 }}
 .kpi-card .kpi-val--xl {{
-    font-size: clamp(1.0rem, 1.6vw, 1.4rem);
+    font-size: clamp(0.8rem, 1.5vw, 1.4rem);
+    font-size: clamp(0.8rem, 9.5cqi, 1.4rem);
     letter-spacing: -0.5px;
 }}
 .kpi-card .kpi-lbl {{
@@ -583,14 +592,17 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     box-shadow: var(--shadow-elevated);
 }}
 .kpi-card.hero .kpi-val {{
-    font-size: var(--fs-kpi-lg);
+    font-size: clamp(1.1rem, 2.6vw, 2.4rem);
+    font-size: clamp(1.1rem, 17cqi, 2.4rem);
     font-weight: var(--fw-bold);
 }}
 .kpi-card.hero .kpi-val--lg {{
-    font-size: clamp(1.4rem, 2.4vw, 2.0rem);
+    font-size: clamp(1.0rem, 2.0vw, 2.0rem);
+    font-size: clamp(1.0rem, 13cqi, 2.0rem);
 }}
 .kpi-card.hero .kpi-val--xl {{
-    font-size: clamp(1.2rem, 2.0vw, 1.7rem);
+    font-size: clamp(0.9rem, 1.6vw, 1.7rem);
+    font-size: clamp(0.9rem, 10cqi, 1.7rem);
 }}
 .kpi-card.hero .kpi-lbl {{
     font-size: var(--fs-sm);
@@ -719,15 +731,17 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 /* ── Sidebar App Header ── */
 .sidebar-app-header {{
     padding: 16px 12px 14px 12px;
-    border-bottom: 1px solid rgba(43,68,112,0.7);
+    /* token border — fixed-navy was harsh on the white light-mode sidebar */
+    border-bottom: 1px solid var(--btn-border);
     margin-bottom: 10px;
 }}
 .sidebar-app-header .app-name {{
-    font-size: 1.05rem; font-weight: 800; color: #E8EDF5;
+    /* token text — #E8EDF5 was invisible on the white light-mode sidebar */
+    font-size: 1.05rem; font-weight: 800; color: var(--btn-text-pri);
     line-height: 1.2;
 }}
 .sidebar-app-header .app-sub {{
-    font-size: 0.7rem; color: #7B96BC; margin-top: 2px; letter-spacing: 0.04em;
+    font-size: 0.7rem; color: var(--btn-text-sec); margin-top: 2px; letter-spacing: 0.04em;
 }}
 
 /* ── Stats grid & Stat cards ── */
@@ -745,6 +759,7 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     position: relative; overflow: hidden;
     display: flex; flex-direction: column; gap: 8px;
     transition: box-shadow .15s ease, transform .15s ease;
+    container-type: inline-size;  /* enable cqi units → value scales to CARD width */
 }}
 .stat-card:hover {{
     box-shadow: var(--shadow-elevated);
@@ -765,16 +780,20 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     margin-bottom: 4px;
 }}
 .stat-value {{
-    /* Mirror of .kpi-card .kpi-val so all metric boxes look identical. */
-    font-size: var(--fs-kpi); font-weight: var(--fw-bold);
+    /* Mirror of .kpi-card .kpi-val so all metric boxes look identical.
+       cqi sizing (with vw fallback) tracks the card width so long values like
+       "744,820.95M" shrink to fit instead of being ellipsis-clipped — which
+       previously hid the trailing unit ("…M"). */
+    font-size: clamp(0.9rem, 2.2vw, var(--fs-kpi));
+    font-size: clamp(0.9rem, 15cqi, var(--fs-kpi));
+    font-weight: var(--fw-bold);
     color: var(--btn-text-pri);
     line-height: var(--kpi-line-height);
     letter-spacing: var(--kpi-letter-spacing);
     font-variant-numeric: tabular-nums;
     font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: hidden;        /* last-resort clip only; no ellipsis so unit stays visible */
 }}
 .stat-meta {{
     font-size: var(--fs-xs); color: var(--btn-text-sec); margin-top: 4px;
@@ -875,7 +894,7 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
         min-width: min(100%, 260px) !important;
         flex: 1 1 260px !important;
     }}
-    .kpi-card.hero .kpi-val {{ font-size: clamp(1.4rem, 2vw, 1.8rem) !important; }}
+    .kpi-card.hero .kpi-val {{ font-size: clamp(1.1rem, 16cqi, 1.8rem) !important; }}
     .page-header h1 {{ font-size: clamp(1.1rem, 2.5vw, 1.4rem); }}
 }}
 
@@ -890,7 +909,7 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
     .pipeline-stepper {{ flex-wrap: wrap; gap: 8px; overflow-x: visible; }}
     .step-item {{ min-width: 80px !important; }}
     .stat-value  {{ font-size: 18px; }}
-    .kpi-card .kpi-val {{ font-size: clamp(1.2rem, 3.5vw, 1.6rem) !important; }}
+    .kpi-card .kpi-val {{ font-size: clamp(1.0rem, 15cqi, 1.6rem) !important; }}
     .card-body   {{ padding: 14px 16px; }}
     .card-header {{ padding: 12px 16px; }}
     .section-label {{ font-size: 0.72rem; }}
@@ -921,7 +940,7 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
         flex: 1 1 100% !important;
         min-width: 0 !important;
     }}
-    .kpi-card .kpi-val {{ font-size: clamp(1.3rem, 5vw, 1.6rem) !important; }}
+    .kpi-card .kpi-val {{ font-size: clamp(1.1rem, 16cqi, 1.6rem) !important; }}
     /* Tab bar: horizontal scroll so 6+ tabs don't overflow or wrap */
     [data-testid="stTabs"] [data-baseweb="tab-list"] {{
         overflow-x: auto !important;
@@ -954,7 +973,7 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
     .step-circle {{ width: 32px !important; height: 32px !important; font-size: 0.85rem !important; }}
     .step-label  {{ font-size: 0.65rem; }}
     .stat-value  {{ font-size: 16px; }}
-    .kpi-card .kpi-val {{ font-size: clamp(1.1rem, 5vw, 1.4rem) !important; }}
+    .kpi-card .kpi-val {{ font-size: clamp(1.1rem, 16cqi, 1.4rem) !important; }}
     .card-body   {{ padding: 12px 14px; }}
     .card-header {{ padding: 10px 14px; }}
     .section-title {{ font-size: 13px; }}
@@ -1055,7 +1074,7 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
     border-radius: 999px;
     font: 500 12px/1 'Roboto', sans-serif;
     letter-spacing: 0.02em;
-    color: rgba(0, 0, 0, 0.70);
+    color: var(--btn-text-pri);   /* was rgba(0,0,0,.70) — unreadable on dark chips */
     white-space: nowrap;
     pointer-events: none;
     user-select: none;
@@ -1077,10 +1096,10 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
 .fresh-chip--recent  {{ background: rgba(255, 191, 26, 0.10); }}
 .fresh-chip--recent  .fresh-chip__dot {{ background: #FFBF1A; }}
 
-.fresh-chip--stale   {{ background: rgba(229, 24, 55, 0.08); color: rgba(0, 0, 0, 0.80); }}
+.fresh-chip--stale   {{ background: rgba(229, 24, 55, 0.08); color: var(--btn-text-pri); }}
 .fresh-chip--stale   .fresh-chip__dot {{ background: #E51837; }}
 
-.fresh-chip--unknown {{ background: rgba(0, 0, 0, 0.04); color: rgba(0, 0, 0, 0.50); }}
+.fresh-chip--unknown {{ background: var(--btn-surface2); color: var(--btn-text-sec); }}
 .fresh-chip--unknown .fresh-chip__dot {{ background: #9098A3; }}
 
 @media (max-width: 768px) {{
@@ -1118,8 +1137,20 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
         --card-pad-y:  1.5rem;
         --grid-gap:    1.0rem;
     }}
+    /* cqi (not vw) so the 5-up hero strip on wide monitors sizes each value to
+       its own ~⅕-width card — a vw clamp here re-pinned a large min and clipped
+       long currency strings ("Rp 2,094.1 M"). The --lg/--xl variants are repeated
+       so this later/equal-specificity block bumps the CAP for breathing room
+       without flattening the length-aware downscale (a bare .kpi-val rule would
+       win source-order over .kpi-val--lg/--xl and re-introduce the clip). */
     .kpi-card.hero .kpi-val {{
-        font-size: clamp(2.1rem, 2.6vw, 2.7rem);
+        font-size: clamp(1.4rem, 17cqi, 2.7rem);
+    }}
+    .kpi-card.hero .kpi-val--lg {{
+        font-size: clamp(1.0rem, 13cqi, 2.2rem);
+    }}
+    .kpi-card.hero .kpi-val--xl {{
+        font-size: clamp(0.9rem, 10cqi, 1.9rem);
     }}
     .dashboard-page-title {{
         font-size: clamp(1.3rem, 1.5vw, 1.6rem) !important;
