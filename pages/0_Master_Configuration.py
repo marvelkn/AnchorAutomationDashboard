@@ -23,54 +23,49 @@ apply_theme()
 
 page_header("", "Global Settings", "Upload and manage your Master Reference Files")
 
-# ── Cloud mode detection ───────────────────────────────────────────────────────
-cloud_mode = bool(os.getenv("DATABASE_URL"))
-
-if cloud_mode:
-    from utils.cloud_db import build_engine
-    from utils.master_files_db import (
-        ensure_master_files_table,
-        save_master_to_db,
-        load_master_from_db,
-        list_master_files,
-        sync_all_masters_to_disk,
+# ── Strict Neon gate ───────────────────────────────────────────────────────────
+# The local SQLite fallback was removed (see plan act-as-a-senior-glistening-lovelace.md);
+# Master Configuration is meaningful only when Neon is reachable.
+if not bool(os.getenv("DATABASE_URL")):
+    st.error(
+        "**Cloud database not configured.** Set the `DATABASE_URL` environment "
+        "variable to your Neon connection string and restart the app."
     )
+    st.stop()
 
-    @st.cache_resource
-    def _get_engine():
-        return build_engine()
+from utils.cloud_db import build_engine
+from utils.master_files_db import (
+    ensure_master_files_table,
+    save_master_to_db,
+    load_master_from_db,
+    list_master_files,
+    sync_all_masters_to_disk,
+)
 
-    try:
-        _engine = _get_engine()
-        ensure_master_files_table(_engine)
-        _engine_ok = True
-    except Exception as _eng_err:
-        st.error(f"Could not connect to Neon: {_eng_err}")
-        _engine_ok = False
-        _engine = None
 
-    st.markdown(
-        f'<div style="background:{GREEN}14;border:1px solid {GREEN}40;'
-        f'border-left:5px solid {GREEN};border-radius:0 14px 14px 0;padding:12px 16px;'
-        f'font-size:var(--fs-sm);color:{GREEN};margin-bottom:22px;">'
-        f'<b>Cloud Mode Active</b> — Master files are persisted in <b>Neon (PostgreSQL)</b> and '
-        f'survive app restarts. Uploaded files are also cached locally for pipeline compatibility.'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-else:
-    _engine = None
+@st.cache_resource
+def _get_engine():
+    return build_engine()
+
+
+try:
+    _engine = _get_engine()
+    ensure_master_files_table(_engine)
+    _engine_ok = True
+except Exception as _eng_err:
+    st.error(f"Could not connect to Neon: {_eng_err}")
     _engine_ok = False
-    st.markdown(
-        f'<div style="background:{GOLD}14;border:1px solid {GOLD}40;'
-        f'border-left:5px solid {GOLD};border-radius:0 14px 14px 0;padding:12px 16px;'
-        f'font-size:var(--fs-sm);color:{GOLD};margin-bottom:22px;">'
-        f'These master files are saved permanently on the server and used automatically by all '
-        f'processing modules. After your first upload, the system auto-updates them — you never need to '
-        f're-upload unless the reference data changes.'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+    _engine = None
+
+st.markdown(
+    f'<div style="background:{GREEN}14;border:1px solid {GREEN}40;'
+    f'border-left:5px solid {GREEN};border-radius:0 14px 14px 0;padding:12px 16px;'
+    f'font-size:var(--fs-sm);color:{GREEN};margin-bottom:22px;">'
+    f'<b>Cloud Mode Active</b> — Master files are persisted in <b>Neon (PostgreSQL)</b> and '
+    f'survive app restarts. Uploaded files are also cached locally for pipeline compatibility.'
+    f'</div>',
+    unsafe_allow_html=True,
+)
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 MASTER_DIR = os.path.join(BASE_DIR, "data", "master")
@@ -82,8 +77,8 @@ PATH_MON  = os.path.join(MASTER_DIR, "master_monitoring.xlsx")
 BACKUP_DIR = os.path.join(MASTER_DIR, "backup_uploads")
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
-# ── On cloud mode: sync all masters from Neon → local disk (once per session) ─
-if cloud_mode and _engine_ok and not st.session_state.get("_masters_synced"):
+# ── Sync all masters from Neon → local disk (once per session) ────────────────
+if _engine_ok and not st.session_state.get("_masters_synced"):
     sync_all_masters_to_disk(_engine, PATH_MID, PATH_CARD, PATH_MON)
     st.session_state["_masters_synced"] = True
 
@@ -91,7 +86,7 @@ if cloud_mode and _engine_ok and not st.session_state.get("_masters_synced"):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _neon_info(file_key: str) -> dict | None:
-    if not cloud_mode or not _engine_ok:
+    if not _engine_ok:
         return None
     try:
         return list_master_files(_engine).get(file_key)
@@ -100,14 +95,14 @@ def _neon_info(file_key: str) -> dict | None:
 
 
 def is_configured(path: str, file_key: str) -> bool:
-    if cloud_mode and _engine_ok and _neon_info(file_key):
+    if _engine_ok and _neon_info(file_key):
         return True
     return os.path.exists(path)
 
 
 def _file_size_kb(path: str, file_key: str) -> str:
     """Return human-readable file size, preferring Neon metadata in cloud mode."""
-    if cloud_mode and _engine_ok:
+    if _engine_ok:
         info = _neon_info(file_key)
         if info:
             return f"{(info.get('size_bytes') or 0) // 1024:,} KB"
@@ -117,7 +112,7 @@ def _file_size_kb(path: str, file_key: str) -> str:
 
 
 def _last_modified(path: str, file_key: str) -> str | None:
-    if cloud_mode and _engine_ok:
+    if _engine_ok:
         info = _neon_info(file_key)
         if info:
             return info.get("updated_at")
@@ -128,7 +123,7 @@ def _last_modified(path: str, file_key: str) -> str | None:
 
 
 def _sync_status_label(path: str, file_key: str) -> str:
-    if cloud_mode and _engine_ok:
+    if _engine_ok:
         if _neon_info(file_key):
             return "Synced to Neon"
         if os.path.exists(path):
@@ -140,7 +135,7 @@ def _sync_status_label(path: str, file_key: str) -> str:
 
 
 def get_download_bytes(path: str, file_key: str) -> bytes | None:
-    if cloud_mode and _engine_ok:
+    if _engine_ok:
         _, content = load_master_from_db(_engine, file_key)
         if content:
             return content
@@ -158,7 +153,7 @@ def save_master(uploaded_file, dest_path: str, prefix: str, file_key: str, orig_
         rotate_backups(dest_path, BACKUP_DIR, prefix=prefix, extension=".xlsx")
     with open(dest_path, "wb") as f:
         f.write(content)
-    if cloud_mode and _engine_ok:
+    if _engine_ok:
         ok = save_master_to_db(_engine, file_key, orig_filename, content)
         if not ok:
             st.warning(f"Local save succeeded but Neon upload failed for `{orig_filename}`.")
@@ -305,14 +300,13 @@ with tab_files:
             help="Navigate to the ETL pipeline to run the end-to-end data refresh.",
         )
     with qa2:
-        db_exists = os.path.exists(os.path.join(BASE_DIR, "database", "staging.db"))
-        has_neon  = cloud_mode and bool(os.getenv("DATABASE_URL"))
-        if db_exists or has_neon:
-            st.page_link(
-                "pages/4_Dashboard.py",
-                label="**View Analytics Dashboard**",
-                help="Jump straight to the analytics and ML insights dashboard.",
-            )
+        # Neon is the only data backend; if we got past the DATABASE_URL guard
+        # above, the dashboard link is always relevant.
+        st.page_link(
+            "pages/4_Dashboard.py",
+            label="**View Analytics Dashboard**",
+            help="Jump straight to the analytics and ML insights dashboard.",
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -365,7 +359,7 @@ with tab_history:
                 with st.spinner(f"Restoring {b['file']} v{b['version']}…"):
                     restored = restore_backup(b["path"], b["dest_path"])
                 if restored:
-                    if cloud_mode and _engine_ok:
+                    if _engine_ok:
                         with open(b["dest_path"], "rb") as _f:
                             _rb = _f.read()
                         save_master_to_db(_engine, b["file_key"], b["orig_filename"], _rb)

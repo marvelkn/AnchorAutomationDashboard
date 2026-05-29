@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
 import os
 import sys
 import shutil
@@ -27,7 +26,6 @@ st.markdown(
 )
 
 BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH    = os.path.join(BASE_DIR, "database", "staging.db")
 MASTER_DIR = os.path.join(BASE_DIR, "data", "master")
 
 PATH_MID   = os.path.join(MASTER_DIR, "master_mid.xlsx")
@@ -51,8 +49,9 @@ config_map = {
         "sheet": 0,
         "editable_columns": ["MERCHANT_ID", "MERCHANT_NAME", "SEGMENT", "MERCHANT_BRAND", "MERCHANT_GROUP"],
         "backup_dir": "backups_editor_mid",
-        "sync_to_db": True,
-        "table_name": "PROCESSED_MID"
+        # Excel is the master source of truth in Neon-only mode; the pipeline
+        # re-ingests master_mid.xlsx into Neon's all_mid table on the next run.
+        "sync_to_db": False,
     },
     "Card Share Analytics Matrix": {
         "path": PATH_CARD,
@@ -222,14 +221,6 @@ with tab_edit:
                         edited_df.to_excel(conf["path"], sheet_name=conf["sheet"] if isinstance(conf["sheet"], str) else "Sheet1", index=False)
                 else:
                     edited_df.to_excel(conf["path"], index=False)
-
-                if conf["sync_to_db"] and conf.get("table_name"):
-                    st.write(f"Synchronizing edits to `staging.db` → `{conf['table_name']}`...")
-                    conn = sqlite3.connect(DB_PATH)
-                    sync_df = edited_df.copy()
-                    sync_df.columns = [str(c).strip().upper() for c in sync_df.columns]
-                    sync_df.to_sql(conf["table_name"], conn, if_exists='replace', index=False)
-                    conn.close()
 
                 status_save.update(label="Commit Successful! Master updated safely.", state="complete")
 

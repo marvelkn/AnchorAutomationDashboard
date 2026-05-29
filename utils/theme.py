@@ -1914,41 +1914,46 @@ def status_box(rate_pct: float, narrative: str) -> None:
     )
 
 
-def stale_data_banner(db_path: str = None, threshold_hours: int = 24):
+def stale_data_banner(last_update: str | None = None, threshold_hours: int = 24):
     """
-    Show a stale-data notice banner if the staging.db is older than threshold_hours.
-    Always shows if db_path is None (data came from Excel fallback).
+    Show a stale-data notice banner if the most recent pipeline run is older
+    than threshold_hours. `last_update` is the LAST_DATA_UPDATE value pulled
+    from Neon's app_metadata table (ISO-8601 or 'YYYY-MM-DD HH:MM:SS').
+
+    Returns True iff a stale banner was rendered.
     """
-    import os
     from datetime import datetime
     p = _palette()
 
-    is_stale = True
-    age_str = "unknown age"
+    age_h = None
+    if last_update and last_update != "Unknown":
+        ts = None
+        try:
+            ts = datetime.fromisoformat(str(last_update).replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                ts = datetime.strptime(str(last_update), "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                ts = None
+        if ts is not None:
+            now = datetime.now(ts.tzinfo) if ts.tzinfo else datetime.now()
+            age_h = (now - ts).total_seconds() / 3600
 
-    if db_path and os.path.exists(db_path):
-        mtime = os.path.getmtime(db_path)
-        age_h = (datetime.now().timestamp() - mtime) / 3600
-        is_stale = age_h > threshold_hours
-        if is_stale:
-            if age_h >= 24:
-                age_str = f"{age_h/24:.0f} day(s) ago"
-            else:
-                age_str = f"{age_h:.1f} hour(s) ago"
+    if age_h is None or age_h <= threshold_hours:
+        return False
 
-    if is_stale:
-        st.markdown(
-            f"""
+    age_str = f"{age_h/24:.0f} day(s) ago" if age_h >= 24 else f"{age_h:.1f} hour(s) ago"
+    st.markdown(
+        f"""
 <div class="stale-banner">
   <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#FBBF24;flex-shrink:0;margin-top:2px;"></span>
   <div>
-    <strong>You are viewing cached data</strong> — last updated {age_str}.<br>
+    <strong>You are viewing cached data</strong> — last pipeline run {age_str}.<br>
     <span style="color:{p['TEXT_SEC']};font-size:var(--fs-sm);">
-      For the most current analytics, upload a new <code>staging.db</code> in
-      <b>Automated Pipeline</b> or refresh the Master Excel files in <b>Global Settings</b>.
+      Run a fresh ingest from the <b>Automated Pipeline</b> page to refresh.
     </span>
   </div>
 </div>""",
-            unsafe_allow_html=True,
-        )
-    return is_stale
+        unsafe_allow_html=True,
+    )
+    return True

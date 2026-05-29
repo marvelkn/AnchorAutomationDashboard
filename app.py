@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 import sys
-from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
@@ -10,7 +9,7 @@ if BASE_DIR not in sys.path:
 from utils.theme import apply_theme, theme_toggle_sidebar, get_palette, _nav_css
 
 
-def _render_mobile_nav(data_exists: bool):
+def _render_mobile_nav(neon_connected: bool):
     """Render the fixed bottom navigation bar (mobile only).
 
     Visible only at ≤768px — gated entirely by the `.st-key-mobile_nav` CSS in
@@ -19,7 +18,7 @@ def _render_mobile_nav(data_exists: bool):
     the CSS can lift it out of flow with position:fixed. The sidebar nav stays
     available as the secondary (drawer) surface.
     """
-    if data_exists:
+    if neon_connected:
         items = [
             ("pages/4_Dashboard.py",            "Dashboard", ":material/bar_chart:"),
             ("pages/00_Automated_Pipeline.py",  "Pipeline",  ":material/rocket_launch:"),
@@ -29,7 +28,7 @@ def _render_mobile_nav(data_exists: bool):
         ]
     else:
         items = [
-            ("pages/00_Automated_Pipeline.py",  "Upload",   ":material/warning:"),
+            ("pages/00_Automated_Pipeline.py",  "Connect",  ":material/warning:"),
             ("pages/0_Master_Configuration.py", "Settings", ":material/settings:"),
         ]
     with st.container(key="mobile_nav"):
@@ -60,32 +59,11 @@ apply_theme()
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 LOGO_PATH = os.path.join(BASE_DIR, "static", "btn_logo.png")
-DB_PATH   = os.path.join(BASE_DIR, "database", "staging.db")
-db_exists = os.path.exists(DB_PATH)
+# Neon (cloud) is the only data backend the app supports — the local SQLite
+# fallback was removed (see plan act-as-a-senior-glistening-lovelace.md).
 neon_exists = os.getenv("DATABASE_URL") is not None
-data_exists = db_exists or neon_exists
+data_exists = neon_exists
 p         = get_palette()
-
-# ── DB status helpers ──────────────────────────────────────────────────────────
-if neon_exists:
-    _db_clr, _db_lbl = p["BLUE_ACC"], "Neon Connected"
-    _db_sub = "Cloud Database Active"
-elif db_exists:
-    _mtime   = datetime.fromtimestamp(os.path.getmtime(DB_PATH))
-    _age_h   = (datetime.now().timestamp() - _mtime.timestamp()) / 3600
-    _size_mb = os.path.getsize(DB_PATH) / (1024 * 1024)
-    if _age_h < 24:
-        _db_clr, _db_lbl = p["GREEN"], "Fresh"
-    elif _age_h < 72:
-        _db_clr, _db_lbl = p["AMBER"], "Aging"
-    else:
-        _db_clr, _db_lbl = p["RED"],   "Stale"
-    _db_sub = f"{_size_mb:.0f} MB · {_mtime.strftime('%d %b, %H:%M')}"
-else:
-    _db_clr, _db_lbl, _db_sub = p["RED"], "Not Found", "Upload data to Neon or Staging"
-
-_db_dot = (f'<span style="display:inline-block;width:var(--size-dot,8px);height:var(--size-dot,8px);border-radius:50%;'
-           f'background:{_db_clr};margin-right:5px;vertical-align:middle;"></span>')
 
 # ── Navigation registry ────────────────────────────────────────────────────────
 # MUST run before st.page_link() — page_link looks up URL metadata from the
@@ -94,7 +72,7 @@ try:
     if not data_exists:
         pg = st.navigation({
             "REQUIRED ACTION": [
-                st.Page("pages/00_Automated_Pipeline.py", title="Get Started / Connect Cloud", icon=":material/rocket_launch:", default=True),
+                st.Page("pages/00_Automated_Pipeline.py", title="Connect to Neon", icon=":material/rocket_launch:", default=True),
             ],
             "SETTINGS": [
                 st.Page("pages/0_Master_Configuration.py", title="Global Settings", icon=":material/settings:"),
@@ -175,7 +153,7 @@ with st.sidebar:
         st.page_link("pages/0_Master_Configuration.py",label="Global Settings",      icon=":material/settings:")
     else:
         st.markdown('<div class="custom-nav-group">Required Action</div>', unsafe_allow_html=True)
-        st.page_link("pages/00_Automated_Pipeline.py", label="Upload Database First", icon=":material/warning:")
+        st.page_link("pages/00_Automated_Pipeline.py", label="Connect to Neon",      icon=":material/warning:")
 
         st.markdown('<div class="custom-nav-group">Settings</div>', unsafe_allow_html=True)
         st.page_link("pages/0_Master_Configuration.py",label="Global Settings",       icon=":material/settings:")
@@ -185,7 +163,7 @@ with st.sidebar:
     # ══ SECTION D: STATUS STRIP (pinned to bottom) ═════════════════════════════
     st.markdown('<div class="sb-status-strip">', unsafe_allow_html=True)
 
-    # ── Card 1: Neon Cloud DB connection ──────────────────────────────────────
+    # ── Neon Cloud DB connection card (only DB status the app cares about) ───
     if neon_exists:
         _neon_clr, _neon_dot = p["BLUE_ACC"], "☁️"
         _neon_lbl, _neon_sub = "Connected", "Cloud DB Active"
@@ -202,16 +180,6 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # ── Card 2: Staging DB / local data source (only when Neon is not active) ──
-    if not neon_exists:
-        st.markdown(
-            f"""<div class="db-info" style="border-left-color:{_db_clr};">
-              <div class="db-label">Database Status</div>
-              <div class="db-status" style="color:{_db_clr};">{_db_dot} {_db_lbl}</div>
-              <div class="db-meta">{_db_sub}</div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
     st.markdown('</div>', unsafe_allow_html=True)  # close .sb-status-strip
 
 

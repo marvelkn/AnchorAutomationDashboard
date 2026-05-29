@@ -1,5 +1,4 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
 import openpyxl
 import os
@@ -16,19 +15,18 @@ apply_theme()
 from utils.rate_limiter import enforce_rate_limit
 enforce_rate_limit("pm_page", max_calls=60, window_seconds=60, label="page loads")
 
-DB_PATH    = os.path.join(_BASE, "database", "staging.db")
 EXCEL_PATH = os.path.join(_BASE, "data", "master", "master_monitoring.xlsx")
 
 page_header("", "PM Manager", "Manage Project Manager assignments and Merchant Group mappings")
 
-neon_url    = os.getenv("DATABASE_URL")
-neon_exists = neon_url is not None
-
-# Guard: if DB is missing, show a clear message instead of crashing.
-if not neon_exists and not os.path.exists(DB_PATH):
+# Neon is the only supported backend — the local SQLite fallback was removed
+# (see plan act-as-a-senior-glistening-lovelace.md). If DATABASE_URL is missing
+# the user cannot use this page and we tell them so loudly.
+neon_url = os.getenv("DATABASE_URL")
+if not neon_url:
     st.error(
-        "**Database not found.** "
-        "Please upload `staging.db` via the **Automated Pipeline** page first."
+        "**Cloud database not configured.** Set the `DATABASE_URL` environment "
+        "variable to your Neon connection string and restart the app."
     )
     st.stop()
 
@@ -44,30 +42,18 @@ def get_cloud_engine():
 
 
 def fetch_target_data() -> pd.DataFrame:
-    if neon_exists:
-        engine = get_cloud_engine()
-        df = pd.read_sql_query("SELECT merchant_group, pm FROM target ORDER BY pm", engine)
-        df.columns = [c.upper() for c in df.columns]
-        return df
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT MERCHANT_GROUP, PM FROM TARGET ORDER BY PM", conn)
-    conn.close()
+    engine = get_cloud_engine()
+    df = pd.read_sql_query("SELECT merchant_group, pm FROM target ORDER BY pm", engine)
+    df.columns = [c.upper() for c in df.columns]
     return df
 
 
 def fetch_all_pms() -> list[str]:
-    if neon_exists:
-        from sqlalchemy import text
-        engine = get_cloud_engine()
-        with engine.connect() as conn:
-            result = conn.execute(text("SELECT DISTINCT pm FROM target WHERE pm IS NOT NULL ORDER BY pm"))
-            return [row[0] for row in result]
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT PM FROM TARGET WHERE PM IS NOT NULL ORDER BY PM")
-    pms = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    return pms
+    from sqlalchemy import text
+    engine = get_cloud_engine()
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT DISTINCT pm FROM target WHERE pm IS NOT NULL ORDER BY pm"))
+        return [row[0] for row in result]
 
 
 def update_excel_assignment(merchant_group: str, new_pm: str, is_new: bool = False, delete: bool = False):
@@ -190,27 +176,15 @@ if st.button(
 
     if len(changed_rows) > 0:
         try:
-            if neon_exists:
-                from sqlalchemy import text
-                engine = get_cloud_engine()
-                with engine.begin() as conn:
-                    for _, row in changed_rows.iterrows():
-                        conn.execute(
-                            text("UPDATE target SET pm = :pm WHERE merchant_group = :mg"),
-                            {"pm": row["PM"], "mg": row["MERCHANT_GROUP"]},
-                        )
-                        update_excel_assignment(row["MERCHANT_GROUP"], row["PM"])
-            else:
-                conn = sqlite3.connect(DB_PATH)
-                cursor = conn.cursor()
+            from sqlalchemy import text
+            engine = get_cloud_engine()
+            with engine.begin() as conn:
                 for _, row in changed_rows.iterrows():
-                    cursor.execute(
-                        "UPDATE TARGET SET PM = ? WHERE MERCHANT_GROUP = ?",
-                        (row["PM"], row["MERCHANT_GROUP"]),
+                    conn.execute(
+                        text("UPDATE target SET pm = :pm WHERE merchant_group = :mg"),
+                        {"pm": row["PM"], "mg": row["MERCHANT_GROUP"]},
                     )
                     update_excel_assignment(row["MERCHANT_GROUP"], row["PM"])
-                conn.commit()
-                conn.close()
 
             st.success(f"Updated {len(changed_rows)} assignment(s) successfully!")
             st.session_state.editor_key += 1
@@ -246,22 +220,13 @@ if add_submitted:
         st.error("This Merchant Group already exists. Edit the PM cell directly in the table above.")
     else:
         try:
-            if neon_exists:
-                from sqlalchemy import text
-                engine = get_cloud_engine()
-                with engine.begin() as conn:
-                    conn.execute(
-                        text("INSERT INTO target (merchant_group, pm) VALUES (:mg, :pm)"),
-                        {"mg": new_merchant, "pm": new_pm_name},
-                    )
-            else:
-                conn = sqlite3.connect(DB_PATH)
+            from sqlalchemy import text
+            engine = get_cloud_engine()
+            with engine.begin() as conn:
                 conn.execute(
-                    "INSERT INTO TARGET (MERCHANT_GROUP, PM) VALUES (?, ?)",
-                    (new_merchant, new_pm_name),
+                    text("INSERT INTO target (merchant_group, pm) VALUES (:mg, :pm)"),
+                    {"mg": new_merchant, "pm": new_pm_name},
                 )
-                conn.commit()
-                conn.close()
             update_excel_assignment(new_merchant, new_pm_name, is_new=True)
             st.success(f"Added **{new_merchant}** → **{new_pm_name}**")
             st.session_state.editor_key += 1
@@ -306,31 +271,18 @@ with st.expander("Danger Zone: Remove PM", expanded=False):
                 width="stretch",
             ):
                 try:
-                    if neon_exists:
-                        from sqlalchemy import text
-                        engine = get_cloud_engine()
-                        with engine.begin() as conn:
-                            result = conn.execute(
-                                text("SELECT merchant_group FROM target WHERE pm = :pm"),
-                                {"pm": pm_to_delete},
-                            )
-                            affected_merchants = [row[0] for row in result]
-                            conn.execute(
-                                text("UPDATE target SET pm = :newpm WHERE pm = :oldpm"),
-                                {"newpm": reassign_to, "oldpm": pm_to_delete},
-                            )
-                    else:
-                        conn = sqlite3.connect(DB_PATH)
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            "SELECT MERCHANT_GROUP FROM TARGET WHERE PM = ?", (pm_to_delete,)
+                    from sqlalchemy import text
+                    engine = get_cloud_engine()
+                    with engine.begin() as conn:
+                        result = conn.execute(
+                            text("SELECT merchant_group FROM target WHERE pm = :pm"),
+                            {"pm": pm_to_delete},
                         )
-                        affected_merchants = [row[0] for row in cursor.fetchall()]
-                        cursor.execute(
-                            "UPDATE TARGET SET PM = ? WHERE PM = ?", (reassign_to, pm_to_delete)
+                        affected_merchants = [row[0] for row in result]
+                        conn.execute(
+                            text("UPDATE target SET pm = :newpm WHERE pm = :oldpm"),
+                            {"newpm": reassign_to, "oldpm": pm_to_delete},
                         )
-                        conn.commit()
-                        conn.close()
                     for merch in affected_merchants:
                         update_excel_assignment(merch, reassign_to)
                     st.success(
