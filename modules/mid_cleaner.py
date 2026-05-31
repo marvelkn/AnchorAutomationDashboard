@@ -149,15 +149,20 @@ def run_mid_cleaner(df_new, path_mid, backup_dir):
 
         return None, None
 
-    for i, row in df_new.iterrows():
-        if pd.notna(row['SEGMENT']) and row['SEGMENT'] == 'ANCHOR' and pd.notna(row['MERCHANT_BRAND']) and pd.notna(row['MERCHANT_GROUP']):
-            continue
-        
-        brand, group = match_anchor(row['MERCHANT_NAME'])
-        if brand and group:
-            df_new.at[i, 'SEGMENT'] = 'ANCHOR'
-            df_new.at[i, 'MERCHANT_BRAND'] = brand
-            df_new.at[i, 'MERCHANT_GROUP'] = group
+    # Classify only the rows not already a complete ANCHOR record, then assign
+    # column-wise in one shot — avoids the per-cell .at[] writes of iterrows().
+    already_anchor = (
+        (df_new['SEGMENT'] == 'ANCHOR')
+        & df_new['MERCHANT_BRAND'].notna()
+        & df_new['MERCHANT_GROUP'].notna()
+    )
+    need = df_new[~already_anchor]
+    res = need['MERCHANT_NAME'].map(match_anchor)          # Series of (brand, group)
+    hit = res[res.map(lambda t: bool(t[0]) and bool(t[1]))]
+    if len(hit) > 0:
+        df_new.loc[hit.index, 'SEGMENT']        = 'ANCHOR'
+        df_new.loc[hit.index, 'MERCHANT_BRAND'] = [t[0] for t in hit]
+        df_new.loc[hit.index, 'MERCHANT_GROUP'] = [t[1] for t in hit]
 
     # Step 2: Extract Retail Brand to Group mapping for Step 2
     retail_brand_map = {}
@@ -170,14 +175,19 @@ def run_mid_cleaner(df_new, path_mid, backup_dir):
                 if brand not in retail_brand_map:
                     retail_brand_map[brand] = {'group': group}
 
+    # Precompile each brand's word-boundary regex ONCE, instead of recompiling
+    # `\b<brand>\b` for every brand on every merchant-name lookup.
+    retail_patterns = [
+        (re.compile(r'\b' + re.escape(brand) + r'\b'), brand, info['group'])
+        for brand, info in retail_brand_map.items() if len(brand) >= 3
+    ]
+
     def match_retail_brand(merchant_name):
         if pd.isna(merchant_name): return None, None
         name_upper = str(merchant_name).upper().strip()
-        for brand, info in retail_brand_map.items():
-            if len(brand) < 3: continue
-            pattern = r'\b' + re.escape(brand) + r'\b'
-            if re.search(pattern, name_upper):
-                return brand, info['group']
+        for pattern, brand, group in retail_patterns:
+            if pattern.search(name_upper):
+                return brand, group
         return None, None
 
     empty_mask = df_new['SEGMENT'].isna()

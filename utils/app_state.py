@@ -220,11 +220,17 @@ def log_forecast(
         "lower_bound = EXCLUDED.lower_bound, "
         "upper_bound = EXCLUDED.upper_bound, method = EXCLUDED.method"
     )
-    for fm, p, lo, up in rows:
-        _exec(engine, sql, {
+    params = [
+        {
             "m": merchant_group, "r": run_str, "fm": int(fm),
             "p": float(p), "lo": float(lo), "up": float(up), "meth": method,
-        })
+        }
+        for fm, p, lo, up in rows
+    ]
+    # One transaction + one executemany round-trip instead of N per-row commits.
+    _require_engine(engine)
+    with engine.begin() as conn:
+        conn.execute(text(sql), params)
     return len(rows)
 
 

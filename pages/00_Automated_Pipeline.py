@@ -60,12 +60,18 @@ PATH_CARD  = os.path.join(MASTER_DIR, "master_card_share.xlsx")
 PATH_MON   = os.path.join(MASTER_DIR, "master_monitoring.xlsx")
 os.makedirs(MASTER_DIR, exist_ok=True)
 
+@st.cache_resource
+def _get_cloud_engine():
+    """One pooled SQLAlchemy engine per session — avoids per-rerun pool churn."""
+    return build_engine()
+
+
 # ── Sync master files from Neon -> local disk (refresh ephemeral cloud FS) ────
 # Best-effort: if Neon is unreachable, the master-file check below will catch
-# the truly-missing case loudly anyway.
+# the truly-missing case loudly anyway. Uses the cached engine so a rerun does
+# not spin up (and leak) a fresh connection pool.
 try:
-    _sync_engine = build_engine()
-    sync_all_masters_to_disk(_sync_engine, PATH_MID, PATH_CARD, PATH_MON)
+    sync_all_masters_to_disk(_get_cloud_engine(), PATH_MID, PATH_CARD, PATH_MON)
 except Exception:
     pass
 
@@ -145,11 +151,6 @@ st.markdown(
     </div>""",
     unsafe_allow_html=True,
 )
-
-
-@st.cache_resource
-def _get_cloud_engine():
-    return build_engine()
 
 
 try:

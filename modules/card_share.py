@@ -193,16 +193,11 @@ def run_card_share_merge(df_csv, db_path, path_card, backup_dir):
     ).reset_index()
 
     
-    conn = sqlite3.connect(db_path)
-    df_card_agg.to_sql("PROCESSED_CARD_SHARE", conn, if_exists="replace", index=False)
-    
     df_hist = df_card.groupby(['MERCHANT_GROUP', 'MERCHANT_ANCHOR', trx_month_actual, 'YEAR']).agg(
         TOTAL_SV=('TOTAL_SV','sum'), TOTAL_TRX=('TOTAL_TRX','sum'), TOTAL_FBI=('TOTAL_FBI','sum')
     ).reset_index()
-
     df_hist = df_hist.rename(columns={trx_month_actual: 'TRX_MONTH'})
-    df_hist.to_sql("PROCESSED_CARD_HISTORY", conn, if_exists="replace", index=False)
-    
+
     detail_grp_cols = ['MERCHANT_GROUP', 'MERCHANT_ANCHOR', trx_month_actual, 'YEAR']
 
     detail_agg = {}
@@ -212,6 +207,7 @@ def run_card_share_merge(df_csv, db_path, path_card, backup_dir):
         for col in types:
             if col in df_card.columns:
                 detail_agg[col] = (col, 'sum')
+    df_monthly_detail = None
     if detail_agg:
         df_monthly_detail = df_card.groupby(detail_grp_cols).agg(
             TOTAL_TRX=('TOTAL_TRX','sum'),
@@ -219,9 +215,17 @@ def run_card_share_merge(df_csv, db_path, path_card, backup_dir):
             TOTAL_FBI=('TOTAL_FBI','sum'),
             **detail_agg
         ).reset_index().rename(columns={trx_month_actual: 'TRX_MONTH'})
-        df_monthly_detail.to_sql("PROCESSED_CARD_MONTHLY", conn, if_exists="replace", index=False)
-        
-    conn.close()
+
+    # Single SQLite connection, guaranteed closed even if a write fails
+    # (sqlite3's `with` only commits — it does NOT close — so use try/finally).
+    conn = sqlite3.connect(db_path)
+    try:
+        df_card_agg.to_sql("PROCESSED_CARD_SHARE", conn, if_exists="replace", index=False)
+        df_hist.to_sql("PROCESSED_CARD_HISTORY", conn, if_exists="replace", index=False)
+        if df_monthly_detail is not None:
+            df_monthly_detail.to_sql("PROCESSED_CARD_MONTHLY", conn, if_exists="replace", index=False)
+    finally:
+        conn.close()
     
     if os.path.exists(temp_excel_path):
         os.remove(temp_excel_path)

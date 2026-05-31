@@ -152,6 +152,22 @@ def table_exists(engine, name, schema="public"):
         return bool(conn.execute(q, {"s": schema, "t": name.lower()}).scalar())
 
 
+def _existing_tables(engine, names, schema="public"):
+    """Resolve existence of many tables in ONE query (vs one connection each).
+
+    Returns {original_name: bool}. Used by the cold-load path so it does a single
+    information_schema round-trip instead of one checkout + ping per table.
+    """
+    q = text(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = :s AND table_name = ANY(:names)"
+    )
+    want = [n.lower() for n in names]
+    with engine.connect() as conn:
+        present = {r[0] for r in conn.execute(q, {"s": schema, "names": want})}
+    return {n: (n.lower() in present) for n in names}
+
+
 @st.cache_resource
 def _get_engine():
     """One pooled SQLAlchemy engine per app session (avoids per-rerun pool churn)."""
@@ -612,24 +628,30 @@ def _load_dashboard_data(data_version: str):
     """
     try:
         eng = _get_engine()
-        has_card       = table_exists(eng, "PROCESSED_CARD_SHARE")
-        has_card_hist  = table_exists(eng, "PROCESSED_CARD_HISTORY")
-        has_mon        = table_exists(eng, "PROCESSED_MONITORING")
-        has_mon_weekly = table_exists(eng, "PROCESSED_MONITORING_WEEKLY")
-        has_tgt        = table_exists(eng, "TARGET")
+        # One existence query for all six tables instead of one connection each.
+        _flags = _existing_tables(eng, [
+            "PROCESSED_CARD_SHARE", "PROCESSED_CARD_HISTORY", "PROCESSED_MONITORING",
+            "PROCESSED_MONITORING_WEEKLY", "TARGET", "PROCESSED_CARD_MONTHLY",
+        ])
+        has_card        = _flags["PROCESSED_CARD_SHARE"]
+        has_card_hist   = _flags["PROCESSED_CARD_HISTORY"]
+        has_mon         = _flags["PROCESSED_MONITORING"]
+        has_mon_weekly  = _flags["PROCESSED_MONITORING_WEEKLY"]
+        has_tgt         = _flags["TARGET"]
+        has_monthly_tbl = _flags["PROCESSED_CARD_MONTHLY"]
 
-        df_card        = pd.read_sql_query("SELECT * FROM processed_card_share", eng) if has_card else pd.DataFrame()
-        df_card_hist   = pd.read_sql_query("SELECT * FROM processed_card_history", eng) if has_card_hist else pd.DataFrame()
-        df_mon         = pd.read_sql_query("SELECT * FROM processed_monitoring", eng) if has_mon else pd.DataFrame()
-        df_mon_weekly  = pd.read_sql_query("SELECT * FROM processed_monitoring_weekly", eng) if has_mon_weekly else pd.DataFrame()
-        df_target      = pd.read_sql_query("SELECT * FROM target", eng) if has_tgt else pd.DataFrame()
+        # One shared connection for all reads instead of a checkout per query.
+        with eng.connect() as conn:
+            df_card        = pd.read_sql_query("SELECT * FROM processed_card_share", conn) if has_card else pd.DataFrame()
+            df_card_hist   = pd.read_sql_query("SELECT * FROM processed_card_history", conn) if has_card_hist else pd.DataFrame()
+            df_mon         = pd.read_sql_query("SELECT * FROM processed_monitoring", conn) if has_mon else pd.DataFrame()
+            df_mon_weekly  = pd.read_sql_query("SELECT * FROM processed_monitoring_weekly", conn) if has_mon_weekly else pd.DataFrame()
+            df_target      = pd.read_sql_query("SELECT * FROM target", conn) if has_tgt else pd.DataFrame()
 
         # Column normalization for Postgres (ensure uppercase for dashboard consistency)
         for df in [df_card, df_card_hist, df_mon, df_mon_weekly, df_target]:
             if len(df.columns) > 0:
                 df.columns = [c.upper() for c in df.columns]
-
-        has_monthly_tbl = table_exists(eng, "PROCESSED_CARD_MONTHLY")
 
         result = (df_card, df_card_hist, df_mon, df_mon_weekly, df_target,
                   has_card, has_card_hist, has_mon, has_mon_weekly, has_tgt, has_monthly_tbl)
@@ -660,23 +682,6 @@ if _meta_source == "snapshot":
         f"{_load_meta.get('as_of') or 'an earlier session'}. "
         "Figures are read-only. Run a fresh ingest from the Automated Pipeline page to refresh."
     )
-
-# TEMP DIAGNOSTIC — remove once new Neon project is confirmed live.
-# Reveals the host the process is actually reading + the resolved data source,
-# without ever printing the password.
-with st.sidebar.expander("DB connection debug", expanded=False):
-    _url = os.getenv("DATABASE_URL") or ""
-    if _url:
-        try:
-            from urllib.parse import urlparse as _urlparse
-            _host = _urlparse(_url).hostname or "<unparseable>"
-        except Exception:
-            _host = "<parse-error>"
-        st.caption(f"DATABASE_URL host: `{_host}`")
-        st.caption(f"URL length: {len(_url)} chars")
-    else:
-        st.caption("DATABASE_URL: **NOT SET** in this process")
-    st.caption(f"Resolved source: `{_meta_source or 'neon'}`")
 
 # ── BATCH METADATA & SIGNALS ─────────────────────────────────────────────────
 # Intentionally uncached: tiny payload, and carries the live NEW_DATA_SIGNAL badge.
@@ -3027,6 +3032,11 @@ with tab4:
                     _cap += f"  &middot;  {len(_triaged_rows)} merchant(s) currently triaged."
                 st.caption(_cap)
 
+                # Pre-filter the weekly frame ONCE to VOL rows so each card's
+                # sparkline lookup scans a small frame, not the full weekly table.
+                _wk_vol = (df_mon_weekly[df_mon_weekly['DIMENSI'] == 'VOL']
+                           if has_mon_weekly and not df_mon_weekly.empty else None)
+
                 for _, row in _at_risk_inbox.iterrows():
                     _merchant = row.get('MERCHANT_GROUP', '—')
                     _cr = row.get('CHURN_RISK', '')
@@ -3054,10 +3064,10 @@ with tab4:
 
                     # 12-week VOL sparkline (falls back gracefully if no weekly data).
                     _sparkline = []
-                    if has_mon_weekly and not df_mon_weekly.empty:
+                    if _wk_vol is not None:
                         try:
                             _sparkline = extract_recent_weeks(
-                                df_mon_weekly, merchant=_merchant, dimensi='VOL',
+                                _wk_vol, merchant=_merchant, dimensi='VOL',
                                 n_weeks=12,
                             )
                         except Exception:

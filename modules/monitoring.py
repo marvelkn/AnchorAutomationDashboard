@@ -29,6 +29,19 @@ def run_monitoring_merge(df_csv, db_path, path_mon, backup_dir):
                  if week_num > max_week:
                      max_week = week_num
 
+        # Map each week number -> its TRX/VOL/FBI column ONCE, instead of
+        # re-scanning every column for every week of every merchant row.
+        trx_cols, vol_cols, fbi_cols = {}, {}, {}
+        for c in df_csv.columns:
+            cs = str(c)
+            m = re.search(r'Week\s+(\d+)', cs)
+            if not m:
+                continue
+            w = int(m.group(1))
+            if   'TRX' in cs: trx_cols[w] = c
+            elif 'VOL' in cs: vol_cols[w] = c
+            elif 'FBI' in cs: fbi_cols[w] = c
+
         records = []
         for index, row in df_csv.iterrows():
             merchant = str(row['MERCHANT_GROUP']).replace('nan', '').upper().strip()
@@ -37,13 +50,9 @@ def run_monitoring_merge(df_csv, db_path, path_mon, backup_dir):
             vol_record = {'MERCHANT_GROUP': merchant, 'DIMENSI': 'VOL'}
             fbi_record = {'MERCHANT_GROUP': merchant, 'DIMENSI': 'FBI'}
             for w in range(1, max_week + 1):
-                w_str = f"{w:02d}"
-                trx_col = next((c for c in df_csv.columns if 'TRX' in str(c) and f'Week {w_str}' in str(c)), None)
-                vol_col = next((c for c in df_csv.columns if 'VOL' in str(c) and f'Week {w_str}' in str(c)), None)
-                fbi_col = next((c for c in df_csv.columns if 'FBI' in str(c) and f'Week {w_str}' in str(c)), None)
-                trx_record[w] = clean_val(row[trx_col] if trx_col else "")
-                vol_record[w] = clean_val(row[vol_col] if vol_col else "")
-                fbi_record[w] = clean_val(row[fbi_col] if fbi_col else "")
+                trx_record[w] = clean_val(row[trx_cols[w]]) if w in trx_cols else ""
+                vol_record[w] = clean_val(row[vol_cols[w]]) if w in vol_cols else ""
+                fbi_record[w] = clean_val(row[fbi_cols[w]]) if w in fbi_cols else ""
             records.extend([trx_record, vol_record, fbi_record])
 
         lookup = {}
@@ -162,39 +171,41 @@ def run_monitoring_merge(df_csv, db_path, path_mon, backup_dir):
                  df_y = df_sheet[df_sheet['DIMENSI']=='VOL'][['MERCHANT_GROUP', 'PM', 'YTD']].copy()
                  all_ytd_dfs.append(df_y)
 
+    # Single SQLite connection, guaranteed closed even if a write fails
+    # (sqlite3's `with` only commits — it does NOT close — so use try/finally).
     conn = sqlite3.connect(db_path)
-    
-    if all_weekly_dfs:
-        df_full_weekly = pd.concat(all_weekly_dfs, ignore_index=True)
-        df_full_weekly.to_sql("PROCESSED_MONITORING_WEEKLY", conn, if_exists="replace", index=False)
-        
-    if all_ytd_dfs:
-        df_full_ytd = pd.concat(all_ytd_dfs, ignore_index=True)
-        df_full_ytd.to_sql("PROCESSED_MONITORING", conn, if_exists="replace", index=False)
-        
-    if target_dfs:
-        df_full_target = pd.concat(target_dfs, ignore_index=True)
-        # Standardize for dashboard: MERCHANT_GROUP, PM, TARGET_VOL_2026, etc.
-        # Pivot by YEAR if needed, or just keep long. 
-        df_piv = df_full_target.pivot_table(index=['MERCHANT_GROUP', 'PM'], columns=['DIMENSI', 'YEAR'], values='FY').reset_index()
-        # Flatten columns correctly
-        new_cols = []
-        for c in df_piv.columns:
-            if c[1]:
-                new_cols.append(f"{c[0]}_{c[1]}")
-            else:
-                new_cols.append(c[0])
-        df_piv.columns = new_cols
-        # Map to expected dashboard names
-        rename_tgt = {
-            'VOL_2026': 'TARGET_VOL_2026',
-            'TRX_2026': 'TARGET_TRX_2026',
-            'FBI_2026': 'TARGET_FBI_2026'
-        }
-        df_piv = df_piv.rename(columns=rename_tgt)
-        df_piv.to_sql("TARGET", conn, if_exists="replace", index=False)
+    try:
+        if all_weekly_dfs:
+            df_full_weekly = pd.concat(all_weekly_dfs, ignore_index=True)
+            df_full_weekly.to_sql("PROCESSED_MONITORING_WEEKLY", conn, if_exists="replace", index=False)
 
-    conn.close()
+        if all_ytd_dfs:
+            df_full_ytd = pd.concat(all_ytd_dfs, ignore_index=True)
+            df_full_ytd.to_sql("PROCESSED_MONITORING", conn, if_exists="replace", index=False)
+
+        if target_dfs:
+            df_full_target = pd.concat(target_dfs, ignore_index=True)
+            # Standardize for dashboard: MERCHANT_GROUP, PM, TARGET_VOL_2026, etc.
+            # Pivot by YEAR if needed, or just keep long.
+            df_piv = df_full_target.pivot_table(index=['MERCHANT_GROUP', 'PM'], columns=['DIMENSI', 'YEAR'], values='FY').reset_index()
+            # Flatten columns correctly
+            new_cols = []
+            for c in df_piv.columns:
+                if c[1]:
+                    new_cols.append(f"{c[0]}_{c[1]}")
+                else:
+                    new_cols.append(c[0])
+            df_piv.columns = new_cols
+            # Map to expected dashboard names
+            rename_tgt = {
+                'VOL_2026': 'TARGET_VOL_2026',
+                'TRX_2026': 'TARGET_TRX_2026',
+                'FBI_2026': 'TARGET_FBI_2026'
+            }
+            df_piv = df_piv.rename(columns=rename_tgt)
+            df_piv.to_sql("TARGET", conn, if_exists="replace", index=False)
+    finally:
+        conn.close()
 
     if os.path.exists(temp_excel_path):
         os.remove(temp_excel_path)

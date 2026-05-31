@@ -36,7 +36,9 @@ if "editor_key" not in st.session_state:
 
 # ── Data fetchers ─────────────────────────────────────────────────────────────
 
+@st.cache_resource
 def get_cloud_engine():
+    """One pooled SQLAlchemy engine per session — avoids per-rerun pool churn."""
     from utils.cloud_db import build_engine
     return build_engine()
 
