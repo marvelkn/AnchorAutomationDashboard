@@ -870,7 +870,7 @@ with tab0:
     if not _ml_kpi.empty and 'PM' in _ml_kpi.columns:
         styled_divider()
         section_label("Daily Briefing")
-        _bf_left, _bf_right = st.columns([3, 2])
+        _bf_left, _bf_right = st.columns([3, 2], gap="large")
 
         with _bf_left:
             # Per-PM aggregates: count, avg achievement, high-risk count.
@@ -1965,7 +1965,7 @@ with tab1:
                     pct_str   = fmt_growth(row['Symmetric %'], decimals=1, scale=False)
                     return f"{prefix}{delta_str}  ({pct_str})"
 
-                _gcol_l, _gcol_r = st.columns(2)
+                _gcol_l, _gcol_r = st.columns(2, gap="large")
                 with _gcol_l:
                     section_label(f"Top 10 by {metric_sel} Growth")
                     if not top_10.empty:
@@ -2314,7 +2314,7 @@ with tab2:
                         unsafe_allow_html=True,
                     )
 
-            _mvl, _mvr = st.columns(2)
+            _mvl, _mvr = st.columns(2, gap="large")
             with _mvl:
                 st.markdown(
                     f"<div style='color:{SUCCESS};font-weight:var(--fw-bold);"
@@ -2423,7 +2423,7 @@ with tab3:
             all_clusters = sorted(df_ml['CLUSTER'].dropna().unique().tolist())
 
             # Controls
-            mc1, mc2 = st.columns(2)
+            mc1, mc2 = st.columns(2, gap="large")
             with mc1:
                 sel_pm_ml = st.multiselect("Filter by PM", all_pm_ml, default=all_pm_ml, key="t3_pm")
             with mc2:
@@ -2976,7 +2976,7 @@ with tab4:
 
                     # ── Donut + PM bar ────────────────────────────────────────────────
                     if 'RISK_SCORE' in df_c4.columns:
-                        ch_x, ch_y = st.columns(2)
+                        ch_x, ch_y = st.columns(2, gap="large")
                         with ch_x:
                             fig_rc = px.pie(_df_c4_disp, names='Health Status',
                                             color='Health Status',

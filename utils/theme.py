@@ -27,6 +27,15 @@ _DARK = dict(
     PRIMARY_BTN_FG  = "#0c0e14",
     NAV_ACTIVE      = "#f5a623",
     NAV_ACTIVE_BG   = "rgba(245,166,35,0.12)",
+    # Interactive accent — dark mode keeps its gold identity (high contrast on dark).
+    ACCENT          = "#f5a623",
+    ACCENT_STRONG   = "#f5a623",
+    ACCENT_SOFT     = "rgba(245,166,35,0.14)",
+    # Text-on-tint — dark mode reads the bright base hue on a dark tint.
+    ON_TINT_SUCCESS = "#26de81",
+    ON_TINT_WARNING = "#f5a623",
+    ON_TINT_DANGER  = "#ff5252",
+    ON_TINT_INFO    = "#4b7bec",
 )
 
 _LIGHT = dict(
@@ -59,6 +68,15 @@ _LIGHT = dict(
     PRIMARY_BTN_FG  = "#FFFFFF",
     NAV_ACTIVE      = "#1B59F8",
     NAV_ACTIVE_BG   = "rgba(27,89,248,0.10)",
+    # Interactive accent — blue is the single "clickable / you are here" signal.
+    ACCENT          = "#1B59F8",   # --btn-blue
+    ACCENT_STRONG   = "#0C49E8",   # blue-600 — text on pale-blue tint (>=4.5:1)
+    ACCENT_SOFT     = "rgba(27,89,248,0.10)",
+    # Text-on-tint — light mode needs darker tones (bare hues fail WCAG on white).
+    ON_TINT_SUCCESS = "#0F7A55",
+    ON_TINT_WARNING = "#92610A",
+    ON_TINT_DANGER  = "#B42318",
+    ON_TINT_INFO    = "#0C49E8",
 )
 
 
@@ -150,10 +168,17 @@ def _make_css(p: dict) -> str:
     SCROLL         = p["SCROLLBAR"]
     PRIMARY_BTN_BG = p["PRIMARY_BTN_BG"]
     PRIMARY_BTN_FG = p["PRIMARY_BTN_FG"]
+    ACCENT         = p["ACCENT"]
+    ACCENT_STRONG  = p["ACCENT_STRONG"]
+    ACCENT_SOFT    = p["ACCENT_SOFT"]
+    ON_SUCCESS     = p["ON_TINT_SUCCESS"]
+    ON_WARNING     = p["ON_TINT_WARNING"]
+    ON_DANGER      = p["ON_TINT_DANGER"]
+    ON_INFO        = p["ON_TINT_INFO"]
 
     return f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* ══════════════════════════════════════════════════════════════════════════
    LAYER 1 — CSS CUSTOM PROPERTIES (single source of truth for all colors)
@@ -204,15 +229,31 @@ def _make_css(p: dict) -> str:
     --color-danger:   #EF4444;   /* alert   */
     --color-info:     #3B82F6;   /* info / neutral */
 
+    /* Interactive accent — theme-aware (blue in light, gold in dark). The single
+       "this is clickable / you are here" signal across tabs, focus, nav, links. */
+    --accent:        {ACCENT};
+    --accent-strong: {ACCENT_STRONG};
+    --accent-soft:   {ACCENT_SOFT};
+
+    /* Text-on-tint shades — readable status/accent text on a pale tint of the
+       same hue. Theme-aware: light mode uses darker tones (bare gold/green/amber/
+       red as text fail WCAG on near-white); dark mode uses the bright base hue
+       (which already reads well on the dark tint). Both pass AA. */
+    --on-tint-success: {ON_SUCCESS};
+    --on-tint-warning: {ON_WARNING};
+    --on-tint-danger:  {ON_DANGER};
+    --on-tint-info:    {ON_INFO};
+
     /* ── Elevation tokens — plan §4.3 ──
        Layered card shadows tint with navy (matches new TEXT_PRI #0F1B33) so
        elevation feels brand-aligned rather than generic gray. */
     --shadow-card:      0 1px 2px rgba(15,27,51,0.04), 0 4px 12px rgba(15,27,51,0.04);
     --shadow-elevated:  0 2px 4px rgba(15,27,51,0.06), 0 12px 24px rgba(15,27,51,0.06);
     --shadow-popover:   0 8px 24px rgba(15,27,51,0.10), 0 2px 6px rgba(15,27,51,0.05);
+    --focus-ring:       0 0 0 3px {ACCENT}66;   /* keyboard focus indicator (accent @ 40%) */
 
     /* ── Type scale — 8 size tokens ── */
-    --fs-2xs:   0.65rem;
+    --fs-2xs:   0.70rem;
     --fs-xs:    0.75rem;
     --fs-sm:    0.82rem;
     --fs-base:  0.92rem;
@@ -243,9 +284,11 @@ def _make_css(p: dict) -> str:
        Using vars instead of hardcoded px lets every component respond
        to viewport width by cascading a single token override. */
     --card-pad-x:  1.5rem;
-    --card-pad-y:  1.375rem;
-    --grid-gap:    0.875rem;
+    --card-pad-y:  1.5rem;
+    --grid-gap:    1rem;
     --section-gap: 1rem;
+    --section-gap-top: 1.75rem;   /* uniform vertical rhythm above section labels */
+    --section-gap-bot: 0.6rem;    /* tight gap below a label, before its content   */
     --size-dot:    8px;
 
     /* ── Mobile touch-target baseline ──
@@ -315,6 +358,11 @@ html, body {{
 /* 2. Reduce main content top padding now that the toolbar is slim */
 [data-testid="stMainBlockContainer"] {{
     padding-top: 1rem !important;
+    /* Comfort ceiling — on ultrawide monitors, stop the KPI strip and tables
+       from stretching to uncomfortable line lengths; centered, no effect <=1680. */
+    max-width: 1680px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
 }}
 /* 3. Collapse the native header to zero height; overflow:visible lets the
       absolutely-positioned collapse button float over the brand header. */
@@ -394,9 +442,9 @@ div[data-testid="stSidebarNav"] {{
     font-family: 'Roboto', sans-serif !important;
 }}
 [data-testid="stTabs"] [aria-selected="true"] {{
-    background: var(--btn-amber-dim) !important;
-    color: var(--btn-gold) !important; font-weight: 700 !important;
-    border-bottom: 2px solid var(--btn-gold) !important;
+    background: var(--accent-soft) !important;
+    color: var(--accent-strong) !important; font-weight: 700 !important;
+    border-bottom: 2px solid var(--accent) !important;
 }}
 [data-testid="stTabs"] [data-baseweb="tab-highlight"] {{ display: none !important; }}
 
@@ -431,10 +479,10 @@ div[data-testid="stSidebarNav"] {{
 [data-baseweb="input"] input {{
     background: var(--btn-surface2) !important; color: var(--btn-text-pri) !important;
     border-color: var(--btn-border2) !important; border-radius: 6px !important;
-    font-family: var(--btn-font-mono) !important;
+    font-family: 'Roboto', sans-serif !important;
 }}
 [data-testid="stTextInput"] input:focus,
-[data-baseweb="input"] input:focus {{ border-color: var(--btn-gold) !important; }}
+[data-baseweb="input"] input:focus {{ border-color: var(--accent) !important; }}
 [data-baseweb="popover"] [data-baseweb="menu"] {{
     background: var(--btn-dropdown) !important; border: 1px solid var(--btn-border) !important;
 }}
@@ -446,7 +494,7 @@ div[data-testid="stSidebarNav"] {{
     background: var(--btn-surface) !important; border: 2px dashed var(--btn-border) !important;
     border-radius: 12px !important; padding: 8px !important;
 }}
-[data-testid="stFileUploader"]:hover {{ border-color: var(--btn-gold-dim) !important; }}
+[data-testid="stFileUploader"]:hover {{ border-color: var(--accent) !important; }}
 
 /* ── Data tables ── */
 /* Only the cosmetic wrapper border — let Streamlit's native theme handle
@@ -476,7 +524,8 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 [data-testid="stSlider"] [data-testid="stTickBarMin"],
 [data-testid="stSlider"] [data-testid="stTickBarMax"] {{ color: var(--btn-text-sec) !important; }}
 [data-testid="stMultiSelect"] [data-baseweb="tag"] {{
-    background: var(--btn-gold-dim) !important; color: #fff !important; border-radius: 16px !important;
+    background: var(--accent-soft) !important; color: var(--accent-strong) !important;
+    border: 1px solid var(--accent) !important; border-radius: 16px !important;
 }}
 /* stExpander header colour intentionally left to Streamlit's native theme vars */
 [data-testid="stDownloadButton"] > button {{
@@ -485,6 +534,32 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 }}
 [data-testid="stSpinner"] {{ color: var(--btn-text-sec) !important; }}
 
+/* ── Keyboard focus — a visible accent ring on every interactive surface ──
+   :focus-visible keeps it keyboard-only (no glow on mouse click). Wires up the
+   focus indicator the brand guide requires but the theme never applied. */
+[data-testid="stButton"] > button:focus-visible,
+[data-testid="stDownloadButton"] > button:focus-visible,
+[data-testid="stPageLink"] a:focus-visible,
+[data-testid="stTabs"] [data-baseweb="tab"]:focus-visible,
+[data-baseweb="select"] > div:focus-within,
+[data-testid="stTextInput"] input:focus-visible,
+[data-baseweb="input"] input:focus-visible {{
+    outline: none !important;
+    box-shadow: var(--focus-ring) !important;
+    border-radius: 8px;
+}}
+
+/* ── Respect reduced-motion — disable hover lifts, dot-pulse, transitions for
+   users who request it (vestibular accessibility). ── */
+@media (prefers-reduced-motion: reduce) {{
+    *, *::before, *::after {{
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }}
+}}
+
 /* ════════════════════════════════════════════════════
    CUSTOM COMPONENT CLASSES  (var() only)
    ════════════════════════════════════════════════════ */
@@ -492,7 +567,7 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .page-header {{
     display: flex; align-items: center; gap: 14px;
     background: var(--btn-surface); border: 1px solid var(--btn-border);
-    border-left: 3px solid var(--btn-gold); border-radius: 6px;
+    border-left: 3px solid var(--accent); border-radius: 6px;
     padding: 16px 20px; margin-bottom: 24px;
 }}
 .page-header h1 {{
@@ -500,15 +575,16 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     font-size: 1.4rem; font-weight: 700; color: var(--btn-text-pri); margin: 0;
 }}
 .page-header .subtitle {{
-    font-family: var(--btn-font-mono); font-size: 0.78rem;
+    font-family: 'Roboto', sans-serif; font-size: 0.78rem;
     color: var(--btn-text3); margin-top: 3px;
 }}
 
 .section-label {{
     font-size: 0.78rem; font-weight: 800; letter-spacing: 1.5px;
     text-transform: uppercase; color: var(--btn-text-pri);
-    font-family: var(--btn-font-mono); margin: 24px 0 10px 0;
-    padding-left: 10px; border-left: 3px solid var(--btn-gold);
+    font-family: 'Roboto', sans-serif;
+    margin: var(--section-gap-top, 1.75rem) 0 var(--section-gap-bot, 0.6rem) 0;
+    padding-left: 10px; border-left: 3px solid var(--accent);
 }}
 
 .kpi-card {{
@@ -616,18 +692,18 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 }}
 
 .filter-pill {{
-    display: inline-block; background: rgba(184,134,11,.12);
-    border: 1px solid var(--btn-gold-dim); border-radius: 20px; padding: 4px 14px;
-    font-size: 0.78rem; color: var(--btn-gold); margin-bottom: 14px; font-weight: 600;
+    display: inline-block; background: var(--accent-soft);
+    border: 1px solid var(--accent); border-radius: 20px; padding: 4px 14px;
+    font-size: 0.78rem; color: var(--accent-strong); margin-bottom: 14px; font-weight: 600;
 }}
 
 .status-badge {{
     display: inline-block; border-radius: 6px; padding: 3px 10px;
     font-size: 0.75rem; font-weight: 600;
 }}
-.status-badge.ok   {{ background: rgba(34,197,94,.15);  color: var(--btn-green); border: 1px solid rgba(34,197,94,.3); }}
-.status-badge.err  {{ background: rgba(239,68,68,.15);   color: var(--btn-red);   border: 1px solid rgba(239,68,68,.3); }}
-.status-badge.warn {{ background: rgba(245,158,11,.15);  color: var(--btn-amber); border: 1px solid rgba(245,158,11,.3); }}
+.status-badge.ok   {{ background: rgba(34,197,94,.15);  color: var(--on-tint-success); border: 1px solid rgba(34,197,94,.3); }}
+.status-badge.err  {{ background: rgba(239,68,68,.15);   color: var(--on-tint-danger);   border: 1px solid rgba(239,68,68,.3); }}
+.status-badge.warn {{ background: rgba(245,158,11,.15);  color: var(--on-tint-warning); border: 1px solid rgba(245,158,11,.3); }}
 
 .config-card {{
     background: var(--btn-surface);
@@ -701,8 +777,8 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
     padding: 3px 10px; border-radius: 20px; font-size: 0.73rem;
     font-weight: 700; letter-spacing: 0.05em;
 }}
-.info-chip.production {{ background: rgba(52,211,153,.12); color: var(--btn-green); border: 1px solid rgba(52,211,153,.3); }}
-.info-chip.staging    {{ background: rgba(251,191,36,.12);  color: var(--btn-amber); border: 1px solid rgba(251,191,36,.3); }}
+.info-chip.production {{ background: rgba(52,211,153,.12); color: var(--on-tint-success); border: 1px solid rgba(52,211,153,.3); }}
+.info-chip.staging    {{ background: rgba(251,191,36,.12);  color: var(--on-tint-warning); border: 1px solid rgba(251,191,36,.3); }}
 .info-chip.neutral    {{ background: var(--btn-surface2); color: var(--btn-text-sec); border: 1px solid var(--btn-border); }}
 
 /* ── Prerequisite Checklist ── */
@@ -809,11 +885,11 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .card-actions {{ margin-left: auto; display: flex; gap: 6px; }}
 
 /* ── Badges ── */
-.badge {{ display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 3px; font-size: 10px; font-family: var(--btn-font-mono); font-weight: 600; }}
-.badge-amber {{ background: var(--btn-amber-dim); color: var(--btn-gold); }}
-.badge-green {{ background: rgba(38,222,129,0.1); color: var(--btn-green); }}
-.badge-blue  {{ background: rgba(75,123,236,0.12); color: var(--btn-blue); }}
-.badge-red   {{ background: rgba(255,82,82,0.1); color: var(--btn-red); }}
+.badge {{ display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 3px; font-size: 11px; font-family: 'Roboto', sans-serif; font-weight: 600; }}
+.badge-amber {{ background: var(--btn-amber-dim); color: var(--on-tint-warning); }}
+.badge-green {{ background: rgba(38,222,129,0.1); color: var(--on-tint-success); }}
+.badge-blue  {{ background: rgba(75,123,236,0.12); color: var(--on-tint-info); }}
+.badge-red   {{ background: rgba(255,82,82,0.1); color: var(--on-tint-danger); }}
 .badge-gray  {{ background: var(--btn-bg4); color: var(--btn-text3); }}
 
 /* ── Section title / sub ── */
@@ -1135,7 +1211,7 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
     :root {{
         --card-pad-x:  1.75rem;
         --card-pad-y:  1.5rem;
-        --grid-gap:    1.0rem;
+        --grid-gap:    1.25rem;
     }}
     /* cqi (not vw) so the 5-up hero strip on wide monitors sizes each value to
        its own ~⅕-width card — a vw clamp here re-pinned a large min and clipped
@@ -1529,12 +1605,13 @@ def theme_toggle_sidebar():
 # ──────────────────────────────────────────────────────────────────────────────
 
 def page_header(icon: str, title: str, subtitle: str = ""):
-    sub_html = f'<div class="subtitle">{subtitle}</div>' if subtitle else ""
+    sub_html  = f'<div class="subtitle">{subtitle}</div>' if subtitle else ""
+    # Render the icon node only when an icon is supplied — the four secondary
+    # pages call page_header("", …); an empty 2rem span + 14px gap used to push
+    # the title into a phantom indent. Omitting it keeps the header flush.
+    icon_html = f'<span style="font-size:1.6rem;line-height:1;">{icon}</span>' if icon else ""
     st.markdown(
-        f"""<div class="page-header">
-            <span style="font-size:2rem;">{icon}</span>
-            <div><h1>{title}</h1>{sub_html}</div>
-        </div>""",
+        f'<div class="page-header">{icon_html}<div><h1>{title}</h1>{sub_html}</div></div>',
         unsafe_allow_html=True,
     )
 
@@ -1560,13 +1637,13 @@ def section_header(icon: str, title: str, subtitle: str = "", accent_color: str 
     )
     html = (
         '<div style="display:flex;align-items:center;gap:14px;'
-        'margin:28px 0 14px 0;padding:14px 20px;'
+        'margin:var(--section-gap-top,1.75rem) 0 14px 0;padding:14px 20px;'
         f'background:linear-gradient(135deg,{surf} 0%,{surf2} 100%);'
         f'border-radius:12px;border-left:4px solid {color};'
         'box-shadow:0 2px 10px rgba(0,0,0,.15);">'
         f'<span style="font-size:var(--fs-kpi);line-height:1;">{icon}</span>'
         '<div>'
-        f'<div style="font-size:var(--fs-lg);font-weight:var(--fw-black);color:{txt};letter-spacing:-0.01em;font-family:\'Roboto\',-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;">{title}</div>'
+        f'<div style="font-size:var(--fs-lg);font-weight:var(--fw-bold);color:{txt};letter-spacing:-0.01em;font-family:\'Roboto\',-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;">{title}</div>'
         f'{sub_html}'
         '</div>'
         '</div>'
@@ -1915,10 +1992,13 @@ def status_chip_html(label: str, kind: str = "ok") -> str:
     kind: 'ok' (green) | 'warn' (amber) | 'danger' (red)
     """
     color_map = {"ok": SUCCESS, "warn": WARNING, "danger": DANGER}
-    c = color_map.get(kind, SUCCESS)
+    text_map  = {"ok": "var(--on-tint-success)", "warn": "var(--on-tint-warning)",
+                 "danger": "var(--on-tint-danger)"}
+    c   = color_map.get(kind, SUCCESS)
+    txt = text_map.get(kind, "var(--on-tint-success)")   # theme-aware, WCAG-AA text
     return (
         f'<div style="display:inline-block;background:{c}22;border:1px solid {c};'
-        f'border-radius:20px;padding:2px 9px;font-size:var(--fs-2xs);color:{c};'
+        f'border-radius:20px;padding:2px 9px;font-size:var(--fs-2xs);color:{txt};'
         f'font-weight:var(--fw-bold);margin-top:6px;">{label}</div>'
     )
 
@@ -1939,7 +2019,7 @@ def left_accent_card(
     return (
         f'<div style="flex:1;min-width:150px;border-left:5px solid {accent};'
         f'background:{accent}14;border-radius:0 14px 14px 0;padding:16px 18px;">'
-        f'<div class="kpi-label" style="color:{accent};">{icon} {name}</div>'
+        f'<div class="kpi-label" style="color:{p["TEXT_PRI"]};">{icon} {name}</div>'
         f'<div class="kpi-value" style="font-size:var(--fs-kpi);margin:6px 0 2px;">{count}</div>'
         f'<div class="kpi-meta" style="margin-bottom:10px;">{sub_label}</div>'
         f'<div class="kpi-meta" style="margin-bottom:3px;">'
@@ -1959,6 +2039,8 @@ def status_box(rate_pct: float, narrative: str) -> None:
     """
     p     = _palette()
     color = SUCCESS if rate_pct >= 100 else (WARNING if rate_pct >= 80 else DANGER)
+    txt   = ("var(--on-tint-success)" if rate_pct >= 100
+             else ("var(--on-tint-warning)" if rate_pct >= 80 else "var(--on-tint-danger)"))
     label = (
         "ON TRACK" if rate_pct >= 100
         else ("AT RISK" if rate_pct >= 80 else "CRITICAL — INTERVENTION REQUIRED")
@@ -1968,7 +2050,7 @@ def status_box(rate_pct: float, narrative: str) -> None:
     st.markdown(
         f'<div style="border-left:5px solid {color};background:{color}18;'
         f'border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:14px;">'
-        f'<div class="kpi-label" style="color:{color};">{dot}STATUS: {label}</div>'
+        f'<div class="kpi-label" style="color:{txt};">{dot}STATUS: {label}</div>'
         f'<div style="font-size:var(--fs-sm);margin-top:8px;color:{p["TEXT_PRI"]};line-height:1.65;">'
         f'{narrative}</div></div>',
         unsafe_allow_html=True,
