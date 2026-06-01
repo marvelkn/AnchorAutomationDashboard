@@ -1080,6 +1080,10 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
     display: flex;
 }}
 .kpi-row-item > .kpi-card {{ flex: 1; min-width: 0; }}
+/* Rail wrapper is inert on desktop — .kpi-row keeps its existing flex/wrap layout.
+   Re-materialized inside the ≤768px block (Phase 2) to host the scroll fade +
+   chevron, which the scrolling .kpi-row itself cannot pin. */
+.kpi-rail {{ display: contents; }}
 @media (max-width: 1100px) {{
     .kpi-row-item {{ flex: 1 1 calc(33.333% - 8px); }}
 }}
@@ -1179,7 +1183,20 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
 .fresh-chip--unknown .fresh-chip__dot {{ background: #9098A3; }}
 
 @media (max-width: 768px) {{
-    .dashboard-header-row {{ flex-direction: column; align-items: flex-start; gap: 8px; }}
+    /* Lift the whole page slightly and keep the header compact. The eyebrow,
+       title and freshness chip stay (per design call) but shrink, and the chip
+       stays INLINE beside the title instead of stacking into a tall column —
+       reclaims ~30px above the KPI rail so the tabs surface on load. */
+    [data-testid="stMainBlockContainer"] {{ padding-top: 0.5rem !important; }}
+    .dashboard-header-row {{
+        flex-direction: row; flex-wrap: wrap; align-items: center;
+        gap: 6px 10px; margin-bottom: 8px;
+    }}
+    .dashboard-header-row > div:first-child {{ flex: 1 1 auto; min-width: 0; }}
+    .dashboard-page-eyebrow {{ font-size: 0.62rem; letter-spacing: 0.11em; margin: 0; }}
+    .dashboard-page-title   {{ font-size: 1.04rem !important; margin: 1px 0 0 0 !important; line-height: 1.2 !important; }}
+    .fresh-chip      {{ height: 22px; font-size: 11px; padding: 0 10px 0 8px; flex: 0 0 auto; }}
+    .fresh-chip__dot {{ width: 7px; height: 7px; margin-right: 6px; }}
 }}
 
 /* ── Merchant alert tile — flatten [4,3,2] columns at <=768px ──
@@ -1401,34 +1418,46 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
    PHASE 2 — Layout: KPI "2 hero + 3 mini" strip + chart / table safety nets.
    ════════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {{
-    /* ── KPI hero strip → 2 full-width heroes + a compact 3-up mini row ──
-       The dashboard renders exactly 5 hero KPI cards, in this order:
-         1 Merchants · 2 Sales Volume · 3 Transactions · 4 On-Us · 5 High Risk
-       Surface the two most decision-relevant (Sales Volume, High Risk) as
-       full-width heroes via flex `order`; compress the remaining three into a
-       3-up row so the eye lands on what matters without a 5-card scroll tower. */
-    .kpi-row {{ gap: 8px !important; }}
-    .kpi-row-item {{ flex: 1 1 calc(33.333% - 6px) !important; }}
-    .kpi-row-item:nth-child(2),
-    .kpi-row-item:nth-child(5) {{ flex: 1 1 100% !important; }}
-    .kpi-row-item:nth-child(2) {{ order: -2; }}
-    .kpi-row-item:nth-child(5) {{ order: -1; }}
-    /* Hero cards — confident headline */
-    .kpi-row-item:nth-child(2) .kpi-card .kpi-val,
-    .kpi-row-item:nth-child(5) .kpi-card .kpi-val {{
-        font-size: clamp(1.7rem, 7vw, 2.2rem) !important;
+    /* ── KPI strip → compact swipeable rail ──────────────────────────────────
+       All 5 cards in ONE short horizontal scroller so the tabs surface
+       immediately on load. Mirrors the tab strip's swipe + right-edge fade +
+       chevron for a consistent, learnable gesture. The .kpi-rail wrapper
+       (added in kpi_row(); display:contents on desktop) re-materializes here
+       to host the fade/chevron, since the scrolling .kpi-row can't pin them. */
+    .kpi-rail {{ display: block; position: relative; margin: 0 0 8px; }}
+    .kpi-row {{
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        gap: 8px !important;
+        margin: 0 !important;
+        overflow-x: auto !important;
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding: 2px 32px 2px 2px;   /* right pad clears the chevron */
     }}
-    /* Mini cards — smaller headline + tighter box */
-    .kpi-row-item:nth-child(1) .kpi-card,
-    .kpi-row-item:nth-child(3) .kpi-card,
-    .kpi-row-item:nth-child(4) .kpi-card {{
-        padding: 12px 10px !important;
-        gap: 4px !important;
+    .kpi-row::-webkit-scrollbar {{ display: none; }}
+    /* Equal fixed-basis cards; ~2.2 visible so the 3rd peeks → signals scroll.
+       order:0 + equal flex neutralize the old hero/order overrides above. */
+    .kpi-row-item {{
+        flex: 0 0 44% !important;
+        order: 0 !important;
+        scroll-snap-align: start;
+        min-width: 0;
     }}
-    .kpi-row-item:nth-child(1) .kpi-card .kpi-val,
-    .kpi-row-item:nth-child(3) .kpi-card .kpi-val,
-    .kpi-row-item:nth-child(4) .kpi-card .kpi-val {{
-        font-size: clamp(1.0rem, 4.6vw, 1.3rem) !important;
+    .kpi-row-item .kpi-card {{ padding: 12px 12px !important; gap: 4px !important; height: 100%; }}
+    .kpi-row-item .kpi-card .kpi-val {{ font-size: clamp(1.15rem, 5.2vw, 1.5rem) !important; }}
+    .kpi-row-item .kpi-card .kpi-spark {{ display: none !important; }}  /* sparkline adds height the rail doesn't need */
+    /* Right-edge fade + chevron — same affordance as the tab strip. */
+    .kpi-rail::after {{
+        content: "\\203A";
+        position: absolute; top: 0; right: 0;
+        width: 30px; height: 100%;
+        display: flex; align-items: center; justify-content: flex-end; padding-right: 6px;
+        font-size: 20px; font-weight: 700; line-height: 1;
+        color: var(--btn-text-sec);
+        background: linear-gradient(to right, transparent, var(--btn-bg) 70%);
+        pointer-events: none; z-index: 2;
     }}
 
     /* ── Charts — never overflow the viewport ── */
@@ -1446,6 +1475,21 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
         overflow-x: auto !important;
         -webkit-overflow-scrolling: touch !important;
     }}
+}}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PHASE 3 — Global structural tightening (≤768px). Shared classes shrink so the
+   eye lands on data, not chrome. Applies across every Dashboard tab AND every
+   other page (Pipeline / Records / PM / Settings) from this one injected sheet.
+   ════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {{
+    :root {{ --section-gap-top: 1.05rem; --section-gap-bot: 0.45rem; }}
+    .section-label {{ font-size: 0.72rem; letter-spacing: 1px; padding-left: 8px; }}
+    .tab-desc      {{ font-size: 0.8rem; padding: 8px 12px; margin-bottom: 12px; }}
+    .page-header   {{ padding: 12px 14px; margin-bottom: 16px; gap: 10px; }}
+    .page-header h1        {{ font-size: 1.15rem; }}
+    .page-header .subtitle {{ font-size: 0.72rem; }}
+    .kpi-card:not(.hero)   {{ padding: 12px 12px !important; gap: 6px !important; }}
 }}
 
 </style>
@@ -1786,8 +1830,11 @@ def kpi_row(cards: list):
     as the viewport narrows.
     """
     inner = "".join(f'<div class="kpi-row-item">{c}</div>' for c in cards)
+    # .kpi-rail is a non-scrolling wrapper: inert (display:contents) on desktop,
+    # re-materialized at <=768px to host the rail's right-edge fade + chevron
+    # (the scrolling .kpi-row itself can't pin an absolutely-positioned pseudo).
     st.markdown(
-        f'<div class="kpi-row">{inner}</div>',
+        f'<div class="kpi-rail"><div class="kpi-row">{inner}</div></div>',
         unsafe_allow_html=True,
     )
 
