@@ -1290,7 +1290,7 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
 .st-key-mobile_nav {{ display: none; }}
 
 @media (max-width: 768px) {{
-    :root {{ --mobile-nav-h: 62px; }}
+    :root {{ --mobile-nav-h: 62px; --mobile-nav-safe-r: 56px; }}
 
     /* ── Fixed bottom tab bar ─────────────────────────────────────────────── */
     .st-key-mobile_nav {{
@@ -1303,11 +1303,25 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
         box-shadow: 0 -2px 14px rgba(15,27,51,0.07) !important;
         padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px)) 4px !important;
     }}
-    /* Keep the link row horizontal — overrides the global ≤640px column-stack */
+    /* ── Keep Streamlit Cloud bottom-right chrome clear of the fixed nav ─────
+       The host floats two elements in the bottom-right corner that can overlap
+       the bar. The "Hosted with Streamlit" badge is in-DOM and shown to every
+       viewer → lift it ABOVE the bar (repositioned, not hidden, so attribution
+       stays intact). The "Manage app" button is host-injected, shown only to
+       repo owners, and not reliably reachable by app CSS → we can't move it, so
+       the link row below reserves a right-side safe-zone to clear that corner. */
+    [data-testid="stViewerBadge"],
+    [class*="viewerBadge"] {{
+        bottom: calc(var(--mobile-nav-h) + 12px) !important;
+        z-index: 1000 !important;   /* above the z-index:999 bar so it stays visible */
+    }}
+    /* Keep the link row horizontal — overrides the global ≤640px column-stack.
+       padding-right = the corner safe-zone described above. */
     .st-key-mobile_nav [data-testid="stHorizontalBlock"] {{
         flex-direction: row !important;
         flex-wrap: nowrap !important;
         gap: 0 !important;
+        padding-right: var(--mobile-nav-safe-r) !important;
     }}
     .st-key-mobile_nav [data-testid="stColumn"] {{
         flex: 1 1 0 !important;
