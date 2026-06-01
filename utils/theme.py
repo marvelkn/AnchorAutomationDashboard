@@ -1492,6 +1492,66 @@ td.null-val {{ color: var(--btn-text3); font-style: italic; }}
     .kpi-card:not(.hero)   {{ padding: 12px 12px !important; gap: 6px !important; }}
 }}
 
+/* ════════════════════════════════════════════════════════════════════════════
+   PHASE 4 — Extend the swipe rail to the other compact card STRIPS (≤768px).
+   `.stats-grid` (colored stat-card summary rows on Card Share / Weekly / Anomaly)
+   and `.agg-strip` (PM overview) currently stack into tall towers on phones.
+   Convert them to the same horizontal swipe rail as the KPI strip: nowrap flex
+   scroller + snap + the identical right-edge fade + chevron. The fade/chevron is
+   pinned to the non-scrolling Streamlit `stMarkdown` parent via :has() (these
+   strips have no .kpi-rail-style wrapper). Browsers without :has() simply lose
+   the chevron — the rail still scrolls and the peeked next card signals it.
+   Desktop (>768px) is untouched: the grid/flex swap lives only in this query.
+   ════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {{
+    /* Shared: turn each strip into a horizontal swipe scroller. */
+    .stats-grid, .agg-strip {{
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }}
+    .stats-grid::-webkit-scrollbar, .agg-strip::-webkit-scrollbar {{ display: none; }}
+
+    /* stats-grid → separate cards with a gap; ~2 show + a peek of the next. */
+    .stats-grid {{ gap: 8px !important; }}
+    .stats-grid > .stat-card {{
+        flex: 0 0 47% !important;
+        scroll-snap-align: start;
+        min-width: 0;
+        padding: 12px 12px !important;
+    }}
+
+    /* agg-strip → one bordered strip divided by hairlines; keep dividers, no gap. */
+    .agg-strip {{ gap: 0 !important; }}
+    .agg-strip-item {{
+        flex: 0 0 50% !important;
+        scroll-snap-align: start;
+        min-width: 0;
+        border-right: 1px solid var(--btn-border) !important;  /* restore divider (overrides the ≤640 column rule) */
+        border-bottom: none !important;
+    }}
+    .agg-strip-item:last-child {{ border-right: none !important; }}
+
+    /* Right-edge fade + chevron — identical to the KPI rail, pinned to the
+       non-scrolling stMarkdown parent so it never scrolls away with the cards. */
+    [data-testid="stMarkdown"]:has(.stats-grid),
+    [data-testid="stMarkdown"]:has(.agg-strip) {{ position: relative; }}
+    [data-testid="stMarkdown"]:has(.stats-grid)::after,
+    [data-testid="stMarkdown"]:has(.agg-strip)::after {{
+        content: "\\203A";
+        position: absolute; top: 0; right: 0; height: 100%; width: 30px;
+        display: flex; align-items: center; justify-content: flex-end; padding-right: 6px;
+        font-size: 20px; font-weight: 700; line-height: 1;
+        color: var(--btn-text-sec);
+        background: linear-gradient(to right, transparent, var(--btn-bg) 70%);
+        pointer-events: none; z-index: 2;
+    }}
+}}
+
 </style>
 """
 
