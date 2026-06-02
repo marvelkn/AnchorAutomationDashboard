@@ -1,10 +1,25 @@
 import os
+import re
 from io import BytesIO
 from typing import Iterable
 
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+
+
+# Schema / table / column names are interpolated into raw SQL below (identifiers
+# cannot be passed as bound parameters). Column names originate from user-uploaded
+# spreadsheets, so a crafted header must never break out of its double-quotes.
+# Validate every identifier against a strict allowlist before interpolation.
+_SAFE_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _safe_ident(name: str) -> str:
+    """Return `name` if it is a safe SQL identifier; raise ValueError otherwise."""
+    if not _SAFE_IDENT_RE.match(name or ""):
+        raise ValueError(f"Unsafe SQL identifier: {name!r}")
+    return name
 
 
 def build_engine() -> Engine:
@@ -54,6 +69,15 @@ def upsert_dataframe(
         raise ValueError("Uploaded file is empty.")
 
     df.columns = [str(col).strip().lower() for col in df.columns]
+
+    # Guard every identifier we interpolate into raw SQL below (schema, table,
+    # and each upload-derived column). conflict_cols are a subset of df.columns,
+    # so validating df.columns covers them too.
+    _safe_ident(schema)
+    _safe_ident(table_name)
+    for _col in df.columns:
+        _safe_ident(_col)
+
     conflict_cols = [str(col).strip().lower() for col in conflict_columns if str(col).strip()]
     if not conflict_cols:
         raise ValueError("Conflict columns are required.")

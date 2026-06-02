@@ -1,7 +1,10 @@
+import logging
 import os
 import time
 
 import streamlit as st
+
+log = logging.getLogger(__name__)
 
 # ── Session-based rate limiter ─────────────────────────────────────────────────
 
@@ -59,6 +62,13 @@ def is_pipeline_cooling_down() -> tuple[bool, float]:
 
 
 def set_pipeline_cooldown() -> None:
-    """Record the current time as the last pipeline run. Call before starting the run."""
-    with open(_COOLDOWN_FILE, "w") as f:
-        f.write(str(time.time()))
+    """Record the current time as the last pipeline run. Call before starting the run.
+
+    Best-effort: a read-only filesystem must not crash the pipeline start, so a
+    write failure is logged rather than raised (the cooldown simply won't engage).
+    """
+    try:
+        with open(_COOLDOWN_FILE, "w") as f:
+            f.write(str(time.time()))
+    except Exception:
+        log.warning("could not write pipeline cooldown file: %s", _COOLDOWN_FILE, exc_info=True)

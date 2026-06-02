@@ -15,6 +15,7 @@ If `DATABASE_URL` is not set the page renders a configuration error and
 stops. There is no longer a local-mode pipeline UI on this page.
 """
 
+import logging
 import os
 import sys
 import re as _re
@@ -33,6 +34,8 @@ from utils.cloud_db import build_engine, test_connection, read_uploaded_datafram
 from utils.sqlite_to_neon import ingest_sqlite_bytes_to_neon, fetch_recent_ingestion_runs
 from utils.master_files_db import list_master_files, sync_all_masters_to_disk
 from utils.rate_limiter import enforce_rate_limit, is_pipeline_cooling_down, set_pipeline_cooldown
+
+log = logging.getLogger(__name__)
 
 
 st.set_page_config(
@@ -73,7 +76,7 @@ def _get_cloud_engine():
 try:
     sync_all_masters_to_disk(_get_cloud_engine(), PATH_MID, PATH_CARD, PATH_MON)
 except Exception:
-    pass
+    log.warning("master-file sync to disk failed; the pre-flight gate below still validates Neon", exc_info=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
