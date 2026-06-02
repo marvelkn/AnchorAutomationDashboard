@@ -3305,57 +3305,6 @@ with tab4:
                     )
                     st.plotly_chart(fig_fleet_lofo, use_container_width=True, theme=None)
 
-            # Show HIGH + MEDIUM merchants sorted by Risk Score descending
-            df_at_risk = pd.concat([df_high, df_medium], ignore_index=True)
-            if len(df_at_risk) > 0:
-                section_label("Merchant Detail — Action Required & Monitor Closely")
-
-                # ── Highest-confidence dual-flagged alert ─────────────────────
-                if 'IF_IS_ANOMALY' in df_at_risk.columns:
-                    ensemble_hits = df_at_risk[
-                        (df_at_risk['CHURN_RISK'] == 'HIGH RISK') &
-                        (df_at_risk['IF_IS_ANOMALY'] == True)
-                    ]
-                    if len(ensemble_hits) > 0:
-                        names = ', '.join(ensemble_hits['MERCHANT_GROUP'].tolist())
-                        st.error(
-                            f"**HIGHEST PRIORITY — {len(ensemble_hits)} merchant(s) confirmed by 2 independent methods:** {names}\n\n"
-                            f"These merchants are flagged by both trend analysis AND anomaly detection, giving the highest confidence that immediate action is needed. "
-                            f"**Recommended: assign PM for direct outreach this week.**"
-                        )
-
-                risk_cols = [c for c in ['MERCHANT_GROUP','PM','CLUSTER','CHURN_RISK','RISK_SCORE',
-                                          'WEEKS_ACTIVE','SV_GROWTH_RATE',
-                                          'ACHIEVEMENT_PCT','ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH',
-                                          'IF_ANOMALY_SCORE','IF_IS_ANOMALY'] if c in df_at_risk.columns]
-                df_rd = df_at_risk[risk_cols].sort_values('RISK_SCORE', ascending=False).copy() if 'RISK_SCORE' in df_at_risk.columns else df_at_risk[risk_cols].copy()
-                if 'SV_GROWTH_RATE' in df_rd.columns:
-                    df_rd['SV_GROWTH_RATE'] = (df_rd['SV_GROWTH_RATE']*100).round(1).astype(str)+'%'
-                if 'ACHIEVEMENT_PCT' in df_rd.columns:
-                    df_rd['ACHIEVEMENT_PCT'] = df_rd['ACHIEVEMENT_PCT'].round(1).astype(str)+'%'
-                if 'CHURN_RISK' in df_rd.columns:
-                    df_rd['CHURN_RISK'] = df_rd['CHURN_RISK'].replace({
-                        'HIGH RISK':   'Action Required',
-                        'MEDIUM RISK': 'Monitor Closely',
-                        'STABLE':       'On Track',
-                    })
-                if 'IF_IS_ANOMALY' in df_rd.columns:
-                    df_rd['IF_IS_ANOMALY'] = df_rd['IF_IS_ANOMALY'].map({True: 'Anomaly Detected', False: 'Normal'})
-
-                def style_risk_table(row):
-                    styles = [''] * len(row)
-                    for idx, col in enumerate(df_rd.columns):
-                        if col.startswith('ZSCORE') and pd.to_numeric(row[col], errors='coerce') < z_thresh_val:
-                            styles[idx] = f'color: {RED}; font-weight: bold;'
-                    return styles
-
-                fmt = {c: "{:.3f}" for c in ['ZSCORE_SV','ZSCORE_FBI','ZSCORE_GROWTH'] if c in df_rd.columns}
-                if 'RISK_SCORE' in df_rd.columns: fmt['RISK_SCORE'] = "{:.1f}"
-                if 'IF_ANOMALY_SCORE' in df_rd.columns: fmt['IF_ANOMALY_SCORE'] = "{:.4f}"
-                st.dataframe(df_rd.style.apply(style_risk_table, axis=1).format(fmt).hide(axis="index"), use_container_width=True)
-                st.download_button("Export Merchant Action List", df_rd.to_csv(index=False, encoding='utf-8-sig'),
-                                   "merchant_action_list.csv", "text/csv")
-
         # ── Weekly Activity Pulse — Sudden Drop Monitor ───────────────────────
         styled_divider()
         section_label("Weekly Activity Pulse — Sudden Drop Monitor")
@@ -3522,36 +3471,42 @@ with tab5:
                     .rename(columns={"MERCHANT_GROUP": "Merchant", "WEEK_NUM": "Week", "RATIO": "Ratio"}),
                     use_container_width=True, hide_index=True,
                 )
-                _indom = _df_wm[_df_wm["MERCHANT_GROUP"] == "INDOMARET"].sort_values("WEEK_NUM")
-                if not _indom.empty:
-                    _thresh_line_val = _pm_avg[_df_wm["MERCHANT_GROUP"] == "INDOMARET"].iloc[0] * 3
-                    _fig_t = go.Figure()
-                    _fig_t.add_trace(go.Scatter(
-                        x=_indom["WEEK_NUM"], y=_indom["WEEKLY_VOL"] / 1e9,
-                        mode="lines+markers", name="INDOMARET Weekly VOL",
-                        line=dict(color=BLUE_ACC),
-                    ))
-                    _anom_indom = _indom[_indom["WEEK_NUM"].isin(_thresh_anom["WEEK_NUM"])]
-                    if not _anom_indom.empty:
-                        _fig_t.add_trace(go.Scatter(
-                            x=_anom_indom["WEEK_NUM"], y=_anom_indom["WEEKLY_VOL"] / 1e9,
-                            mode="markers", marker=dict(color=DANGER, size=14, symbol='star',
-                                                        line=dict(color='white', width=2)),
-                            name="Anomaly",
-                        ))
-                    _fig_t.add_hline(
-                        y=_thresh_line_val / 1e9, line_dash="dash", line_color=WARNING,
-                        annotation_text="3× threshold",
-                    )
-                    _fig_t.update_layout(
-                        xaxis_title="Week", yaxis_title="Volume (IDR Billions)",
-                        title="INDOMARET — Weekly Volume 2026",
-                        # Mobile fix: legend below the plot so the chart spans
-                        # full width (default right-side legend squeezed it).
-                        legend=dict(orientation="h", yanchor="top", y=-0.25, x=0, xanchor="left"),
-                    )
-                    apply_plotly_theme(_fig_t)
-                    st.plotly_chart(_fig_t, use_container_width=True)
+                # Bug fix: the chart was hardcoded to a single merchant
+                # (INDOMARET). Plot the top flagged merchant-weeks across the
+                # WHOLE portfolio instead — _thresh_anom already holds every row
+                # where weekly VOL exceeded 3× that merchant's own 2026 average.
+                _top_flagged = _thresh_anom.sort_values("RATIO", ascending=False).head(15).copy()
+                _tf_label = (_top_flagged["MERCHANT_GROUP"].astype(str)
+                             + "  ·  W" + _top_flagged["WEEK_NUM"].astype(int).astype(str))
+                _pp_t = _p()
+                _fig_t = go.Figure(go.Bar(
+                    x=_top_flagged["RATIO"],
+                    y=_tf_label,
+                    orientation="h",
+                    marker=dict(color=DANGER, line_width=0),
+                    # Bold, theme-aware data labels stay legible in light & dark.
+                    text=[f"<b>{r:.1f}×</b>" for r in _top_flagged["RATIO"]],
+                    textposition="outside",
+                    textfont=dict(size=12, color=_pp_t["TEXT_PRI"]),
+                    cliponaxis=False,
+                    customdata=(_top_flagged["WEEKLY_VOL"] / 1e9),
+                    hovertemplate=("<b>%{y}</b><br>Spike: %{x:.1f}× own average<br>"
+                                   "Volume: %{customdata:,.2f} B IDR<extra></extra>"),
+                ))
+                _fig_t.add_vline(
+                    x=3, line_dash="dash", line_color=WARNING,
+                    annotation_text="3× threshold", annotation_position="top",
+                )
+                _fig_t.update_layout(
+                    title=f"Top {len(_top_flagged)} Volume Spikes — flagged merchant-weeks (VOL > 3× own avg)",
+                    xaxis_title="Spike size (× merchant's own 2026 average)",
+                    yaxis=dict(autorange="reversed"),   # biggest spike on top
+                    height=max(340, 34 * len(_top_flagged) + 130),
+                    margin=dict(l=8, r=88, t=56, b=44),
+                    showlegend=False,
+                )
+                apply_plotly_theme(_fig_t)
+                st.plotly_chart(_fig_t, use_container_width=True)
 
         elif _method.startswith("Z-Score"):
             st.caption(
@@ -3575,15 +3530,18 @@ with tab5:
             _df_anom_z = _zscore_anom
             _fig_z = go.Figure()
             # Layer 1: normals — small grey, low opacity, no labels.
+            _pp_z = _p()
             _fig_z.add_trace(go.Scatter(
                 x=_df_normal["WEEK_NUM"],
                 y=_df_normal["WEEKLY_VOL"] / 1e9,
                 mode="markers",
-                marker=dict(color=TEXT_SEC, opacity=0.45, size=6),
+                marker=dict(color=_pp_z["TEXT_SEC"], opacity=0.5, size=6),
                 name="Normal",
                 hoverinfo='skip',
             ))
-            # Layer 2: anomalies — large red stars with white halo + direct labels.
+            # Layer 2: anomalies — red DIAMONDS (distinct from the Isolation
+            # Forest stars) with a white halo + bold, theme-aware labels so they
+            # stay legible in both light and dark mode (#3 markers, #4 contrast).
             if not _df_anom_z.empty:
                 _labels = (_df_anom_z["MERCHANT_GROUP"].str.split().str[0]
                            + " W" + _df_anom_z["WEEK_NUM"].astype(int).astype(str))
@@ -3591,10 +3549,10 @@ with tab5:
                     x=_df_anom_z["WEEK_NUM"],
                     y=_df_anom_z["WEEKLY_VOL"] / 1e9,
                     mode="markers+text",
-                    marker=dict(color=DANGER, size=14, symbol='star',
+                    marker=dict(color=DANGER, size=13, symbol='diamond',
                                 line=dict(color='white', width=2)),
-                    text=_labels, textposition="top right",
-                    textfont=dict(size=10, color=TEXT_PRI),
+                    text=[f"<b>{l}</b>" for l in _labels], textposition="top right",
+                    textfont=dict(size=11, color=_pp_z["TEXT_PRI"]),
                     name=f"Anomaly (n={len(_df_anom_z)})",
                 ))
             _fig_z.update_layout(
@@ -3633,14 +3591,17 @@ with tab5:
             _df_if_normal = _df_wm[_if_preds ==  1]
             _df_if_anom   = _df_wm[_if_preds == -1]
             _fig_if = go.Figure()
+            _pp_if = _p()
             _fig_if.add_trace(go.Scatter(
                 x=_df_if_normal["WEEKLY_TRX"].clip(lower=1),
                 y=(_df_if_normal["WEEKLY_VOL"] / 1e9).clip(lower=0.001),
                 mode="markers",
-                marker=dict(color=TEXT_SEC, opacity=0.45, size=6),
+                marker=dict(color=_pp_if["TEXT_SEC"], opacity=0.5, size=6),
                 name=f"Normal (n={len(_df_if_normal)})",
                 hoverinfo='skip',
             ))
+            # Anomalies — red STARS (distinct from the Z-Score diamonds) with a
+            # white halo + bold, theme-aware labels (#3 markers, #4 contrast).
             if not _df_if_anom.empty:
                 _if_labels = (_df_if_anom["MERCHANT_GROUP"].str.split().str[0]
                               + " W" + _df_if_anom["WEEK_NUM"].astype(int).astype(str))
@@ -3650,8 +3611,8 @@ with tab5:
                     mode="markers+text",
                     marker=dict(color=DANGER, size=14, symbol='star',
                                 line=dict(color='white', width=2)),
-                    text=_if_labels, textposition="top right",
-                    textfont=dict(size=10, color=TEXT_PRI),
+                    text=[f"<b>{l}</b>" for l in _if_labels], textposition="top right",
+                    textfont=dict(size=11, color=_pp_if["TEXT_PRI"]),
                     name=f"Anomaly (n={len(_df_if_anom)})",
                 ))
             _fig_if.update_layout(

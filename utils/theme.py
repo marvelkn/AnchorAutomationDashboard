@@ -2081,6 +2081,14 @@ def apply_plotly_theme(fig):
         font=dict(family="Roboto, sans-serif", color=p["TEXT_PRI"]),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
+        # Theme-aware tooltip — Plotly's default white hover box is illegible on
+        # the dark theme. Surface fill + border + primary text reads cleanly in
+        # both light and dark mode.
+        hoverlabel=dict(
+            bgcolor=p["SURFACE"],
+            bordercolor=p["BORDER"],
+            font=dict(family="Roboto, sans-serif", color=p["TEXT_PRI"], size=12),
+        ),
     )
     fig.update_xaxes(showgrid=False, color=p["TEXT_SEC"], linecolor=p["BORDER"], zerolinecolor=p["BORDER"])
     fig.update_yaxes(gridcolor=p["BORDER"], color=p["TEXT_SEC"], linecolor=p["BORDER"], zerolinecolor=p["BORDER"])
