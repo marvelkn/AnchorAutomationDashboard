@@ -1739,8 +1739,17 @@ with tab1:
                         title=f"{sec_name} — Composition",
                     )
                     fig_s.update_layout(
-                        height=320, margin=dict(l=0, r=0, t=36, b=64),
+                        height=340, margin=dict(l=0, r=0, t=36, b=96),
                         xaxis=dict(tickangle=-30),
+                        # Mobile fix: legend below the bars (was the default
+                        # right-side vertical legend, which squeezed the chart
+                        # into an unreadable sliver on phones). Horizontal +
+                        # bottom = bars use 100% width on every screen.
+                        legend=dict(
+                            orientation="h", yanchor="top", y=-0.30,
+                            x=0, xanchor="left",
+                            title_text="", font=dict(size=11),
+                        ),
                         **_chart_base(),
                     )
                     st.plotly_chart(fig_s, use_container_width=True, theme=None)
@@ -3037,7 +3046,7 @@ with tab4:
                 _wk_vol = (df_mon_weekly[df_mon_weekly['DIMENSI'] == 'VOL']
                            if has_mon_weekly and not df_mon_weekly.empty else None)
 
-                for _, row in _at_risk_inbox.iterrows():
+                for _idx, (_, row) in enumerate(_at_risk_inbox.iterrows()):
                     _merchant = row.get('MERCHANT_GROUP', '—')
                     _cr = row.get('CHURN_RISK', '')
                     _pm_name = row.get('PM', 'N/A')
@@ -3047,7 +3056,6 @@ with tab4:
                     _growth  = float(row.get('SV_GROWTH_RATE', 0) or 0)
                     _cluster = row.get('CLUSTER', '')
                     _row_color = DANGER if _is_high else WARNING
-                    _tier_color = CLUSTER_COLORS.get(str(_cluster).upper(), TEXT_SEC)
 
                     if _is_high and _is_if:
                         _reason = "Flagged by 2 independent detection methods — highest confidence alert"
@@ -3073,25 +3081,33 @@ with tab4:
                         except Exception:
                             _sparkline = []
 
-                    with st.container(border=True):
-                        _c1, _c2, _c3 = st.columns([4, 3, 2])
-                        with _c1:
-                            # Header: merchant + tier chip + PM owner
+                    # ── Notification-inbox accordion row (Plan Fix 3) ──────────
+                    # Each alert is one st.expander inside a keyed container.
+                    # Severity drives BOTH the collapsed-label badge and the
+                    # container-key suffix the CSS hooks for the colored left
+                    # accent bar (red = high risk, amber = watch). Collapsing the
+                    # detail keeps the mobile viewport clean — tap to reveal.
+                    if _is_high:
+                        _sev, _sev_badge = "high", ":red-background[HIGH RISK]"
+                    elif _ach < 60:
+                        _sev, _sev_badge = "watch", ":orange-background[BELOW TARGET]"
+                    else:
+                        _sev, _sev_badge = "watch", ":orange-background[WATCH]"
+                    _multi = "  :red-background[2-METHOD]" if (_is_high and _is_if) else ""
+
+                    # One-line summary shown when the row is collapsed.
+                    _label = (
+                        f"{_sev_badge}{_multi}  **{_merchant}**  ·  "
+                        f"{_cluster or 'UNCLASSIFIED'}  ·  PM {_pm_name}"
+                    )
+
+                    with st.container(key=f"inbox_row_{_sev}_{_idx}"):
+                        # Top (most-urgent) alert opens by default; the rest stay
+                        # collapsed so the inbox reads like a notification list.
+                        with st.expander(_label, expanded=(_idx == 0)):
+                            # Reason + recommended action (full width).
                             st.markdown(
-                                f"<div style='font-weight:var(--fw-bold);font-size:var(--fs-md);'>"
-                                f"{_merchant}"
-                                f"</div>"
-                                f"<div style='margin-top:4px;'>"
-                                f"<span style='display:inline-block;padding:2px 8px;border-radius:10px;"
-                                f"background:{_tier_color}26;color:{_tier_color};font-size:var(--fs-xs);"
-                                f"font-weight:var(--fw-semibold);'>{_cluster or 'UNCLASSIFIED'}</span>"
-                                f"<span style='margin-left:10px;color:var(--btn-text-sec);"
-                                f"font-size:var(--fs-xs);'>PM · {_pm_name}</span>"
-                                f"</div>",
-                                unsafe_allow_html=True,
-                            )
-                            st.markdown(
-                                f"<div style='margin-top:8px;color:var(--btn-text-sec);"
+                                f"<div style='color:var(--btn-text-sec);"
                                 f"font-size:var(--fs-sm);'>{_reason}</div>"
                                 f"<div style='margin-top:4px;color:{_row_color};"
                                 f"font-weight:var(--fw-semibold);font-size:var(--fs-sm);'>"
@@ -3099,79 +3115,80 @@ with tab4:
                                 f"</div>",
                                 unsafe_allow_html=True,
                             )
-                        with _c2:
-                            if _sparkline and len(_sparkline) >= 2:
-                                # Plotly only accepts 6-digit hex / named / rgba —
-                                # NOT 8-digit hex with alpha. Convert via helper.
-                                _spark = go.Figure(go.Scatter(
-                                    x=list(range(len(_sparkline))),
-                                    y=_sparkline,
-                                    mode='lines',
-                                    line=dict(color=_row_color, width=2),
-                                    fill='tozeroy',
-                                    fillcolor=hex_to_rgba(_row_color, 0.15),
-                                    hovertemplate='Week %{x}: %{y:,.0f}<extra></extra>',
-                                ))
-                                _spark.update_layout(
-                                    height=70, margin=dict(l=0, r=0, t=0, b=0),
-                                    showlegend=False,
-                                    xaxis=dict(visible=False),
-                                    yaxis=dict(visible=False),
-                                    paper_bgcolor='rgba(0,0,0,0)',
-                                    plot_bgcolor='rgba(0,0,0,0)',
+                            _b1, _b2 = st.columns([3, 2])
+                            with _b1:
+                                if _sparkline and len(_sparkline) >= 2:
+                                    # Plotly only accepts 6-digit hex / named / rgba —
+                                    # NOT 8-digit hex with alpha. Convert via helper.
+                                    _spark = go.Figure(go.Scatter(
+                                        x=list(range(len(_sparkline))),
+                                        y=_sparkline,
+                                        mode='lines',
+                                        line=dict(color=_row_color, width=2),
+                                        fill='tozeroy',
+                                        fillcolor=hex_to_rgba(_row_color, 0.15),
+                                        hovertemplate='Week %{x}: %{y:,.0f}<extra></extra>',
+                                    ))
+                                    _spark.update_layout(
+                                        height=70, margin=dict(l=0, r=0, t=0, b=0),
+                                        showlegend=False,
+                                        xaxis=dict(visible=False),
+                                        yaxis=dict(visible=False),
+                                        paper_bgcolor='rgba(0,0,0,0)',
+                                        plot_bgcolor='rgba(0,0,0,0)',
+                                    )
+                                    st.plotly_chart(
+                                        _spark, use_container_width=True, theme=None,
+                                        config={'displayModeBar': False, 'staticPlot': True},
+                                    )
+                                    st.caption(f"VOL last {len(_sparkline)} weeks")
+                                else:
+                                    st.caption("No weekly trend data")
+                            with _b2:
+                                try:
+                                    st.page_link(
+                                        "pages/05_PM_Manager.py",
+                                        label="Open in PM Manager →",
+                                        icon=":material/arrow_forward:",
+                                    )
+                                except Exception:
+                                    # Older Streamlit versions: graceful fallback.
+                                    st.markdown(
+                                        "<div style='color:var(--btn-text-sec);"
+                                        "font-size:var(--fs-xs);'>"
+                                        "Open the PM Manager page</div>",
+                                        unsafe_allow_html=True,
+                                    )
+                                # Plan F1 — triage controls. Persisted via app_state
+                                # so a decision survives reruns, sessions, and the
+                                # next pipeline run. Keys are sanitized merchant names.
+                                _safe_key = "".join(
+                                    c if c.isalnum() else "_" for c in str(_merchant)
                                 )
-                                st.plotly_chart(
-                                    _spark, use_container_width=True, theme=None,
-                                    config={'displayModeBar': False, 'staticPlot': True},
-                                )
-                                st.caption(f"VOL last {len(_sparkline)} weeks")
-                            else:
-                                st.caption("No weekly trend data")
-                        with _c3:
-                            try:
-                                st.page_link(
-                                    "pages/05_PM_Manager.py",
-                                    label="Open in PM Manager →",
-                                    icon=":material/arrow_forward:",
-                                )
-                            except Exception:
-                                # Older Streamlit versions: graceful fallback.
-                                st.markdown(
-                                    "<div style='color:var(--btn-text-sec);"
-                                    "font-size:var(--fs-xs);'>"
-                                    "Open the PM Manager page</div>",
-                                    unsafe_allow_html=True,
-                                )
-                            # Plan F1 — triage controls. Persisted via app_state
-                            # so a decision survives reruns, sessions, and the
-                            # next pipeline run. Keys are sanitized merchant names.
-                            _safe_key = "".join(
-                                c if c.isalnum() else "_" for c in str(_merchant)
-                            )
-                            if _merchant in _triage_map:
-                                st.caption(f"Triaged &middot; {_triage_map[_merchant]}")
-                                if st.button("Restore to queue",
-                                             key=f"untri_{_safe_key}",
-                                             use_container_width=True):
-                                    app_state.clear_triage(_merchant, engine=engine)
-                                    st.rerun()
-                            else:
-                                _ack, _snz = st.columns(2)
-                                if _ack.button("Acknowledge", key=f"ack_{_safe_key}",
-                                               use_container_width=True,
-                                               help="Mark as reviewed — clears it from the queue."):
-                                    app_state.set_triage(
-                                        _merchant, app_state.TRIAGE_ACKNOWLEDGED,
-                                        engine=engine)
-                                    st.rerun()
-                                if _snz.button("Snooze 14d", key=f"snz_{_safe_key}",
-                                               use_container_width=True,
-                                               help="Hide for 14 days, then resurface automatically."):
-                                    app_state.set_triage(
-                                        _merchant, app_state.TRIAGE_SNOOZED,
-                                        snooze_until=date.today() + timedelta(days=14),
-                                        engine=engine)
-                                    st.rerun()
+                                if _merchant in _triage_map:
+                                    st.caption(f"Triaged &middot; {_triage_map[_merchant]}")
+                                    if st.button("Restore to queue",
+                                                 key=f"untri_{_safe_key}",
+                                                 use_container_width=True):
+                                        app_state.clear_triage(_merchant, engine=engine)
+                                        st.rerun()
+                                else:
+                                    _ack, _snz = st.columns(2)
+                                    if _ack.button("Acknowledge", key=f"ack_{_safe_key}",
+                                                   use_container_width=True,
+                                                   help="Mark as reviewed — clears it from the queue."):
+                                        app_state.set_triage(
+                                            _merchant, app_state.TRIAGE_ACKNOWLEDGED,
+                                            engine=engine)
+                                        st.rerun()
+                                    if _snz.button("Snooze 14d", key=f"snz_{_safe_key}",
+                                                   use_container_width=True,
+                                                   help="Hide for 14 days, then resurface automatically."):
+                                        app_state.set_triage(
+                                            _merchant, app_state.TRIAGE_SNOOZED,
+                                            snooze_until=date.today() + timedelta(days=14),
+                                            engine=engine)
+                                        st.rerun()
 
             st.markdown("")
 
@@ -3526,8 +3543,13 @@ with tab5:
                         y=_thresh_line_val / 1e9, line_dash="dash", line_color=WARNING,
                         annotation_text="3× threshold",
                     )
-                    _fig_t.update_layout(xaxis_title="Week", yaxis_title="Volume (IDR Billions)",
-                                         title="INDOMARET — Weekly Volume 2026")
+                    _fig_t.update_layout(
+                        xaxis_title="Week", yaxis_title="Volume (IDR Billions)",
+                        title="INDOMARET — Weekly Volume 2026",
+                        # Mobile fix: legend below the plot so the chart spans
+                        # full width (default right-side legend squeezed it).
+                        legend=dict(orientation="h", yanchor="top", y=-0.25, x=0, xanchor="left"),
+                    )
                     apply_plotly_theme(_fig_t)
                     st.plotly_chart(_fig_t, use_container_width=True)
 
@@ -3580,6 +3602,8 @@ with tab5:
                 xaxis_title="Week",
                 yaxis_title="Volume (IDR Billions, log)",
                 yaxis_type="log",
+                # Mobile fix: legend below the plot so the chart spans full width.
+                legend=dict(orientation="h", yanchor="top", y=-0.25, x=0, xanchor="left"),
             )
             apply_plotly_theme(_fig_z)
             st.plotly_chart(_fig_z, use_container_width=True)
@@ -3636,6 +3660,8 @@ with tab5:
                 title="Isolation Forest — VOL vs TRX (log-log, 2026)",
                 xaxis_type="log",
                 yaxis_type="log",
+                # Mobile fix: legend below the plot so the chart spans full width.
+                legend=dict(orientation="h", yanchor="top", y=-0.25, x=0, xanchor="left"),
             )
             apply_plotly_theme(_fig_if)
             st.plotly_chart(_fig_if, use_container_width=True)

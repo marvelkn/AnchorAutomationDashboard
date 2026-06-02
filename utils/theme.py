@@ -884,6 +884,31 @@ hr {{ border-color: var(--btn-border) !important; opacity: 0.5; }}
 .card-body   {{ padding: 20px 24px; }}
 .card-actions {{ margin-left: auto; display: flex; gap: 6px; }}
 
+/* ── Action Inbox — notification-style accordion rows (Plan Fix 3) ──
+   Each Health-Alerts merchant is wrapped in st.container(key="inbox_row_<sev>_<i>")
+   holding one st.expander. These rules give the expander a card look with a
+   severity-colored left accent so the list reads like a modern notification
+   inbox. Scoped to the inbox keys only — the page's other expanders are
+   untouched. Applies at all widths (the <=768px block already gives expander
+   summaries a 44px tap target), so it works on desktop and mobile alike. */
+[class*="st-key-inbox_row_"] [data-testid="stExpander"] {{
+    background: var(--btn-surface);
+    border: 1px solid var(--btn-border);
+    border-left: 4px solid var(--accent);
+    border-radius: 14px;
+    box-shadow: var(--shadow-card);
+    margin-bottom: 10px;
+    overflow: hidden;
+    transition: box-shadow .15s ease, transform .15s ease;
+}}
+[class*="st-key-inbox_row_"] [data-testid="stExpander"]:hover {{
+    box-shadow: var(--shadow-elevated);
+    transform: translateY(-1px);
+}}
+[class*="st-key-inbox_row_"] [data-testid="stExpander"] summary {{ padding: 12px 16px; }}
+[class*="st-key-inbox_row_high_"]  [data-testid="stExpander"] {{ border-left-color: var(--color-danger); }}
+[class*="st-key-inbox_row_watch_"] [data-testid="stExpander"] {{ border-left-color: var(--color-warning); }}
+
 /* ── Badges ── */
 .badge {{ display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 3px; font-size: 11px; font-family: 'Roboto', sans-serif; font-weight: 600; }}
 .badge-amber {{ background: var(--btn-amber-dim); color: var(--on-tint-warning); }}
