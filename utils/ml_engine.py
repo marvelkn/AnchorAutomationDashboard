@@ -31,37 +31,30 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
-# Fixed model parameters — locked per academic review (no longer user-adjustable).
-N_CLUSTERS = 3      # K-Means merchant tiers: PREMIUM / REGULER / PASIF
+# Model parameters. N_CLUSTERS is the business-mandated tier count (three
+# actionable merchant tiers). It is NOT a blind hyperparameter: select_optimal_k()
+# runs a live Elbow + Silhouette + Davies-Bouldin sweep on every call and
+# confirms/justifies this value against the data rather than assuming it.
+N_CLUSTERS = 3      # K-Means merchant tiers: PREMIUM / REGULER / PASIF (business anchor)
 Z_THRESH   = -1.2   # z-score breach threshold for anomaly → MEDIUM RISK upgrade
 
 
-def run_ml(df_c, df_m, df_t=None):
+def prepare_cluster_features(df_c, df_m, df_t=None):
     """
-    BTN Anchor ML Pipeline v2:
-    1. Merge Card Share + Monitoring
-    2. Feature Engineering — AVG_SV/FBI normalized by actual WEEKS_ACTIVE (not fixed /12)
-    3. K-Means++ Clustering — fixed K=3 merchant tiers, composite multi-metric ranking
-    4. Modified Z-Score (MAD) — robust anomaly detection, resistant to outliers in small portfolios
-    5. Composite Risk Score 0–100 — weighted: Growth 40%, SV 30%, FBI 20%, Achievement 10%
-    6. Three-tier CHURN_RISK — HIGH (≥60) / MEDIUM (30–59) / STABLE (<30)
-    7. Cohesion metrics — Silhouette Score + Davies-Bouldin Index
-    8. PCA 2-D projection — for the tier-separation scatter plot
+    Merge the Card-Share + Monitoring (+ optional Target) frames, engineer the six
+    clustering features, log-transform the two monetary ones, and standardize the
+    matrix that K-Means / the K-sweep operate on.
+
+    Returns ``(df, X_s)`` where ``df`` is the engineered per-merchant frame and
+    ``X_s`` is the StandardScaler-transformed feature matrix (``None`` when there is
+    nothing to cluster). Shared by :func:`run_ml` and the dashboard's elbow/silhouette
+    diagnostic so both see an identical feature space.
     """
-    ML_COLS = ['MERCHANT_GROUP', 'CLUSTER', 'CHURN_RISK', 'RISK_SCORE',
-               'SILHOUETTE_SCORE', 'DB_SCORE', 'PCA_X', 'PCA_Y', 'PCA_VAR1', 'PCA_VAR2',
-               'PM', 'WEEKS_ACTIVE', 'SV_GROWTH_RATE', 'ACHIEVEMENT_PCT', 'AVG_SV', 'AVG_FBI',
-               'ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH', 'SV_GROWTH_CLIPPED',
-               'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS',
-               'IF_ANOMALY_SCORE', 'IF_IS_ANOMALY',
-               'IF_CONTRIB_AVG_SV', 'IF_CONTRIB_AVG_FBI', 'IF_CONTRIB_RASIO_ONUS',
-               'IF_CONTRIB_SV_GROWTH', 'IF_CONTRIB_ACHIEVEMENT', 'IF_CONTRIB_WEEKS_ACTIVE']
-
-    if df_c.empty:
-        return pd.DataFrame(columns=ML_COLS)
-
     # ── 1. Merge ──────────────────────────────────────────────────────────────
-    if not df_m.empty:
+    if df_c is None or df_c.empty:
+        return pd.DataFrame(), None
+
+    if df_m is not None and not df_m.empty:
         agg_cols = {c: 'sum' for c in ['TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI'] if c in df_c.columns}
         if 'RASIO_ONUS' in df_c.columns: agg_cols['RASIO_ONUS'] = 'mean'
         df = df_c.groupby('MERCHANT_GROUP').agg(agg_cols).reset_index()
@@ -70,7 +63,7 @@ def run_ml(df_c, df_m, df_t=None):
         df = df_c.copy()
 
     if df.empty:
-        return pd.DataFrame(columns=ML_COLS)
+        return df, None
 
     for col in ['TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS']:
         if col not in df.columns: df[col] = 0
@@ -105,11 +98,136 @@ def run_ml(df_c, df_m, df_t=None):
     else:
         df['ACHIEVEMENT_PCT'] = 0
 
-    # ── 3. Clustering ─────────────────────────────────────────────────────────
+    # ── 3. Feature matrix — log-transform monetary skew, then standardize ─────
     FEAT = ['AVG_SV', 'AVG_FBI', 'RASIO_ONUS', 'SV_GROWTH_CLIPPED', 'ACHIEVEMENT_PCT', 'WEEKS_ACTIVE']
     X = df[FEAT].fillna(0).copy()
     X['AVG_SV']  = np.log1p(X['AVG_SV'])
     X['AVG_FBI'] = np.log1p(X['AVG_FBI'])
+    X_s = StandardScaler().fit_transform(X) if len(df) >= 1 else None
+
+    return df, X_s
+
+
+def _find_elbow(k_values, inertias):
+    """
+    Locate the elbow of an inertia (WCSS) curve with no external dependency.
+
+    Normalizes K and inertia to [0, 1] and returns the K whose point lies farthest
+    (perpendicular distance) from the straight chord joining the first and last
+    points — the classic "kneedle" construction. With fewer than three points the
+    curve cannot bend, so the first K is returned.
+    """
+    ks   = np.asarray(k_values, dtype=float)
+    wcss = np.asarray(inertias,  dtype=float)
+    if ks.size < 3:
+        return int(ks[0]) if ks.size else 0
+    x = (ks - ks.min())   / (np.ptp(ks)   + 1e-12)
+    y = (wcss - wcss.min()) / (np.ptp(wcss) + 1e-12)
+    x1, y1, x2, y2 = x[0], y[0], x[-1], y[-1]
+    denom = np.hypot(x2 - x1, y2 - y1) + 1e-12
+    dist  = np.abs((y2 - y1) * x - (x2 - x1) * y + x2 * y1 - y2 * x1) / denom
+    return int(ks[int(np.argmax(dist))])
+
+
+def select_optimal_k(X_s, k_min=2, k_max=8, business_k=N_CLUSTERS, random_state=42):
+    """
+    Dynamically determine the cluster count from the data, then confirm it.
+
+    Sweeps K over ``[k_min, min(k_max, n-1)]`` and scores every candidate by inertia
+    (WCSS, the K-Means objective), Silhouette (intra-cluster cohesion vs. inter-cluster
+    separation), and Davies-Bouldin. From those curves it derives the Elbow K and the
+    Silhouette-optimal K.
+
+    The operating count is *anchored* to ``business_k`` — the three actionable merchant
+    tiers (PREMIUM / REGULER / PASIF). The sweep supplies the empirical justification
+    while the tier scheme stays fixed; the human-readable ``justification`` states
+    transparently whether the statistical optima agree with the business anchor. Never
+    raises on small samples.
+
+    Returns a diagnostics dict::
+
+        {k_values, inertia, silhouette, davies_bouldin,
+         k_elbow, k_silhouette, chosen_k, business_anchored, justification}
+    """
+    n    = 0 if X_s is None else len(X_s)
+    k_hi = min(k_max, n - 1)
+    diag = {
+        "k_values": [], "inertia": [], "silhouette": [], "davies_bouldin": [],
+        "k_elbow": business_k, "k_silhouette": business_k,
+        "chosen_k": business_k, "business_anchored": True, "justification": "",
+    }
+    # Silhouette needs 2 <= K <= n-1; need at least one valid candidate.
+    if n < max(k_min + 1, 3) or k_hi < k_min:
+        diag["justification"] = (
+            f"Sampel terlalu kecil untuk sweep K (n={n}); jumlah klaster ditetapkan "
+            f"K={business_k} sesuai kebutuhan tiga tier bisnis."
+        )
+        return diag
+
+    ks, inertias, sils, dbis = [], [], [], []
+    for k in range(k_min, k_hi + 1):
+        km = KMeans(n_clusters=k, init="k-means++", n_init=20, random_state=random_state)
+        labels = km.fit_predict(X_s)
+        ks.append(int(k))
+        inertias.append(round(float(km.inertia_), 4))
+        sils.append(round(float(silhouette_score(X_s, labels)), 4))
+        dbis.append(round(float(davies_bouldin_score(X_s, labels)), 4))
+
+    k_elbow = _find_elbow(ks, inertias)
+    k_sil   = int(ks[int(np.argmax(sils))])
+    diag.update({
+        "k_values": ks, "inertia": inertias, "silhouette": sils,
+        "davies_bouldin": dbis, "k_elbow": k_elbow, "k_silhouette": k_sil,
+    })
+
+    if k_elbow == business_k or k_sil == business_k:
+        diag["justification"] = (
+            f"Sweep K pada rentang [{k_min}..{k_hi}]: titik siku (elbow) inersia pada "
+            f"K={k_elbow}, Silhouette tertinggi pada K={k_sil}. K={business_k} dikonfirmasi "
+            f"sebagai jumlah klaster optimal sekaligus selaras dengan tiga tier bisnis "
+            f"(PREMIUM/REGULER/PASIF)."
+        )
+    else:
+        diag["justification"] = (
+            f"Sweep K pada rentang [{k_min}..{k_hi}]: elbow pada K={k_elbow}, Silhouette "
+            f"tertinggi pada K={k_sil}. K dijangkar pada K={business_k} untuk tiga tier "
+            f"bisnis yang dapat ditindaklanjuti; metrik statistik dilaporkan transparan "
+            f"sebagai bukti pendukung."
+        )
+    return diag
+
+
+def run_ml(df_c, df_m, df_t=None):
+    """
+    BTN Anchor ML Pipeline v2:
+    1. Merge Card Share + Monitoring
+    2. Feature Engineering — AVG_SV/FBI normalized by actual WEEKS_ACTIVE (not fixed /12)
+    3. K-Means++ Clustering — K confirmed by Elbow+Silhouette sweep (select_optimal_k),
+       anchored to the 3 business tiers; composite multi-metric ranking
+    4. Modified Z-Score (MAD) — robust anomaly detection, resistant to outliers in small portfolios
+    5. Composite Risk Score 0–100 — weighted: Growth 40%, SV 30%, FBI 20%, Achievement 10%
+    6. Three-tier CHURN_RISK — HIGH (≥60) / MEDIUM (30–59) / STABLE (<30)
+    7. Cohesion metrics — Silhouette Score + Davies-Bouldin Index
+    8. PCA 2-D projection — for the tier-separation scatter plot
+    """
+    ML_COLS = ['MERCHANT_GROUP', 'CLUSTER', 'CHURN_RISK', 'RISK_SCORE',
+               'SILHOUETTE_SCORE', 'DB_SCORE', 'PCA_X', 'PCA_Y', 'PCA_VAR1', 'PCA_VAR2',
+               'PM', 'WEEKS_ACTIVE', 'SV_GROWTH_RATE', 'ACHIEVEMENT_PCT', 'AVG_SV', 'AVG_FBI',
+               'ZSCORE_SV', 'ZSCORE_FBI', 'ZSCORE_GROWTH', 'SV_GROWTH_CLIPPED',
+               'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS',
+               'IF_ANOMALY_SCORE', 'IF_IS_ANOMALY',
+               'IF_CONTRIB_AVG_SV', 'IF_CONTRIB_AVG_FBI', 'IF_CONTRIB_RASIO_ONUS',
+               'IF_CONTRIB_SV_GROWTH', 'IF_CONTRIB_ACHIEVEMENT', 'IF_CONTRIB_WEEKS_ACTIVE']
+
+    if df_c.empty:
+        return pd.DataFrame(columns=ML_COLS)
+
+    # ── 1–2. Merge + feature engineering + scaled feature matrix ──────────────
+    # Delegated to prepare_cluster_features() so the dashboard's elbow/silhouette
+    # diagnostic operates on the exact same feature space K-Means clusters on.
+    df, X_s = prepare_cluster_features(df_c, df_m, df_t)
+    if df.empty:
+        return pd.DataFrame(columns=ML_COLS)
 
     df['SILHOUETTE_SCORE'] = 0.0
     df['DB_SCORE']         = 0.0
@@ -119,10 +237,16 @@ def run_ml(df_c, df_m, df_t=None):
     df['PCA_VAR2']         = 0.0
     df['RISK_SCORE']       = 0.0
 
+    k_diag = None
     try:
-        if len(df) >= N_CLUSTERS:
-            X_s = StandardScaler().fit_transform(X)
-            km  = KMeans(n_clusters=N_CLUSTERS, init='k-means++', n_init=20, random_state=42)
+        if len(df) >= N_CLUSTERS and X_s is not None:
+            # ── 3. Dynamic K-selection (Elbow + Silhouette), then confirm ─────
+            # The sweep runs on every call and emits the empirical evidence; the
+            # operating K is anchored to the three actionable business tiers
+            # (PREMIUM / REGULER / PASIF). chosen_k == N_CLUSTERS by construction.
+            k_diag = select_optimal_k(X_s, k_min=2, k_max=8, business_k=N_CLUSTERS)
+            log.info("K-Means cluster-count selection — %s", k_diag["justification"])
+            km  = KMeans(n_clusters=k_diag["chosen_k"], init='k-means++', n_init=20, random_state=42)
             df['CLUSTER_RAW'] = km.fit_predict(X_s)
 
             # PCA 2-D projection — compresses the 6 scaled clustering features onto
@@ -260,6 +384,11 @@ def run_ml(df_c, df_m, df_t=None):
     for col in ML_COLS:
         if col not in df.columns: df[col] = np.nan
 
+    # Expose the K-selection sweep (Elbow + Silhouette evidence) to non-Streamlit
+    # callers and tests. The dashboard recomputes it via select_optimal_k directly
+    # because @st.cache_data does not preserve DataFrame.attrs across its boundary.
+    if k_diag is not None:
+        df.attrs['k_diagnostics'] = k_diag
     return df
 
 

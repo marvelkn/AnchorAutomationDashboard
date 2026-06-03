@@ -21,7 +21,10 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from utils.ml_engine import run_ml, hw_forecast, N_CLUSTERS, Z_THRESH, _HW_AVAILABLE
+from utils.ml_engine import (
+    run_ml, hw_forecast, N_CLUSTERS, Z_THRESH, _HW_AVAILABLE,
+    select_optimal_k, prepare_cluster_features, _find_elbow,
+)
 
 # Columns run_ml guarantees on every return value (the empty-frame contract).
 _KEY_COLS = {
@@ -131,6 +134,70 @@ class TestRunMlScoring:
         out = run_ml(df_c, df_m, df_t).set_index("MERCHANT_GROUP")
         assert out["ACHIEVEMENT_PCT"].max() <= 200
         assert out.loc["M00", "ACHIEVEMENT_PCT"] == pytest.approx(200.0)
+
+
+# ── select_optimal_k: dynamic Elbow + Silhouette K-selection ────────────────────
+
+class TestSelectOptimalK:
+    def test_prepare_features_shape(self):
+        df_c, df_m = _portfolio(12, seed=7)
+        df, X_s = prepare_cluster_features(df_c, df_m)
+        assert len(df) == 12
+        assert X_s.shape == (12, 6)          # six clustering features
+
+    def test_sweep_keys_and_alignment(self):
+        df_c, df_m = _portfolio(20, seed=8)
+        _, X_s = prepare_cluster_features(df_c, df_m)
+        diag = select_optimal_k(X_s, k_min=2, k_max=8)
+        for key in ("k_values", "inertia", "silhouette", "davies_bouldin",
+                    "k_elbow", "k_silhouette", "chosen_k", "justification"):
+            assert key in diag
+        # K ranges 2..min(8, n-1); every metric array is aligned to k_values.
+        assert diag["k_values"] == list(range(2, 9))
+        n_k = len(diag["k_values"])
+        assert len(diag["inertia"]) == n_k
+        assert len(diag["silhouette"]) == n_k
+        assert len(diag["davies_bouldin"]) == n_k
+        assert diag["justification"]
+
+    def test_inertia_monotonic_non_increasing(self):
+        df_c, df_m = _portfolio(20, seed=9)
+        _, X_s = prepare_cluster_features(df_c, df_m)
+        inertia = select_optimal_k(X_s)["inertia"]
+        assert all(inertia[i] >= inertia[i + 1] for i in range(len(inertia) - 1))
+
+    def test_chosen_k_anchored_to_business_tiers(self):
+        df_c, df_m = _portfolio(15, seed=10)
+        _, X_s = prepare_cluster_features(df_c, df_m)
+        diag = select_optimal_k(X_s)
+        assert diag["chosen_k"] == N_CLUSTERS == 3
+        assert diag["business_anchored"] is True
+
+    def test_elbow_detects_three_separated_blobs(self):
+        # Three compact, well-separated blobs -> elbow + silhouette both at K=3.
+        rng = np.random.default_rng(11)
+        X = np.vstack([rng.normal(c, 0.15, (15, 2))
+                       for c in [(0, 0), (8, 8), (0, 8)]])
+        diag = select_optimal_k(X, k_min=2, k_max=6, business_k=3)
+        assert diag["k_elbow"] == 3
+        assert diag["k_silhouette"] == 3
+        assert _find_elbow(diag["k_values"], diag["inertia"]) == 3
+
+    def test_small_sample_returns_anchor_without_sweep(self):
+        # Fewer points than a sweep needs -> graceful anchor, empty arrays.
+        X = np.array([[0.0, 0.0], [1.0, 1.0]])     # n = 2
+        diag = select_optimal_k(X, k_min=2, k_max=8, business_k=3)
+        assert diag["chosen_k"] == 3
+        assert diag["k_values"] == []
+        assert diag["justification"]
+
+    def test_run_ml_attaches_diagnostics(self):
+        df_c, df_m = _portfolio(12, seed=12)
+        out = run_ml(df_c, df_m)
+        diag = out.attrs.get("k_diagnostics")
+        assert diag is not None
+        assert diag["chosen_k"] == 3
+        assert len(diag["k_values"]) >= 1
 
 
 # ── hw_forecast ────────────────────────────────────────────────────────────────

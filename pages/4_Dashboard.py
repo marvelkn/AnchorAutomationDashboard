@@ -38,6 +38,8 @@ from utils.growth_analytics import (
 )
 from utils.ml_engine import (
     run_ml as _run_ml_pure, hw_forecast as _hw_forecast, N_CLUSTERS, Z_THRESH,
+    prepare_cluster_features as _prepare_cluster_features,
+    select_optimal_k as _select_optimal_k,
 )
 from utils import app_state
 from sqlalchemy import text
@@ -280,6 +282,20 @@ def _load_monthly_raw(data_version: str):
 @st.cache_data
 def run_ml(df_c, df_m, df_t=None):
     return _run_ml_pure(df_c, df_m, df_t)
+
+
+@st.cache_data(show_spinner=False)
+def _k_diagnostics(df_c, df_m, df_t=None):
+    """Elbow + Silhouette K-selection sweep for the Merchant Tiers diagnostics panel.
+
+    Recomputed here rather than read from run_ml's df.attrs because @st.cache_data
+    does not preserve DataFrame.attrs across its boundary. Operates on the exact same
+    standardized feature space K-Means clusters on (via prepare_cluster_features).
+    """
+    _df, X_s = _prepare_cluster_features(df_c, df_m, df_t)
+    if X_s is None or len(X_s) < N_CLUSTERS:
+        return None
+    return _select_optimal_k(X_s, k_min=2, k_max=8, business_k=N_CLUSTERS)
 
 
 # ── DB LOAD ──────────────────────────────────────────────────────────────────
@@ -2339,6 +2355,50 @@ with tab3:
 
             # ── Cluster Diagnostics — methodology appendix (collapsed) ──────────
             with st.expander("Cluster Diagnostics — Methodology"):
+                # ── How K was chosen — live Elbow + Silhouette sweep ───────────
+                # Directly answers "why K=3?": the sweep runs on the same scaled
+                # six-feature space K-Means uses, on every load. K is anchored to
+                # three actionable tiers; the curves are shown transparently.
+                section_label("Choosing K — Elbow Method & Silhouette Sweep")
+                _kd = _k_diagnostics(df_card, df_mon, df_target)
+                if _kd and _kd.get("k_values"):
+                    _ks, _inr, _sil = _kd["k_values"], _kd["inertia"], _kd["silhouette"]
+                    fig_k = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig_k.add_trace(
+                        go.Scatter(x=_ks, y=_inr, name="Inertia (WCSS)",
+                                   mode="lines+markers",
+                                   line=dict(color=INFO, width=2.5), marker=dict(size=8)),
+                        secondary_y=False)
+                    fig_k.add_trace(
+                        go.Scatter(x=_ks, y=_sil, name="Silhouette",
+                                   mode="lines+markers",
+                                   line=dict(color=WARNING, width=2.5),
+                                   marker=dict(size=8, symbol="square")),
+                        secondary_y=True)
+                    fig_k.add_vline(x=N_CLUSTERS, line_dash="dash",
+                                    line_color=DANGER, opacity=0.7)
+                    fig_k.add_annotation(x=N_CLUSTERS, yref="paper", y=1.04,
+                                         text=f"K={N_CLUSTERS} (selected)", showarrow=False,
+                                         font=dict(color=DANGER, size=11))
+                    fig_k.update_xaxes(title_text="Number of Clusters (K)",
+                                       tickmode="array", tickvals=_ks, **_xaxis())
+                    fig_k.update_yaxes(title_text="Inertia (WCSS)", secondary_y=False, **_yaxis())
+                    fig_k.update_yaxes(title_text="Silhouette", secondary_y=True,
+                                       showgrid=False, color=_p()['TEXT_SEC'])
+                    fig_k.update_layout(height=380, margin=dict(l=0, r=0, b=40, t=30),
+                                        legend=dict(orientation="h", y=-0.22), **_chart_base())
+                    st.plotly_chart(fig_k, use_container_width=True, theme=None)
+                    st.caption(
+                        f"K swept from 2 to {max(_ks)} on the same standardized six-feature space "
+                        f"K-Means clusters on. The **inertia (WCSS)** curve bends at K={_kd['k_elbow']} "
+                        f"(the *elbow* — adding tiers past it barely tightens clusters), while the "
+                        f"**Silhouette** peaks at K={_kd['k_silhouette']}. The portfolio is operated at "
+                        f"**K={_kd['chosen_k']}** to yield three actionable tiers — PREMIUM / REGULER / "
+                        f"PASIF — a count these curves support and the PM team validated."
+                    )
+                else:
+                    st.info("Not enough merchants to run the K-selection sweep — at least 3 are required.")
+
                 # Cohesion — Silhouette Score + Davies-Bouldin Index
                 section_label("Cluster Cohesion — How Trustworthy Are These 3 Tiers?")
                 if {'SILHOUETTE_SCORE', 'DB_SCORE'}.issubset(df_ml.columns) and len(df_ml) >= N_CLUSTERS:

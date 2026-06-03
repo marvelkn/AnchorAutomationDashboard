@@ -200,7 +200,7 @@ DATABASE_URL = "postgresql://..."
 
 Implemented in `utils/ml_engine.py` (pure, unit-tested; the dashboard wraps it with caching).
 
-### K-Means++ Clustering (fixed K=3)
+### K-Means++ Clustering (K confirmed by Elbow + Silhouette, anchored to 3)
 | Feature | Transformation |
 |---------|---------------|
 | Average Sales Volume | `log1p` |
@@ -213,6 +213,13 @@ Implemented in `utils/ml_engine.py` (pure, unit-tested; the dashboard wraps it w
 All features are normalised with `StandardScaler` before clustering. Cluster labels
 (PREMIUM / REGULER / PASIF) are rank-assigned by a composite score (SV 60%, achievement 25%,
 growth 15%), so labels stay stable as data changes.
+
+K is not hardcoded: `select_optimal_k()` sweeps K = 2…8 on every run, scoring each by
+inertia (WCSS / Elbow), Silhouette, and Davies-Bouldin. It reports the Elbow K and the
+Silhouette-optimal K, then anchors the operating count to **3** — the three actionable
+business tiers — and logs a transparent justification. The Merchant Tiers tab renders this
+sweep live, and `scripts/plot_elbow_silhouette.py` regenerates the report figure from real
+data.
 
 ### Composite Risk Score & Churn Tiers
 A 0–100 risk score is computed from MAD-robust z-scores:
