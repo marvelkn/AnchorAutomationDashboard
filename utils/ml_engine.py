@@ -31,12 +31,25 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
-# Model parameters. N_CLUSTERS is the business-mandated tier count (three
-# actionable merchant tiers). It is NOT a blind hyperparameter: select_optimal_k()
-# runs a live Elbow + Silhouette + Davies-Bouldin sweep on every call and
-# confirms/justifies this value against the data rather than assuming it.
-N_CLUSTERS = 3      # K-Means merchant tiers: PREMIUM / REGULER / PASIF (business anchor)
+# Model parameters. The operating cluster count is chosen *dynamically* by
+# select_optimal_k() — it sweeps Elbow + Silhouette + Davies-Bouldin on every call
+# and picks the Silhouette-optimal K within the operable band [K_MIN, K_MAX].
+# N_CLUSTERS is only a fallback/default for samples too small to sweep (n < 3).
+K_MIN      = 2      # smallest operable tier count
+K_MAX      = 5      # largest operable tier count — caps over-segmentation (parsimony)
+N_CLUSTERS = 3      # default tier count for tiny samples that cannot be swept
 Z_THRESH   = -1.2   # z-score breach threshold for anomaly → MEDIUM RISK upgrade
+
+# Ordered tier vocabulary (best → worst), aligned with theme.CLUSTER_COLORS and the
+# dashboard's _TIER_RANK. For a chosen K the clusters (ranked best→worst by COMPOSITE)
+# are labelled from the matching ladder; K=3 stays PREMIUM/REGULER/PASIF so existing
+# report figures and screenshots remain valid.
+_TIER_LADDER = {
+    2: ['PREMIUM', 'PASIF'],
+    3: ['PREMIUM', 'REGULER', 'PASIF'],
+    4: ['ELITE', 'PREMIUM', 'REGULER', 'PASIF'],
+    5: ['ELITE', 'PREMIUM', 'REGULER', 'PASIF', 'DORMANT'],
+}
 
 
 def prepare_cluster_features(df_c, df_m, df_t=None):
@@ -129,20 +142,19 @@ def _find_elbow(k_values, inertias):
     return int(ks[int(np.argmax(dist))])
 
 
-def select_optimal_k(X_s, k_min=2, k_max=8, business_k=N_CLUSTERS, random_state=42):
+def select_optimal_k(X_s, k_min=K_MIN, k_max=K_MAX, business_k=N_CLUSTERS, random_state=42):
     """
-    Dynamically determine the cluster count from the data, then confirm it.
+    Dynamically determine the operating cluster count from the data.
 
     Sweeps K over ``[k_min, min(k_max, n-1)]`` and scores every candidate by inertia
     (WCSS, the K-Means objective), Silhouette (intra-cluster cohesion vs. inter-cluster
     separation), and Davies-Bouldin. From those curves it derives the Elbow K and the
     Silhouette-optimal K.
 
-    The operating count is *anchored* to ``business_k`` — the three actionable merchant
-    tiers (PREMIUM / REGULER / PASIF). The sweep supplies the empirical justification
-    while the tier scheme stays fixed; the human-readable ``justification`` states
-    transparently whether the statistical optima agree with the business anchor. Never
-    raises on small samples.
+    The operating count ``chosen_k`` is the **Silhouette-optimal K**, clamped to the
+    operable band ``[k_min, k_max]`` to prevent over-segmentation (parsimony). The Elbow K
+    is reported alongside as supporting evidence. ``business_k`` is used only as the
+    fallback for samples too small to sweep (n < 3). Never raises on small samples.
 
     Returns a diagnostics dict::
 
@@ -151,16 +163,17 @@ def select_optimal_k(X_s, k_min=2, k_max=8, business_k=N_CLUSTERS, random_state=
     """
     n    = 0 if X_s is None else len(X_s)
     k_hi = min(k_max, n - 1)
+    fallback_k = max(k_min, min(business_k, k_hi if k_hi >= k_min else business_k))
     diag = {
         "k_values": [], "inertia": [], "silhouette": [], "davies_bouldin": [],
-        "k_elbow": business_k, "k_silhouette": business_k,
-        "chosen_k": business_k, "business_anchored": True, "justification": "",
+        "k_elbow": fallback_k, "k_silhouette": fallback_k,
+        "chosen_k": fallback_k, "business_anchored": True, "justification": "",
     }
     # Silhouette needs 2 <= K <= n-1; need at least one valid candidate.
     if n < max(k_min + 1, 3) or k_hi < k_min:
         diag["justification"] = (
             f"Sampel terlalu kecil untuk sweep K (n={n}); jumlah klaster ditetapkan "
-            f"K={business_k} sesuai kebutuhan tiga tier bisnis."
+            f"pada nilai cadangan K={fallback_k}."
         )
         return diag
 
@@ -173,27 +186,23 @@ def select_optimal_k(X_s, k_min=2, k_max=8, business_k=N_CLUSTERS, random_state=
         sils.append(round(float(silhouette_score(X_s, labels)), 4))
         dbis.append(round(float(davies_bouldin_score(X_s, labels)), 4))
 
-    k_elbow = _find_elbow(ks, inertias)
-    k_sil   = int(ks[int(np.argmax(sils))])
+    k_elbow  = _find_elbow(ks, inertias)
+    k_sil    = int(ks[int(np.argmax(sils))])
+    # Operating K = Silhouette-optimal, clamped to the operable band [k_min, k_max].
+    chosen_k = max(k_min, min(k_sil, k_max))
     diag.update({
         "k_values": ks, "inertia": inertias, "silhouette": sils,
         "davies_bouldin": dbis, "k_elbow": k_elbow, "k_silhouette": k_sil,
+        "chosen_k": chosen_k, "business_anchored": False,
     })
 
-    if k_elbow == business_k or k_sil == business_k:
-        diag["justification"] = (
-            f"Sweep K pada rentang [{k_min}..{k_hi}]: titik siku (elbow) inersia pada "
-            f"K={k_elbow}, Silhouette tertinggi pada K={k_sil}. K={business_k} dikonfirmasi "
-            f"sebagai jumlah klaster optimal sekaligus selaras dengan tiga tier bisnis "
-            f"(PREMIUM/REGULER/PASIF)."
-        )
-    else:
-        diag["justification"] = (
-            f"Sweep K pada rentang [{k_min}..{k_hi}]: elbow pada K={k_elbow}, Silhouette "
-            f"tertinggi pada K={k_sil}. K dijangkar pada K={business_k} untuk tiga tier "
-            f"bisnis yang dapat ditindaklanjuti; metrik statistik dilaporkan transparan "
-            f"sebagai bukti pendukung."
-        )
+    agree = " (konsisten dengan titik siku)" if k_elbow == chosen_k else ""
+    diag["justification"] = (
+        f"Sweep K pada rentang [{k_min}..{k_hi}]: titik siku (elbow) inersia pada "
+        f"K={k_elbow}, Silhouette tertinggi pada K={k_sil}. Jumlah klaster operasional "
+        f"dipilih secara dinamis pada K={chosen_k}{agree}, dibatasi pada rentang "
+        f"[{k_min},{k_max}] untuk mencegah over-segmentasi (prinsip parsimoni)."
+    )
     return diag
 
 
@@ -202,8 +211,8 @@ def run_ml(df_c, df_m, df_t=None):
     BTN Anchor ML Pipeline v2:
     1. Merge Card Share + Monitoring
     2. Feature Engineering — AVG_SV/FBI normalized by actual WEEKS_ACTIVE (not fixed /12)
-    3. K-Means++ Clustering — K confirmed by Elbow+Silhouette sweep (select_optimal_k),
-       anchored to the 3 business tiers; composite multi-metric ranking
+    3. K-Means++ Clustering — K selected dynamically by Elbow+Silhouette sweep
+       (select_optimal_k) within [K_MIN, K_MAX]; tiers labelled from _TIER_LADDER
     4. Modified Z-Score (MAD) — robust anomaly detection, resistant to outliers in small portfolios
     5. Composite Risk Score 0–100 — weighted: Growth 40%, SV 30%, FBI 20%, Achievement 10%
     6. Three-tier CHURN_RISK — HIGH (≥60) / MEDIUM (30–59) / STABLE (<30)
@@ -239,12 +248,12 @@ def run_ml(df_c, df_m, df_t=None):
 
     k_diag = None
     try:
-        if len(df) >= N_CLUSTERS and X_s is not None:
-            # ── 3. Dynamic K-selection (Elbow + Silhouette), then confirm ─────
-            # The sweep runs on every call and emits the empirical evidence; the
-            # operating K is anchored to the three actionable business tiers
-            # (PREMIUM / REGULER / PASIF). chosen_k == N_CLUSTERS by construction.
-            k_diag = select_optimal_k(X_s, k_min=2, k_max=8, business_k=N_CLUSTERS)
+        if len(df) >= 3 and X_s is not None:
+            # ── 3. Dynamic K-selection (Elbow + Silhouette) ───────────────────
+            # The sweep runs on every call; the operating K is the Silhouette-optimal
+            # count within the operable band [K_MIN, K_MAX]. Tiers are then labelled
+            # from _TIER_LADDER[chosen_k] (PREMIUM/REGULER/PASIF at K=3).
+            k_diag = select_optimal_k(X_s, k_min=K_MIN, k_max=K_MAX, business_k=N_CLUSTERS)
             log.info("K-Means cluster-count selection — %s", k_diag["justification"])
             km  = KMeans(n_clusters=k_diag["chosen_k"], init='k-means++', n_init=20, random_state=42)
             df['CLUSTER_RAW'] = km.fit_predict(X_s)
@@ -270,8 +279,10 @@ def run_ml(df_c, df_m, df_t=None):
             cs['COMPOSITE'] = 0.60 * cs['AVG_SV'] + 0.25 * cs['ACHIEVEMENT_PCT'] + 0.15 * cs['SV_GROWTH_CLIPPED']
             rank = {c: i for i, c in enumerate(cs['COMPOSITE'].sort_values(ascending=False).index)}
 
-            # Fixed 3-tier labels — K is locked at 3, ranked best→worst by COMPOSITE.
-            lbl = {0: 'PREMIUM', 1: 'REGULER', 2: 'PASIF'}
+            # Dynamic tier labels — clusters ranked best→worst by COMPOSITE are mapped
+            # onto the matching ladder for the chosen K (K=3 → PREMIUM/REGULER/PASIF).
+            _ladder = _TIER_LADDER.get(k_diag["chosen_k"], _TIER_LADDER[N_CLUSTERS])
+            lbl = {i: name for i, name in enumerate(_ladder)}
             df['CLUSTER'] = df['CLUSTER_RAW'].map(lambda c: lbl[rank[c]])
 
             # Cohesion metrics — how cohesive (tight) and well-separated the tiers are.

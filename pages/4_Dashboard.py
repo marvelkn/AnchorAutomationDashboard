@@ -293,9 +293,9 @@ def _k_diagnostics(df_c, df_m, df_t=None):
     standardized feature space K-Means clusters on (via prepare_cluster_features).
     """
     _df, X_s = _prepare_cluster_features(df_c, df_m, df_t)
-    if X_s is None or len(X_s) < N_CLUSTERS:
+    if X_s is None or len(X_s) < 3:
         return None
-    return _select_optimal_k(X_s, k_min=2, k_max=8, business_k=N_CLUSTERS)
+    return _select_optimal_k(X_s, k_min=2, k_max=5, business_k=N_CLUSTERS)
 
 
 # ── DB LOAD ──────────────────────────────────────────────────────────────────
@@ -2301,11 +2301,14 @@ with tab3:
             st.plotly_chart(fig_sc, use_container_width=True, theme=None)
 
             # ── Per-tier merchant lists ─────────────────────────────────────────
-            # Explicit "who is in each tier" view — one sub-tab per tier so the
-            # full PREMIUM / REGULER / PASIF merchant list is visible at a glance.
+            # Explicit "who is in each tier" view — one sub-tab per tier so every
+            # dynamic tier's merchant list is visible at a glance, in rank order.
             section_label("Merchants in Each Tier")
-            TIER_ORDER = ['PREMIUM', 'REGULER', 'PASIF']
-            tiers_present = [t for t in TIER_ORDER if t in df_f['CLUSTER'].unique()]
+            _present = df_f['CLUSTER'].unique()
+            tiers_present = (
+                [t for t in _TIER_RANK if t in _present]
+                + [c for c in _present if c not in _TIER_RANK]
+            )
 
             if not tiers_present:
                 st.info("No merchants match the current filters.")
@@ -2356,9 +2359,9 @@ with tab3:
             # ── Cluster Diagnostics — methodology appendix (collapsed) ──────────
             with st.expander("Cluster Diagnostics — Methodology"):
                 # ── How K was chosen — live Elbow + Silhouette sweep ───────────
-                # Directly answers "why K=3?": the sweep runs on the same scaled
-                # six-feature space K-Means uses, on every load. K is anchored to
-                # three actionable tiers; the curves are shown transparently.
+                # Directly answers "why this K?": the sweep runs on the same scaled
+                # six-feature space K-Means uses, on every load, and K is selected
+                # dynamically at the Silhouette peak within the operable band [2,5].
                 section_label("Choosing K — Elbow Method & Silhouette Sweep")
                 _kd = _k_diagnostics(df_card, df_mon, df_target)
                 if _kd and _kd.get("k_values"):
@@ -2375,10 +2378,11 @@ with tab3:
                                    line=dict(color=WARNING, width=2.5),
                                    marker=dict(size=8, symbol="square")),
                         secondary_y=True)
-                    fig_k.add_vline(x=N_CLUSTERS, line_dash="dash",
+                    _chosen = _kd.get("chosen_k", _kd.get("k_silhouette"))
+                    fig_k.add_vline(x=_chosen, line_dash="dash",
                                     line_color=DANGER, opacity=0.7)
-                    fig_k.add_annotation(x=N_CLUSTERS, yref="paper", y=1.04,
-                                         text=f"K={N_CLUSTERS} (selected)", showarrow=False,
+                    fig_k.add_annotation(x=_chosen, yref="paper", y=1.04,
+                                         text=f"K={_chosen} (selected)", showarrow=False,
                                          font=dict(color=DANGER, size=11))
                     fig_k.update_xaxes(title_text="Number of Clusters (K)",
                                        tickmode="array", tickvals=_ks, **_xaxis())
@@ -2393,14 +2397,14 @@ with tab3:
                         f"K-Means clusters on. The **inertia (WCSS)** curve bends at K={_kd['k_elbow']} "
                         f"(the *elbow* — adding tiers past it barely tightens clusters), while the "
                         f"**Silhouette** peaks at K={_kd['k_silhouette']}. The portfolio is operated at "
-                        f"**K={_kd['chosen_k']}** to yield three actionable tiers — PREMIUM / REGULER / "
-                        f"PASIF — a count these curves support and the PM team validated."
+                        f"**K={_chosen}**, selected dynamically at the Silhouette peak within the "
+                        f"operable band [2, 5] — a dynamic tiering mechanism the PM team validated."
                     )
                 else:
                     st.info("Not enough merchants to run the K-selection sweep — at least 3 are required.")
 
                 # Cohesion — Silhouette Score + Davies-Bouldin Index
-                section_label("Cluster Cohesion — How Trustworthy Are These 3 Tiers?")
+                section_label("Cluster Cohesion — How Trustworthy Are These Tiers?")
                 if {'SILHOUETTE_SCORE', 'DB_SCORE'}.issubset(df_ml.columns) and len(df_ml) >= N_CLUSTERS:
                     sil = float(df_ml['SILHOUETTE_SCORE'].iloc[0])
                     dbi = float(df_ml['DB_SCORE'].iloc[0])

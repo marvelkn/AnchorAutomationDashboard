@@ -31,7 +31,7 @@ _KEY_COLS = {
     "MERCHANT_GROUP", "CLUSTER", "CHURN_RISK", "RISK_SCORE",
     "ZSCORE_SV", "ZSCORE_FBI", "ZSCORE_GROWTH", "ACHIEVEMENT_PCT",
 }
-_VALID_TIERS = {"PREMIUM", "REGULER", "PASIF"}
+_VALID_TIERS = {"ELITE", "PREMIUM", "REGULER", "PASIF", "DORMANT"}
 _VALID_RISK = {"HIGH RISK", "MEDIUM RISK", "STABLE"}
 
 
@@ -166,12 +166,14 @@ class TestSelectOptimalK:
         inertia = select_optimal_k(X_s)["inertia"]
         assert all(inertia[i] >= inertia[i + 1] for i in range(len(inertia) - 1))
 
-    def test_chosen_k_anchored_to_business_tiers(self):
+    def test_chosen_k_is_silhouette_optimal_within_band(self):
         df_c, df_m = _portfolio(15, seed=10)
         _, X_s = prepare_cluster_features(df_c, df_m)
         diag = select_optimal_k(X_s)
-        assert diag["chosen_k"] == N_CLUSTERS == 3
-        assert diag["business_anchored"] is True
+        # Operating K is the Silhouette-optimal count, clamped to the operable band.
+        assert diag["chosen_k"] == diag["k_silhouette"]
+        assert 2 <= diag["chosen_k"] <= 5
+        assert diag["business_anchored"] is False
 
     def test_elbow_detects_three_separated_blobs(self):
         # Three compact, well-separated blobs -> elbow + silhouette both at K=3.
@@ -183,11 +185,11 @@ class TestSelectOptimalK:
         assert diag["k_silhouette"] == 3
         assert _find_elbow(diag["k_values"], diag["inertia"]) == 3
 
-    def test_small_sample_returns_anchor_without_sweep(self):
-        # Fewer points than a sweep needs -> graceful anchor, empty arrays.
+    def test_small_sample_returns_fallback_without_sweep(self):
+        # Fewer points than a sweep needs -> graceful fallback, empty arrays.
         X = np.array([[0.0, 0.0], [1.0, 1.0]])     # n = 2
         diag = select_optimal_k(X, k_min=2, k_max=8, business_k=3)
-        assert diag["chosen_k"] == 3
+        assert diag["chosen_k"] == 3               # fallback to business_k
         assert diag["k_values"] == []
         assert diag["justification"]
 
@@ -196,7 +198,7 @@ class TestSelectOptimalK:
         out = run_ml(df_c, df_m)
         diag = out.attrs.get("k_diagnostics")
         assert diag is not None
-        assert diag["chosen_k"] == 3
+        assert 2 <= diag["chosen_k"] <= 5
         assert len(diag["k_values"]) >= 1
 
 

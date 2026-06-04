@@ -4,7 +4,7 @@ Generate the Elbow + Silhouette cluster-count diagnostic figure for the report.
 Runs the *same* dynamic K-selection sweep the dashboard uses
 (utils.ml_engine.select_optimal_k) over the real BTN Anchor portfolio and writes:
 
-  * fig_elbow_silhouette.png  — inertia (WCSS) and Silhouette vs K, K=3 marked
+  * fig_elbow_silhouette.png  — inertia (WCSS) and Silhouette vs K, selected K marked
   * fig_elbow_silhouette.csv  — (K, inertia, silhouette, davies_bouldin)
 
 into the LaTeX report's assets/pics directory, so the figure in Bab3 reflects the
@@ -109,7 +109,7 @@ def main() -> int:
     ap.add_argument("--card-csv", default=None, help="card-share CSV (overrides DB)")
     ap.add_argument("--mon-csv", default=None, help="monitoring CSV (overrides DB)")
     ap.add_argument("--target-csv", default=None, help="target CSV (optional)")
-    ap.add_argument("--k-max", type=int, default=8, help="largest K to evaluate")
+    ap.add_argument("--k-max", type=int, default=5, help="largest K to evaluate")
     args = ap.parse_args()
 
     if args.snapshot:
@@ -162,18 +162,20 @@ def main() -> int:
     ax2.set_ylabel("Silhouette Score", color=GOLD)
     ax2.tick_params(axis="y", labelcolor=GOLD)
 
-    # Optima found dynamically by the sweep on THIS dataset, plus the K=3 business-tier ref.
+    # Optima found dynamically by the sweep on THIS dataset; the selected (operating) K
+    # is the Silhouette-optimal count, clamped to the bounded band [2, k_max].
     k_elbow, k_sil = diag["k_elbow"], diag["k_silhouette"]
+    chosen_k = diag["chosen_k"]
     if k_elbow in ks:
         ax1.annotate(f"elbow: K={k_elbow}", xy=(k_elbow, inr[ks.index(k_elbow)]),
                      xytext=(6, 14), textcoords="offset points", color=NAVY, fontsize=8)
     if k_sil in ks:
         ax2.annotate(f"silhouette maks.: K={k_sil}", xy=(k_sil, sil[ks.index(k_sil)]),
                      xytext=(-6, 10), textcoords="offset points", color=GOLD, fontsize=8, ha="right")
-    if N_CLUSTERS in ks:
-        ax1.axvline(N_CLUSTERS, ls="--", color=RED, alpha=0.75, linewidth=1.5)
-        ax1.annotate(f"K={N_CLUSTERS} (tier bisnis)",
-                     xy=(N_CLUSTERS, max(inr)), xytext=(6, -4),
+    if chosen_k in ks:
+        ax1.axvline(chosen_k, ls="--", color=RED, alpha=0.75, linewidth=1.5)
+        ax1.annotate(f"K={chosen_k} (dipilih)",
+                     xy=(chosen_k, max(inr)), xytext=(6, -4),
                      textcoords="offset points", color=RED, fontsize=9, fontweight="bold")
 
     ax1.legend([l1, l2], [l1.get_label(), l2.get_label()], loc="upper right", fontsize=9)
