@@ -39,11 +39,23 @@ if PROJECT_ROOT not in sys.path:
 
 from utils.ml_engine import prepare_cluster_features, select_optimal_k, N_CLUSTERS
 
-# Default output dir — the LaTeX report's image folder (sibling project tree).
-_DEFAULT_OUT = os.path.normpath(os.path.join(
-    PROJECT_ROOT, "..", "..", "..", "Laporan", "LaTex",
-    "2521_Magang___Marvel_Kevin_Nathanael", "assets", "pics",
-))
+# Default output dir — the LaTeX report's image folder. Located by walking up the
+# directory tree (robust whether run from the main repo or a .claude worktree).
+def _default_out():
+    rel = os.path.join("Laporan", "LaTex", "2521_Magang___Marvel_Kevin_Nathanael")
+    d = PROJECT_ROOT
+    for _ in range(8):
+        cand = os.path.join(d, rel)
+        if os.path.isdir(cand):
+            return os.path.join(cand, "assets", "pics")
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return os.path.join(PROJECT_ROOT, "..", rel, "assets", "pics")
+
+
+_DEFAULT_OUT = _default_out()
 
 
 def _load_from_db():
@@ -73,16 +85,37 @@ def _load_from_csv(card, mon, target):
     return df_card, df_mon, df_target
 
 
+def _load_from_snapshot(path):
+    """Read the dashboard's local pickle snapshot (offline fallback, no DB needed).
+
+    The snapshot is ``{"as_of": str, "result": tuple}`` where the result tuple is
+    ``(df_card, df_card_hist, df_mon, df_mon_weekly, df_target, ...flags)`` with columns
+    already upper-cased (see pages/4_Dashboard.py::_write_snapshot)."""
+    import pickle
+    with open(path, "rb") as fh:
+        payload = pickle.load(fh)
+    r = payload["result"] if isinstance(payload, dict) else payload
+    df_card, df_mon, df_target = r[0], r[2], r[4]
+    for df in (df_card, df_mon, df_target):
+        if hasattr(df, "columns") and len(df.columns):
+            df.columns = [c.upper() for c in df.columns]
+    return df_card, df_mon, df_target
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default=_DEFAULT_OUT, help="output directory for PNG/CSV")
+    ap.add_argument("--snapshot", default=None, help="dashboard snapshot .pkl (offline, no DB)")
     ap.add_argument("--card-csv", default=None, help="card-share CSV (overrides DB)")
     ap.add_argument("--mon-csv", default=None, help="monitoring CSV (overrides DB)")
     ap.add_argument("--target-csv", default=None, help="target CSV (optional)")
     ap.add_argument("--k-max", type=int, default=8, help="largest K to evaluate")
     args = ap.parse_args()
 
-    if args.card_csv and args.mon_csv:
+    if args.snapshot:
+        df_card, df_mon, df_target = _load_from_snapshot(args.snapshot)
+        src = "snapshot"
+    elif args.card_csv and args.mon_csv:
         df_card, df_mon, df_target = _load_from_csv(args.card_csv, args.mon_csv, args.target_csv)
         src = "CSV"
     else:
@@ -118,26 +151,33 @@ def main() -> int:
     NAVY, GOLD, RED = "#1F3A93", "#C9A227", "#C0392B"
     fig, ax1 = plt.subplots(figsize=(7.2, 4.3))
 
-    ax1.plot(ks, inr, marker="o", color=NAVY, linewidth=2, label="Inersia (WCSS)")
+    l1, = ax1.plot(ks, inr, marker="o", color=NAVY, linewidth=2, label="Inersia (WCSS)")
     ax1.set_xlabel("Jumlah Klaster (K)")
     ax1.set_ylabel("Inersia / WCSS", color=NAVY)
     ax1.tick_params(axis="y", labelcolor=NAVY)
     ax1.set_xticks(ks)
 
     ax2 = ax1.twinx()
-    ax2.plot(ks, sil, marker="s", color=GOLD, linewidth=2, label="Silhouette Score")
+    l2, = ax2.plot(ks, sil, marker="s", color=GOLD, linewidth=2, label="Silhouette Score")
     ax2.set_ylabel("Silhouette Score", color=GOLD)
     ax2.tick_params(axis="y", labelcolor=GOLD)
 
+    # Optima found dynamically by the sweep on THIS dataset, plus the K=3 business-tier ref.
+    k_elbow, k_sil = diag["k_elbow"], diag["k_silhouette"]
+    if k_elbow in ks:
+        ax1.annotate(f"elbow: K={k_elbow}", xy=(k_elbow, inr[ks.index(k_elbow)]),
+                     xytext=(6, 14), textcoords="offset points", color=NAVY, fontsize=8)
+    if k_sil in ks:
+        ax2.annotate(f"silhouette maks.: K={k_sil}", xy=(k_sil, sil[ks.index(k_sil)]),
+                     xytext=(-6, 10), textcoords="offset points", color=GOLD, fontsize=8, ha="right")
     if N_CLUSTERS in ks:
-        ax1.axvline(N_CLUSTERS, ls="--", color=RED, alpha=0.75, linewidth=1.4)
-        ax1.annotate(f"K={N_CLUSTERS} (terpilih)",
+        ax1.axvline(N_CLUSTERS, ls="--", color=RED, alpha=0.75, linewidth=1.5)
+        ax1.annotate(f"K={N_CLUSTERS} (tier bisnis)",
                      xy=(N_CLUSTERS, max(inr)), xytext=(6, -4),
                      textcoords="offset points", color=RED, fontsize=9, fontweight="bold")
 
-    lines = ax1.get_lines() + ax2.get_lines()
-    ax1.legend(lines, [ln.get_label() for ln in lines], loc="upper right", fontsize=9)
-    ax1.set_title(f"Penentuan Jumlah Klaster Optimal (Elbow + Silhouette), n={n} merchant")
+    ax1.legend([l1, l2], [l1.get_label(), l2.get_label()], loc="upper right", fontsize=9)
+    ax1.set_title(f"Penentuan K dinamis via Elbow Method & Silhouette Score (n={n} merchant)")
     fig.tight_layout()
 
     png_path = os.path.join(args.out, "fig_elbow_silhouette.png")
