@@ -772,115 +772,10 @@ with tab0:
     else:
         st.info("No assignment data loaded. Run the pipeline to populate PM assignments.")
 
-    # ── Find a Merchant (rebuilt from "Merchant Explorer & Export") ──────────
-    # Recommendation: keep this tool — it's the only place in the dashboard
-    # with a name-search box, cross-dimensional filtering, and a CSV export
-    # of the whole merchant universe. But the previous "4 filter columns +
-    # sort + asc/desc" presentation was heavy and buried. New design leads
-    # with a single search box (the 80% use case), demotes secondary filters
-    # into a sub-expander, and shows only the columns most users actually scan.
     styled_divider()
-    with st.expander("Find a Merchant — search, filter, export", expanded=False):
-        if has_card and has_mon:
-            _df_find_full = run_ml(df_card, df_mon, df_target)
-        elif has_card:
-            _df_find_full = df_card.copy()
-        else:
-            _df_find_full = df_mon.copy() if not df_mon.empty else pd.DataFrame()
-
-        if _df_find_full.empty:
-            st.info("No merchants found to explore. Populate the database first.")
-        else:
-            df_find = _df_find_full.copy()
-
-            # 1. Primary control: a single search-by-name input. Most users open
-            #    this expander knowing exactly which merchant they're looking for.
-            _q = st.text_input(
-                "Search merchant name",
-                key="e_srch",
-                placeholder="Start typing — e.g. INDOMARET, HOKBEN, ...",
-                label_visibility="collapsed",
-            )
-            if _q:
-                df_find = df_find[df_find['MERCHANT_GROUP'].str.contains(
-                    _q.strip().upper(), na=False
-                )]
-
-            # 2. Secondary filters live in a sub-expander so they don't dominate
-            #    the surface for users who just need to type a name.
-            with st.expander("Advanced filters", expanded=False):
-                _ef1, _ef2, _ef3 = st.columns(3)
-                with _ef1:
-                    if 'CLUSTER' in df_find.columns:
-                        _opts = sorted(_df_find_full['CLUSTER'].dropna().unique().tolist())
-                        _sel = st.multiselect("Tier", _opts, default=_opts, key="e_clust")
-                        df_find = df_find[df_find['CLUSTER'].isin(_sel)]
-                with _ef2:
-                    if 'PM' in df_find.columns:
-                        _opts = sorted(_df_find_full['PM'].dropna().unique().tolist())
-                        _sel = st.multiselect("PM", _opts, default=_opts, key="e_pm")
-                        df_find = df_find[df_find['PM'].isin(_sel)]
-                with _ef3:
-                    if 'CHURN_RISK' in df_find.columns:
-                        _opts = ['All'] + _df_find_full['CHURN_RISK'].dropna().unique().tolist()
-                        _sel = st.selectbox("Risk", _opts, key="e_cr")
-                        if _sel != 'All':
-                            df_find = df_find[df_find['CHURN_RISK'] == _sel]
-
-            # 3. Coverage caption — surface match count next to the all-data total
-            #    so users see the filter scope without a separate filter pill.
-            _all_count = len(_df_find_full)
-            _hit_count = len(df_find)
-            if _hit_count == _all_count:
-                st.caption(f"Showing all **{_all_count:,}** merchants. Type a name above to filter.")
-            elif _hit_count == 0:
-                st.caption(f"No merchants match. Try a shorter query, or clear advanced filters.")
-            else:
-                st.caption(f"Matching **{_hit_count:,}** of {_all_count:,} merchants.")
-
-            # 4. Compact 5-column inline view — the columns most users scan first.
-            #    Everything else moves into the row-detail dataframe below.
-            _show_compact = [c for c in
-                             ['MERCHANT_GROUP', 'PM', 'CLUSTER', 'ACHIEVEMENT_PCT', 'CHURN_RISK']
-                             if c in df_find.columns]
-            if _show_compact and not df_find.empty:
-                _compact = df_find[_show_compact].rename(columns={
-                    'MERCHANT_GROUP':   'Merchant',
-                    'PM':               'PM',
-                    'CLUSTER':          'Tier',
-                    'ACHIEVEMENT_PCT':  'Achievement',
-                    'CHURN_RISK':       'Risk',
-                })
-                _fmt = {}
-                if 'Achievement' in _compact.columns:
-                    _fmt['Achievement'] = lambda x: fmt_pct(x, decimals=0, scale=False) if pd.notna(x) else "—"
-                _compact_styled = _compact.style.format(_fmt) if _fmt else _compact.style
-                st.dataframe(_compact_styled, use_container_width=True,
-                             hide_index=True,
-                             height=min(38 * len(_compact) + 40, 380))
-
-            # 5. Full record + CSV export tucked into a second sub-expander so
-            #    quick lookups don't have to scroll past a 13-column wide grid.
-            with st.expander("Show full record + export", expanded=False):
-                _show_full = [c for c in
-                              ['MERCHANT_GROUP', 'PM', 'CLUSTER', 'CHURN_RISK',
-                               'TOTAL_SV', 'TOTAL_TRX', 'TOTAL_FBI', 'RASIO_ONUS',
-                               'WEEKS_ACTIVE', 'YTD_VOL', 'ACHIEVEMENT_PCT',
-                               'SV_GROWTH_RATE', 'ZSCORE_SV']
-                              if c in df_find.columns]
-                if _show_full and not df_find.empty:
-                    st.dataframe(df_find[_show_full].reset_index(drop=True),
-                                 use_container_width=True, height=380)
-                    st.download_button(
-                        "Export filtered list as CSV",
-                        df_find[_show_full].to_csv(index=False, encoding='utf-8-sig'),
-                        "merchant_explorer_export.csv", "text/csv", type="primary",
-                    )
-                else:
-                    st.caption("No data to export at this filter scope.")
 
     # ── AI Insights (formerly AI Insights tab) ────────────────────────────────
-    with st.expander("AI Insights & Recommendations", expanded=False):
+    with st.expander("AI Insights & Recommendations", expanded=True):
         if not has_mon_weekly:
             st.warning("AI Insights require processed Monitoring Weekly data in the database.")
         else:
@@ -899,11 +794,32 @@ with tab0:
                 # --- Deep Dive & Projection ---
                 section_label("Deep Dive & Projection (Specific Merchant)")
                 all_merch_ai = sorted(df_ai_wk['MERCHANT_GROUP'].unique().tolist())
-                # sel_group only exists inside the Card Share / Weekly tabs;
-                # the Overview tab reads the shared portfolio filter from
-                # session_state, falling back to "ALL GROUPS" when unset.
+                # Determine the page default so a relevant merchant is profiled on
+                # load without user input. Priority:
+                #   1. Explicit portfolio filter the user set elsewhere (pf_group).
+                #      sel_group only exists inside the Card Share / Weekly tabs;
+                #      the Overview tab reads this shared filter from session_state.
+                #   2. Current month's top merchant by sales volume (auto-select).
+                #   3. Alphabetically first merchant (index 0) as a last resort.
                 _pf_group = st.session_state.get("pf_group", "ALL GROUPS")
-                _ai_default_idx = all_merch_ai.index(_pf_group) if _pf_group != "ALL GROUPS" and _pf_group in all_merch_ai else 0
+                _ai_default_idx = 0
+                if _pf_group != "ALL GROUPS" and _pf_group in all_merch_ai:
+                    _ai_default_idx = all_merch_ai.index(_pf_group)
+                elif not df_card_hist.empty and 'TRX_MONTH' in df_card_hist.columns:
+                    # Top merchant of the most recent month by total sales volume.
+                    # Reuses the same max_month / TOTAL_SV basis as the MoM growth
+                    # table below. Guarded: df_card_hist (monthly) and df_ai_wk
+                    # (weekly monitoring) are distinct tables whose merchant naming
+                    # can differ, so we only apply the result if it is a valid option.
+                    _cur_month = df_card_hist['TRX_MONTH'].max()
+                    _month_vol = (
+                        df_card_hist[df_card_hist['TRX_MONTH'] == _cur_month]
+                        .groupby('MERCHANT_GROUP')['TOTAL_SV'].sum()
+                    )
+                    if not _month_vol.empty:
+                        _top_merch = _month_vol.idxmax()
+                        if _top_merch in all_merch_ai:
+                            _ai_default_idx = all_merch_ai.index(_top_merch)
                 sel_merch = st.selectbox("Select Merchant Entity to Profile:", all_merch_ai, index=_ai_default_idx, key="ai_sel_merch")
                 if sel_merch:
                     col_txt, col_graph = st.columns([1, 1], gap="large")
