@@ -1966,6 +1966,17 @@ with tab3:
     if not (has_card and has_mon):
         st.warning("Merchant segmentation requires **both** Card Share and Monitoring data to be processed first.")
     else:
+        _col_refresh, _ = st.columns([1, 8])
+        with _col_refresh:
+            if st.button(
+                "↺ Refresh Analysis",
+                key="btn_refresh_ml",
+                help="Clear cached ML results and recompute with the latest data",
+            ):
+                run_ml.clear()
+                _k_diagnostics.clear()
+                st.rerun()
+
         with st.spinner("Analyzing merchant performance tiers..."):
             df_ml = run_ml(df_card, df_mon, df_target)
 
