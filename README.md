@@ -18,7 +18,7 @@ an optional **Windows-only Excel-COM ETL** prepares a SQLite extract that is ing
 - **Excel-COM ETL (Windows)**: Uses `win32com.client` to write to corporate Master files without destroying built-in formulas, pivots, or formatting.
 
 ### 🧠 Machine Learning Engine
-- **K-Means++ Clustering** (fixed **K=3**, locked per academic review): segments merchants into **PREMIUM**, **REGULER**, **PASIF** tiers from Sales Volume, FBI, on-us card ratio, growth, YTD achievement, and weeks active. Tiers are rank-assigned by a composite score, so labels stay stable as data changes.
+- **K-Means++ Clustering** (dynamic **K ∈ [2–5]**, selected per-run by Silhouette score): segments merchants into performance tiers from Sales Volume, FBI, on-us card ratio, growth, YTD achievement, and weeks active. At K=3 tiers are labelled **PREMIUM / REGULER / PASIF**; other K values extend or contract the ladder. Falls back to K=3 only when the merchant sample is too small to sweep (n < 3). Tiers are rank-assigned by a composite score, so labels stay stable as data changes.
 - **Composite Risk Score (0–100)**: weighted Growth 40% · Volume 30% · FBI 20% · Achievement 10%, bucketed into `HIGH RISK` (≥60) / `MEDIUM RISK` (30–59) / `STABLE` (<30).
 - **Anomaly Detection**: Modified Z-Score (MAD, robust to small-portfolio outliers) plus Isolation Forest with leave-one-feature-out contributions; a MAD z-score breach upgrades a `STABLE` merchant to `MEDIUM RISK`.
 - **Forecasting**: damped-trend Holt-Winters on monthly Settlement Volume with an 80% confidence band.
