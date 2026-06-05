@@ -810,7 +810,10 @@ with tab0:
                             _ai_default_idx = all_merch_ai.index(_top_merch)
                 sel_merch = st.selectbox("Select Merchant Entity to Profile:", all_merch_ai, index=_ai_default_idx, key="ai_sel_merch")
                 if sel_merch:
-                    col_txt, col_graph = st.columns([1, 1], gap="large")
+                    # Single full-width column for the merchant narrative. The
+                    # seasonality chart that used to sit beside it was removed —
+                    # its insight survives as the "Seasonality Intelligence" text.
+                    col_txt = st.container()
                     df_m_wk  = df_ai_wk[df_ai_wk['MERCHANT_GROUP'] == sel_merch]
                     df_m_vol = df_m_wk[df_m_wk['DIMENSI'] == 'VOL']
                     ytd_actual = float(df_m_vol['YTD'].iloc[0]) if not df_m_vol.empty else 0
@@ -896,16 +899,7 @@ with tab0:
                                     <b>Seasonality Intelligence:</b> {seasonality_str}
                                 </div>""", unsafe_allow_html=True
                             )
-                        _proj_kind = "success" if rate_pct >= 100 else ("accent" if rate_pct >= 80 else "danger")
-                        st.markdown(
-                            kpi_card(
-                                f"Rp {proj_eoy/1e9:,.2f} B",
-                                f"Projected Year-End Run Rate ({_proj_method}) — {rate_pct:.1f}% of Target",
-                                kind=_proj_kind,
-                            ),
-                            unsafe_allow_html=True,
-                        )
-                        with st.expander("What's Driving This Merchant's Risk?", expanded=True):
+                        with st.expander("What's Driving This Merchant's Risk?", expanded=False):
                             fi_scores = {}
                             if active_weeks_count > 0 and latest_wk_num > 0:
                                 inactivity_ratio = 1.0 - (active_weeks_count / latest_wk_num)
@@ -957,7 +951,7 @@ with tab0:
                             bool(_merch_ml['IF_IS_ANOMALY'].iloc[0])
                         )
                         if _is_if_anomaly and all(c in _merch_ml.columns for c in _lofo_col_map):
-                            with st.expander("Isolation Forest Feature Contribution (Model-Based)", expanded=True):
+                            with st.expander("Isolation Forest Feature Contribution (Model-Based)", expanded=False):
                                 _lofo_vals = {
                                     label: float(_merch_ml[col].iloc[0])
                                     for col, label in _lofo_col_map.items()
@@ -994,41 +988,15 @@ with tab0:
                                     "Green = feature reduces anomaly risk. "
                                     "LOFO: each feature is set to the portfolio mean and the Isolation Forest score delta is measured — no model re-fitting."
                                 )
-                    with col_graph:
-                        if not season_df.empty:
-                            mo_names    = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-                            full_season = pd.DataFrame({'MonthIdx': range(1, 13)})
-                            full_season = pd.merge(full_season, season_df, on='MonthIdx', how='left').fillna({'Multiplier': 1.0, 'SV': 0})
-                            full_season['MonthName'] = mo_names
-                            fig_sea = px.line(full_season, x='MonthName', y='Multiplier', markers=True,
-                                              title=f"Historical Seasonality Curve ({sel_merch})",
-                                              labels={'Multiplier': 'Volume Multiplier (1.0 = Average)'})
-                            fig_sea.add_hline(y=1.0, line_dash="dash", line_color=get_palette()['TEXT_SEC'], annotation_text="Baseline Avg (1.0x)")
-                            fig_sea.update_traces(line=dict(width=3, color=get_palette()['GOLD']), marker=dict(size=8))
-                            fig_sea.update_layout(height=300, **_chart_base(), xaxis=_xaxis(), yaxis=_yaxis())
-                            st.plotly_chart(fig_sea, use_container_width=True, theme=None)
-                        else:
-                            st.info(f"Insufficient historical Realisasi monthly data to chart statistical seasonality for {sel_merch}.")
-
                     styled_divider()
-                    section_label("Volume Outlook — Forecast & Target Tracking")
+                    section_label("Volume Outlook — Forecast")
                     st.caption(f"Forecasting **{sel_merch}** · Model: **{_proj_method}**")
                     _fc_kind = "success" if rate_pct >= 100 else ("accent" if rate_pct >= 80 else "danger")
-                    _mcol1, _mcol2, _mcol3, _mcol4 = st.columns(4)
-                    with _mcol1:
-                        st.markdown(kpi_card(f"Rp {proj_eoy/1e9:,.2f} B", "Projected Year-End", kind=_fc_kind), unsafe_allow_html=True)
-                    with _mcol2:
-                        st.markdown(kpi_card(f"{rate_pct:.0f}%", "of FY 2026 Target", kind=_fc_kind), unsafe_allow_html=True)
-                    with _mcol3:
-                        st.markdown(kpi_card(f"Rp {ytd_actual/1e9:,.2f} B", "YTD Actual"), unsafe_allow_html=True)
-                    with _mcol4:
-                        st.markdown(kpi_card(f"{active_weeks_count}", "Active Weeks"), unsafe_allow_html=True)
-                    # ── Volume Outlook — Forecast & Target Tracking ───────
+                    # ── One hero forecast: big numbers first, then one clean chart ──
                     if _hw_forecast_vals is not None and len(_hw_forecast_vals) > 0:
                         _pal        = _p()
                         _C_ACTUAL   = _pal['GOLD']
                         _C_FORECAST = '#1B59F8'   # BTN primary blue
-                        _band_rgba  = hex_to_rgba(_C_FORECAST, 0.13)
 
                         # Gap-free history straight from the model (already
                         # calendar-contiguous). Values plotted in Rp Billion.
@@ -1036,152 +1004,95 @@ with tab0:
                         _full_v = [float(v) / 1e9 for v in _hw_result['hist_values']]
                         hist_m, hist_v = _full_m[-14:], _full_v[-14:]   # last 14 mo for readability
 
-                        fc_v  = [float(v) / 1e9 for v in np.asarray(_hw_forecast_vals)]
-                        lo_v  = [float(v) / 1e9 for v in np.asarray(_hw_lower)] if _hw_lower is not None else fc_v
-                        up_v  = [float(v) / 1e9 for v in np.asarray(_hw_upper)] if _hw_upper is not None else fc_v
-                        fc_m  = _next_months(hist_m[-1], len(fc_v))
+                        fc_v = [float(v) / 1e9 for v in np.asarray(_hw_forecast_vals)]
+                        fc_m = _next_months(hist_m[-1], len(fc_v))
 
                         hist_lbl = [_month_label(m) for m in hist_m]
                         fc_lbl   = [_month_label(m) for m in fc_m]
 
-                        # Anchor forecast + band to the last actual so the line
-                        # reads as one continuous path with no visual gap.
+                        # ── The bottom line — big numbers, read before the chart.
+                        # Headline = next month's predicted volume, with the
+                        # expected MoM growth as its momentum delta (kpi_card
+                        # ignores a None delta), then the year-end landing point
+                        # and achievement against the FY target. ──
+                        _next_val = fc_v[0]
+                        _last_act = hist_v[-1] if hist_v else 0.0
+                        _growth   = ((_next_val / _last_act - 1) * 100) if _last_act > 0 else None
+                        _hcol1, _hcol2, _hcol3 = st.columns(3)
+                        with _hcol1:
+                            st.markdown(kpi_card(
+                                f"Rp {_next_val:,.2f} B",
+                                f"Predicted Volume — {fc_lbl[0]}",
+                                kind="accent", hero=True,
+                                delta=_growth, delta_good="up",
+                            ), unsafe_allow_html=True)
+                        with _hcol2:
+                            st.markdown(kpi_card(
+                                f"Rp {proj_eoy/1e9:,.2f} B",
+                                "Projected Year-End",
+                                kind=_fc_kind, hero=True,
+                            ), unsafe_allow_html=True)
+                        with _hcol3:
+                            st.markdown(kpi_card(
+                                f"{rate_pct:.0f}%",
+                                "of FY 2026 Target",
+                                kind=_fc_kind, hero=True,
+                            ), unsafe_allow_html=True)
+
+                        # Anchor the forecast to the last actual so the dashed
+                        # line continues the gold history with no visual gap.
                         anc_x  = [hist_lbl[-1]] + fc_lbl
                         anc_fc = [hist_v[-1]]   + fc_v
-                        anc_up = [hist_v[-1]]   + up_v
-                        anc_lo = [hist_v[-1]]   + lo_v
 
-                        fig = make_subplots(
-                            rows=2, cols=1, vertical_spacing=0.19,
-                            row_heights=[0.60, 0.40],
-                            subplot_titles=(
-                                f"Monthly Volume Trajectory — {_proj_method}",
-                                "Cumulative Progress vs FY 2026 Target",
-                            ),
-                        )
-                        for _ann in fig.layout.annotations:
-                            _ann.font = dict(size=13, color=_pal['TEXT_PRI'])
-                            _ann.x, _ann.xanchor = 0, 'left'
-
-                        # ── Panel A — monthly trajectory ──
-                        fig.add_trace(go.Scatter(
-                            x=anc_x, y=anc_up, mode='lines', line=dict(width=0),
-                            hoverinfo='skip', showlegend=False,
-                        ), row=1, col=1)
-                        fig.add_trace(go.Scatter(
-                            x=anc_x, y=anc_lo, mode='lines', line=dict(width=0),
-                            fill='tonexty', fillcolor=_band_rgba,
-                            name='80% confidence', hoverinfo='skip',
-                        ), row=1, col=1)
+                        # ── The single hero chart — gold history flowing into a
+                        # dashed-blue forecast. No band, no second panel. ──
+                        fig = go.Figure()
                         fig.add_trace(go.Scatter(
                             x=hist_lbl, y=hist_v, mode='lines+markers', name='Actual',
                             line=dict(color=_C_ACTUAL, width=3),
                             marker=dict(size=6, color=_C_ACTUAL),
                             hovertemplate='<b>%{x}</b><br>Actual: Rp %{y:,.2f} B<extra></extra>',
-                        ), row=1, col=1)
+                        ))
                         fig.add_trace(go.Scatter(
                             x=anc_x, y=anc_fc, mode='lines+markers', name='Forecast',
                             line=dict(color=_C_FORECAST, width=3, dash='dash'),
                             marker=dict(size=6, color=_C_FORECAST),
                             hovertemplate='<b>%{x}</b><br>Forecast: Rp %{y:,.2f} B<extra></extra>',
-                        ), row=1, col=1)
-
-                        # ── Panel B — cumulative vs FY target ──
-                        _cur_year = datetime.now().year
-                        _cy = [(m, v) for m, v in zip(_full_m, _full_v) if m // 100 == _cur_year]
-                        cum_lbl, cum_v, _run = [], [], 0.0
-                        for m, v in _cy:
-                            _run += v
-                            cum_lbl.append(_month_label(m)); cum_v.append(_run)
-
-                        fcum_lbl, fcum_v = [], []
-                        if cum_lbl:
-                            fcum_lbl.append(cum_lbl[-1]); fcum_v.append(cum_v[-1])
-                        _run_fc = cum_v[-1] if cum_v else 0.0
-                        for m, v in zip(fc_m, fc_v):
-                            if m // 100 != _cur_year:
-                                continue
-                            _run_fc += v
-                            fcum_lbl.append(_month_label(m)); fcum_v.append(_run_fc)
-
-                        proj_cum_end = fcum_v[-1] if fcum_v else (cum_v[-1] if cum_v else 0.0)
-                        fy_target_b  = fy_target / 1e9
-                        cum_rate     = (proj_cum_end / fy_target_b * 100) if fy_target_b > 0 else 0
-                        end_color    = (_pal['GREEN'] if cum_rate >= 100
-                                        else _pal['AMBER'] if cum_rate >= 80
-                                        else _pal['RED'])
-
+                        ))
+                        # Call out where the forecast lands at the horizon.
                         fig.add_trace(go.Scatter(
-                            x=cum_lbl, y=cum_v, mode='lines',
-                            line=dict(color=_C_ACTUAL, width=2.5),
-                            fill='tozeroy', fillcolor=hex_to_rgba(_C_ACTUAL, 0.15),
-                            hovertemplate='<b>%{x}</b><br>Cumulative actual: Rp %{y:,.2f} B<extra></extra>',
-                            showlegend=False,
-                        ), row=2, col=1)
-                        fig.add_trace(go.Scatter(
-                            x=fcum_lbl, y=fcum_v, mode='lines',
-                            line=dict(color=_C_FORECAST, width=2.5, dash='dash'),
-                            fill='tozeroy', fillcolor=hex_to_rgba(_C_FORECAST, 0.10),
-                            hovertemplate='<b>%{x}</b><br>Cumulative projected: Rp %{y:,.2f} B<extra></extra>',
-                            showlegend=False,
-                        ), row=2, col=1)
-                        if fy_target_b > 0:
-                            fig.add_hline(
-                                y=fy_target_b, line_dash='dash', line_width=1.5,
-                                line_color=_pal['TEXT_SEC'], row=2, col=1,
-                                annotation_text=f"FY TARGET — Rp {fy_target_b:,.1f} B",
-                                annotation_position='top left',
-                                annotation_font=dict(size=10, color=_pal['TEXT_SEC']),
-                            )
-                        if fcum_lbl:
-                            fig.add_trace(go.Scatter(
-                                x=[fcum_lbl[-1]], y=[fcum_v[-1]], mode='markers',
-                                marker=dict(size=12, color=end_color,
-                                            line=dict(width=2, color=_pal['SURFACE'])),
-                                hovertemplate=(f'<b>Projected year-end</b><br>'
-                                               f'Rp %{{y:,.2f}} B<br>{cum_rate:.0f}% of target'
-                                               f'<extra></extra>'),
-                                showlegend=False,
-                            ), row=2, col=1)
-                            fig.add_annotation(
-                                x=fcum_lbl[-1], y=fcum_v[-1], row=2, col=1,
-                                text=f"<b>{cum_rate:.0f}% of target</b>",
-                                showarrow=False, yshift=16,
-                                font=dict(size=11, color=end_color),
-                            )
-
+                            x=[fc_lbl[-1]], y=[fc_v[-1]], mode='markers+text',
+                            marker=dict(size=11, color=_C_FORECAST,
+                                        line=dict(width=2, color=_pal['SURFACE'])),
+                            text=[f"Rp {fc_v[-1]:,.1f} B"], textposition='top center',
+                            textfont=dict(size=11, color=_C_FORECAST),
+                            hoverinfo='skip', showlegend=False,
+                        ))
                         fig.update_layout(
-                            height=560, **_chart_base(),
-                            margin=dict(l=10, r=24, t=58, b=24),
+                            height=380, **_chart_base(),
+                            margin=dict(l=10, r=24, t=30, b=24),
                             hovermode='x unified',
-                            legend=dict(orientation='h', y=1.10, x=1, xanchor='right',
+                            legend=dict(orientation='h', y=1.12, x=1, xanchor='right',
                                         font=dict(size=11)),
                         )
-                        fig.update_xaxes(
-                            patch=dict(**_xaxis(), categoryorder='array',
-                                       categoryarray=hist_lbl + fc_lbl),
-                            row=1, col=1)
-                        fig.update_xaxes(
-                            patch=dict(**_xaxis(), categoryorder='array',
-                                       categoryarray=cum_lbl + fcum_lbl[1:]),
-                            row=2, col=1)
-                        fig.update_yaxes(
-                            patch=dict(**_yaxis(), title_text='Volume (Rp Billion)'),
-                            row=1, col=1)
-                        fig.update_yaxes(
-                            patch=dict(**_yaxis(), title_text='Cumulative (Rp Billion)'),
-                            row=2, col=1)
+                        fig.update_xaxes(categoryorder='array',
+                                         categoryarray=hist_lbl + fc_lbl, **_xaxis())
+                        fig.update_yaxes(title_text='Volume (Rp Billion)', **_yaxis())
                         st.plotly_chart(fig, use_container_width=True, theme=None)
                         st.caption(
-                            f"Model: {_proj_method}. Forecast basis: monthly card-settlement "
-                            f"history. Shaded band = 80% confidence range (widens with horizon). "
-                            f"Panel B tracks cumulative {_cur_year} volume against the FY target."
+                            f"Model: {_proj_method}. Gold = actual monthly card-settlement "
+                            f"volume; dashed blue = forecast for the months ahead."
                         )
                     else:
+                        st.markdown(kpi_card(
+                            f"Rp {proj_eoy/1e9:,.2f} B",
+                            f"Projected Year-End · {rate_pct:.0f}% of FY Target",
+                            kind=_fc_kind, hero=True,
+                        ), unsafe_allow_html=True)
                         st.info(
                             f"Statistical forecast unavailable for {sel_merch} "
                             f"({_hw_reason or 'insufficient historical data'}). "
-                            f"The year-end projection above uses a linear run-rate estimate."
+                            f"This year-end projection uses a linear run-rate estimate."
                         )
 
 
