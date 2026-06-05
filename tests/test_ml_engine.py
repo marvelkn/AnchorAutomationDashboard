@@ -236,3 +236,42 @@ class TestHwForecast:
         assert np.all(res["lower"] <= res["forecast"] + 1e-6)
         assert np.all(res["forecast"] <= res["upper"] + 1e-6)
         assert res["projected_eoy"] == pytest.approx(float(np.sum(res["forecast"])))
+
+
+# ---------------------------------------------------------------------------
+# Env-var-backed ML constants
+# ---------------------------------------------------------------------------
+
+class TestMLConstants:
+    """ML constants fall back to original defaults; env vars override them."""
+
+    def test_default_values(self):
+        import utils.ml_engine as me
+        assert me.K_MIN == 2
+        assert me.K_MAX == 5
+        assert me.N_CLUSTERS == 3
+        assert me.Z_THRESH == pytest.approx(-1.2)
+
+    def test_k_min_env_override(self, monkeypatch):
+        import importlib
+        import utils.ml_engine as me
+        monkeypatch.setenv("ANCHOR_K_MIN", "3")
+        importlib.reload(me)
+        assert me.K_MIN == 3
+        importlib.reload(me)  # restore defaults for subsequent tests
+
+    def test_k_max_env_override(self, monkeypatch):
+        import importlib
+        import utils.ml_engine as me
+        monkeypatch.setenv("ANCHOR_K_MAX", "4")
+        importlib.reload(me)
+        assert me.K_MAX == 4
+        importlib.reload(me)
+
+    def test_z_thresh_env_override(self, monkeypatch):
+        import importlib
+        import utils.ml_engine as me
+        monkeypatch.setenv("ANCHOR_Z_THRESH", "-1.5")
+        importlib.reload(me)
+        assert me.Z_THRESH == pytest.approx(-1.5)
+        importlib.reload(me)

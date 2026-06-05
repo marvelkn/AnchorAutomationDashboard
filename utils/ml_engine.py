@@ -35,10 +35,12 @@ log = logging.getLogger(__name__)
 # select_optimal_k() — it sweeps Elbow + Silhouette + Davies-Bouldin on every call
 # and picks the Silhouette-optimal K within the operable band [K_MIN, K_MAX].
 # N_CLUSTERS is only a fallback/default for samples too small to sweep (n < 3).
-K_MIN      = 2      # smallest operable tier count
-K_MAX      = 5      # largest operable tier count — caps over-segmentation (parsimony)
-N_CLUSTERS = 3      # default tier count for tiny samples that cannot be swept
-Z_THRESH   = -1.2   # z-score breach threshold for anomaly → MEDIUM RISK upgrade
+# Each constant can be overridden via an environment variable without code changes.
+import os as _os
+K_MIN      = int(_os.getenv("ANCHOR_K_MIN",      "2"))    # smallest operable tier count
+K_MAX      = int(_os.getenv("ANCHOR_K_MAX",      "5"))    # largest operable tier count
+N_CLUSTERS = int(_os.getenv("ANCHOR_N_CLUSTERS", "3"))    # fallback for tiny samples
+Z_THRESH   = float(_os.getenv("ANCHOR_Z_THRESH", "-1.2")) # anomaly upgrade threshold
 
 # Ordered tier vocabulary (best → worst), aligned with theme.CLUSTER_COLORS and the
 # dashboard's _TIER_RANK. For a chosen K the clusters (ranked best→worst by COMPOSITE)
