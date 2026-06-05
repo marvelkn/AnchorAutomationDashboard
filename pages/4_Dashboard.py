@@ -307,6 +307,7 @@ engine = _get_engine()
 # block the dashboard from rendering its core analytics.
 try:
     app_state.ensure_state_tables(engine=engine)
+    app_state.ensure_ml_run_log(engine=engine)
 except Exception:
     log.warning("ensure_state_tables failed; user-state features (triage/forecast log/watchlist) may be unavailable", exc_info=True)
 
@@ -1967,6 +1968,19 @@ with tab3:
     else:
         with st.spinner("Analyzing merchant performance tiers..."):
             df_ml = run_ml(df_card, df_mon, df_target)
+
+        # Audit: record K-selection decision for each data version.
+        try:
+            _k_diag_for_log = _k_diagnostics(df_card, df_mon, df_target)
+            if _k_diag_for_log:
+                app_state.write_ml_run(
+                    engine,
+                    data_version=_get_data_version(),
+                    n_merchants=len(df_ml),
+                    k_diag=_k_diag_for_log,
+                )
+        except Exception:
+            log.warning("ML audit write failed", exc_info=True)
 
         if df_ml.empty:
             st.info("No data available for Machine Learning analysis. Please ensure the database has been populated.")

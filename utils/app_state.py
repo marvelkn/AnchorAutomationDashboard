@@ -22,11 +22,14 @@ tests want to exercise this module without spinning up Neon.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from typing import Iterable
 
 import pandas as pd
 from sqlalchemy import text
+
+log = logging.getLogger(__name__)
 
 TRIAGE_TABLE = "app_triage"
 FORECAST_TABLE = "forecast_log"
@@ -331,3 +334,64 @@ def remove_from_watchlist(merchant_group: str, engine=None) -> None:
         f"DELETE FROM {WATCHLIST_TABLE} WHERE merchant_group = :m",
         {"m": merchant_group},
     )
+
+
+# ── ML run audit log ──────────────────────────────────────────────────────────
+
+_CREATE_ML_RUN_LOG = """
+CREATE TABLE IF NOT EXISTS ml_run_log (
+    id                SERIAL PRIMARY KEY,
+    run_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    data_version      TEXT,
+    n_merchants       INTEGER,
+    chosen_k          INTEGER,
+    k_elbow           INTEGER,
+    k_silhouette      INTEGER,
+    silhouette_score  DOUBLE PRECISION,
+    davies_bouldin    DOUBLE PRECISION,
+    business_anchored BOOLEAN,
+    justification     TEXT
+)
+"""
+
+
+def ensure_ml_run_log(engine) -> None:
+    """Create ml_run_log table if it does not exist. Idempotent."""
+    _require_engine(engine)
+    with engine.begin() as conn:
+        conn.execute(text(_CREATE_ML_RUN_LOG))
+
+
+def write_ml_run(engine, *, data_version: str, n_merchants: int, k_diag: dict) -> None:
+    """Append one row to ml_run_log recording the K-selection decision. Non-fatal."""
+    try:
+        ensure_ml_run_log(engine)
+        ks   = k_diag.get("k_values", [])
+        sils = k_diag.get("silhouette", [])
+        dbis = k_diag.get("davies_bouldin", [])
+        ck   = k_diag.get("chosen_k", 0)
+        sil_for_chosen = sils[ks.index(ck)] if ck in ks and sils else None
+        dbi_for_chosen = dbis[ks.index(ck)] if ck in ks and dbis else None
+        with engine.begin() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO ml_run_log
+                        (data_version, n_merchants, chosen_k, k_elbow, k_silhouette,
+                         silhouette_score, davies_bouldin, business_anchored, justification)
+                    VALUES
+                        (:dv, :nm, :ck, :ke, :ks, :sil, :dbi, :ba, :just)
+                """),
+                {
+                    "dv":   data_version,
+                    "nm":   n_merchants,
+                    "ck":   ck,
+                    "ke":   k_diag.get("k_elbow"),
+                    "ks":   k_diag.get("k_silhouette"),
+                    "sil":  sil_for_chosen,
+                    "dbi":  dbi_for_chosen,
+                    "ba":   k_diag.get("business_anchored", True),
+                    "just": k_diag.get("justification", ""),
+                },
+            )
+    except Exception:
+        log.warning("write_ml_run failed; audit record not written", exc_info=True)
