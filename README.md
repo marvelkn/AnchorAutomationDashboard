@@ -24,14 +24,13 @@ an optional **Windows-only Excel-COM ETL** prepares a SQLite extract that is ing
 - **Forecasting**: damped-trend Holt-Winters on monthly Settlement Volume with an 80% confidence band.
 - **Cached Re-computation**: ML recomputes on the dashboard whenever the underlying data changes (keyed on `LAST_DATA_UPDATE`), and is cached between reruns.
 
-### 📊 Analytics Dashboard (7 Tabs)
+### 📊 Analytics Dashboard (6 Tabs)
+- **Overview**: Portfolio KPI cards and PM-coverage panel, plus a per-merchant drill-down with Holt-Winters forecasting and auto-generated AI Insights.
 - **Card Share**: YTD card-share leaderboard with YoY growth overlays and payment type breakdown.
-- **Weekly Monitoring**: Heatmaps and trend charts with WoW/MoM growth indicators.
-- **ML Segmentation**: Cluster scatter (PCA 2-D), composite ranking, silhouette & Davies-Bouldin diagnostics.
-- **Churn & Risk**: Risk register with multi-factor flag explanations per merchant.
-- **Merchant Explorer**: Drill-down per merchant with full weekly history and Holt-Winters forecasting.
-- **AI Insights**: Auto-generated portfolio commentary.
-- **Batch Impact**: Before/after comparison of bulk reassignments.
+- **Weekly Monitor**: Heatmaps and trend charts with WoW/MoM growth indicators.
+- **Merchant Tiers**: Cluster scatter (PCA 2-D) with dynamic tiers, composite ranking, and silhouette & Davies-Bouldin diagnostics.
+- **Health Alerts**: Composite-risk register with multi-factor flag explanations per merchant, HIGH RISK first.
+- **Anomaly Detection**: Isolation Forest anomaly signal with leave-one-feature-out (LOFO) contributions per merchant.
 
 ### 🎨 Professional UI/UX
 - **Dual-Mode Theming**: Dark **Navy & Gold** (BTN brand) and high-contrast light mode, toggled from the sidebar; responsive layout with a mobile bottom-nav.
@@ -200,7 +199,7 @@ DATABASE_URL = "postgresql://..."
 
 Implemented in `utils/ml_engine.py` (pure, unit-tested; the dashboard wraps it with caching).
 
-### K-Means++ Clustering (K confirmed by Elbow + Silhouette, anchored to 3)
+### K-Means++ Clustering (K selected dynamically via Elbow + Silhouette)
 | Feature | Transformation |
 |---------|---------------|
 | Average Sales Volume | `log1p` |
@@ -211,15 +210,16 @@ Implemented in `utils/ml_engine.py` (pure, unit-tested; the dashboard wraps it w
 | Weeks Active | Raw |
 
 All features are normalised with `StandardScaler` before clustering. Cluster labels
-(PREMIUM / REGULER / PASIF) are rank-assigned by a composite score (SV 60%, achievement 25%,
-growth 15%), so labels stay stable as data changes.
+(PREMIUM / REGULER / PASIF at K=3; the ladder extends to ELITE…DORMANT at higher K) are
+rank-assigned by a composite score (SV 60%, achievement 25%, growth 15%), so labels stay
+stable as data changes.
 
-K is not hardcoded: `select_optimal_k()` sweeps K = 2…8 on every run, scoring each by
+K is not hardcoded: `select_optimal_k()` sweeps K = 2…5 on every run, scoring each by
 inertia (WCSS / Elbow), Silhouette, and Davies-Bouldin. It reports the Elbow K and the
-Silhouette-optimal K, then anchors the operating count to **3** — the three actionable
-business tiers — and logs a transparent justification. The Merchant Tiers tab renders this
-sweep live, and `scripts/plot_elbow_silhouette.py` regenerates the report figure from real
-data.
+Silhouette-optimal K, then sets the operating count to the **Silhouette-optimal K, clamped
+to [2, 5]** to prevent over-segmentation, and logs a transparent justification. The Merchant
+Tiers tab renders this sweep live, and `scripts/plot_elbow_silhouette.py` regenerates the
+report figure from real data.
 
 ### Composite Risk Score & Churn Tiers
 A 0–100 risk score is computed from MAD-robust z-scores:

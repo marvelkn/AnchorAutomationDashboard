@@ -44,8 +44,8 @@ Z_THRESH   = float(_os.getenv("ANCHOR_Z_THRESH", "-1.2")) # anomaly upgrade thre
 
 # Ordered tier vocabulary (best → worst), aligned with theme.CLUSTER_COLORS and the
 # dashboard's _TIER_RANK. For a chosen K the clusters (ranked best→worst by COMPOSITE)
-# are labelled from the matching ladder; K=3 stays PREMIUM/REGULER/PASIF so existing
-# report figures and screenshots remain valid.
+# are labelled from the matching ladder (e.g. K=3 -> PREMIUM/REGULER/PASIF, K=5 ->
+# ELITE/PREMIUM/REGULER/PASIF/DORMANT), keeping tier names stable across re-runs.
 _TIER_LADDER = {
     2: ['PREMIUM', 'PASIF'],
     3: ['PREMIUM', 'REGULER', 'PASIF'],
@@ -345,7 +345,7 @@ def run_ml(df_c, df_m, df_t=None):
         # ── 4. Modified Z-Score (MAD) ─────────────────────────────────────────
         # MAD = Median Absolute Deviation — resistant to extreme outliers.
         # Formula: z = 0.6745 * (x - median) / MAD
-        # More reliable than standard Z-score for small portfolios (~38 merchants)
+        # More reliable than standard Z-score for small portfolios (tens of merchants)
         def _mad_zscore(series):
             s = pd.to_numeric(series, errors='coerce').fillna(0)
             if len(s) < 2: return pd.Series(0.0, index=s.index)
