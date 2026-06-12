@@ -1721,7 +1721,7 @@ def _render_global_pipeline_status():
             with open(STATUS_FILE, "r") as f:
                 data = json.load(f)
             if data.get("status") == "running":
-                st.sidebar.info(f"⏳ **ETL Pipeline Running:**\\n{data.get('message', 'Processing...')}")
+                st.sidebar.info(f"**ETL Pipeline Running:**\\n{data.get('message', 'Processing...')}", icon=":material/hourglass_top:")
         except:
             pass
 
@@ -1874,7 +1874,7 @@ def kpi_card(value: str, label: str, kind: str = "default", *, hero: bool = Fals
             if abs(d) < 0.05:
                 dir_cls, arrow = "flat", "→"
             else:
-                arrow = "▲" if d > 0 else "▼"
+                arrow = "↑" if d > 0 else "↓"
                 dir_cls = "up" if (d > 0) == (delta_good == "up") else "down"
             delta_html = (
                 f'<span class="kpi-delta {dir_cls}">{arrow} {abs(d):.1f}%</span>'

@@ -10,7 +10,7 @@ _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _BASE not in sys.path:
     sys.path.insert(0, _BASE)
 
-from utils.theme import apply_theme, page_header, section_label
+from utils.theme import apply_theme, page_header, section_label, kpi_card, kpi_row
 apply_theme()
 from utils.rate_limiter import enforce_rate_limit
 enforce_rate_limit("pm_page", max_calls=60, window_seconds=60, label="page loads")
@@ -112,28 +112,15 @@ _active_pms  = current_data['PM'].nunique() if 'PM' in current_data.columns else
 _unassigned  = int((current_data['PM'].fillna('UNASSIGNED').str.upper() == 'UNASSIGNED').sum()) if 'PM' in current_data.columns else 0
 _avg_per_pm  = round(_total_mg / max(_active_pms, 1), 1)
 
-st.markdown(f"""<div class="stats-grid">
-    <div class="stat-card amber">
-        <div class="stat-label">Total Merchants</div>
-        <div class="stat-value">{_total_mg}</div>
-        <div class="stat-meta">merchant groups</div>
-    </div>
-    <div class="stat-card blue">
-        <div class="stat-label">Active PMs</div>
-        <div class="stat-value">{_active_pms}</div>
-        <div class="stat-meta">project managers</div>
-    </div>
-    <div class="stat-card {"red" if _unassigned else "green"}">
-        <div class="stat-label">Unassigned</div>
-        <div class="stat-value">{_unassigned}</div>
-        <div class="stat-meta">{"need assignment" if _unassigned else "fully assigned"}</div>
-    </div>
-    <div class="stat-card purple">
-        <div class="stat-label">Avg Merchants / PM</div>
-        <div class="stat-value">{_avg_per_pm}</div>
-        <div class="stat-meta">per manager</div>
-    </div>
-</div>""", unsafe_allow_html=True)
+# KPI ribbon — same component as the Dashboard hero strip so every page
+# shares one visual language (kind paints the top accent bar).
+kpi_row([
+    kpi_card(f"{_total_mg:,}", "Total Merchants", kind="accent"),
+    kpi_card(str(_active_pms), "Active PMs"),
+    kpi_card(str(_unassigned), "Unassigned Merchants",
+             kind=("danger" if _unassigned else "success")),
+    kpi_card(f"{_avg_per_pm}", "Avg Merchants / PM"),
+])
 
 st.markdown("<br>", unsafe_allow_html=True)
 

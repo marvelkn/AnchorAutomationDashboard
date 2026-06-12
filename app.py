@@ -173,16 +173,24 @@ with st.sidebar:
 
     # ── Neon Cloud DB connection card (only DB status the app cares about) ───
     if neon_exists:
-        _neon_clr, _neon_dot = p["BLUE_ACC"], "☁️"
+        _neon_clr = p["BLUE_ACC"]
         _neon_lbl, _neon_sub = "Connected", "Cloud DB Active"
     else:
-        _neon_clr, _neon_dot = p["RED"], "🔴"
+        _neon_clr = p["RED"]
         _neon_lbl, _neon_sub = "Not Connected", "Set DATABASE_URL env var"
+
+    # Brand rule: no emoji — status is a palette-driven dot (same pattern as
+    # info_chip in utils/theme.py), so it follows the light/dark toggle.
+    _neon_dot = (
+        f'<span style="display:inline-block;width:8px;height:8px;'
+        f'border-radius:50%;background:{_neon_clr};'
+        f'margin-right:6px;vertical-align:middle;"></span>'
+    )
 
     st.markdown(
         f"""<div class="db-info" style="border-left-color:{_neon_clr}; margin-bottom:8px;">
           <div class="db-label">Neon Database</div>
-          <div class="db-status" style="color:{_neon_clr};">{_neon_dot} {_neon_lbl}</div>
+          <div class="db-status" style="color:{_neon_clr};">{_neon_dot}{_neon_lbl}</div>
           <div class="db-meta">{_neon_sub}</div>
         </div>""",
         unsafe_allow_html=True,

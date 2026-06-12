@@ -13,8 +13,7 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from utils.theme import (
-    apply_theme, page_header, section_label,
-    GOLD, GOLD_DIM, SURFACE, BORDER, TEXT_PRI, TEXT_SEC, GREEN, RED, AMBER
+    apply_theme, page_header, section_label, kpi_card, kpi_row,
 )
 from utils.backup_manager import rotate_backups, get_available_backups, restore_backup
 
@@ -57,15 +56,8 @@ except Exception as _eng_err:
     _engine_ok = False
     _engine = None
 
-st.markdown(
-    f'<div style="background:{GREEN}14;border:1px solid {GREEN}40;'
-    f'border-left:5px solid {GREEN};border-radius:0 14px 14px 0;padding:12px 16px;'
-    f'font-size:var(--fs-sm);color:{GREEN};margin-bottom:22px;">'
-    f'<b>Cloud Mode Active</b> — Master files are persisted in <b>Neon (PostgreSQL)</b> and '
-    f'survive app restarts. Uploaded files are also cached locally for pipeline compatibility.'
-    f'</div>',
-    unsafe_allow_html=True,
-)
+# The old "Cloud Mode Active" banner is gone — the Storage Mode card in the
+# ribbon below carries the same signal without a permanent green block.
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 MASTER_DIR = os.path.join(BASE_DIR, "data", "master")
@@ -184,6 +176,47 @@ MASTERS = [
         uploader_key="up_mon",      backup_prefix="master_mon",
     ),
 ]
+
+# ── Settings Ribbon — configuration state at a glance (Blink Test) ────────────
+# One list_master_files() call shared by all cards (no per-card queries).
+try:
+    _mf_all = list_master_files(_engine) if _engine_ok else {}
+except Exception:
+    _mf_all = {}
+_synced_files = sum(1 for m in MASTERS if _mf_all.get(m["file_key"]))
+
+_n_backups = 0
+for m in MASTERS:
+    try:
+        _n_backups += len(get_available_backups(BACKUP_DIR, prefix=m["backup_prefix"], extension=".xlsx"))
+    except Exception:
+        pass
+
+# updated_at arrives as "%d %b %Y, %H:%M" (see utils/master_files_db.py) or "Unknown".
+_upload_stamps = []
+for m in MASTERS:
+    _raw_ts = (_mf_all.get(m["file_key"]) or {}).get("updated_at")
+    if _raw_ts and _raw_ts != "Unknown":
+        try:
+            _upload_stamps.append(datetime.strptime(_raw_ts, "%d %b %Y, %H:%M"))
+        except ValueError:
+            pass
+_last_upload_lbl = (
+    max(_upload_stamps).strftime("%d %b %Y, %H:%M") if _upload_stamps else "—"
+)
+
+kpi_row([
+    kpi_card(f"{_synced_files}/{len(MASTERS)}", "Master Files Synced",
+             kind=("success" if _synced_files == len(MASTERS) else "danger")),
+    kpi_card(str(_n_backups), "Backup Versions"),
+    kpi_card(_last_upload_lbl, "Last Upload"),
+    kpi_card("Cloud (Neon)" if _engine_ok else "Disconnected", "Storage Mode",
+             kind=("accent" if _engine_ok else "danger")),
+])
+st.caption(
+    "Master files persist in Neon (PostgreSQL) and survive app restarts; "
+    "uploads are also cached locally for pipeline compatibility."
+)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB LAYOUT

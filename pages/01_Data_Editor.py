@@ -9,7 +9,7 @@ _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _BASE not in sys.path:
     sys.path.insert(0, _BASE)
 
-from utils.theme import apply_theme, page_header, section_label, GOLD
+from utils.theme import apply_theme, page_header, section_label, GOLD, kpi_card, kpi_row
 
 st.set_page_config(page_title="Data Editor — BTN Anchor", page_icon=os.path.join(_BASE, "static", "btn_logo.png"), layout="wide")
 apply_theme()
@@ -84,6 +84,19 @@ def load_data(path, sheet):
         return pd.read_excel(path, sheet_name=0)
 
 df_master = load_data(conf["path"], conf["sheet"]).copy()
+
+# ── Dataset Ribbon — active master file at a glance (Blink Test) ──────────────
+_DATASET_SHORT = {
+    "ALL_MID (Anchor Classifier)": "ALL MID",
+    "Card Share Analytics Matrix": "Card Share",
+    "Monitoring Weekly Pivots":    "Monitoring",
+}
+kpi_row([
+    kpi_card(_DATASET_SHORT.get(dataset_choice, dataset_choice), "Active Dataset", kind="accent"),
+    kpi_card(f"{len(df_master):,}", "Total Rows"),
+    kpi_card(str(len(df_master.columns)), "Columns"),
+    kpi_card(str(len(conf["editable_columns"])), "Editable Columns"),
+])
 
 # ── 2-TAB LAYOUT ─────────────────────────────────────────────────────────────
 tab_edit, tab_bulk = st.tabs(["Edit Records", "Bulk Operations"])

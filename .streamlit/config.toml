@@ -6,18 +6,39 @@ enableXsrfProtection = true
 # ─────────────────────────────────────────────────────────────────────────────
 # BTN Anchor Dashboard — Light Theme (BTN Anchor Design System)
 #
-#   primaryColor          → BTN Blue  (#1B59F8 — nav active, buttons)
-#   backgroundColor       → Off-white canvas (#F9F9F9)
-#   secondaryBackgroundColor → White widget surface (#FFFFFF)
-#   textColor             → Near-black (#000000)
-#   font                  → "sans serif" (overridden to Roboto via CSS @import)
+# Values mirror utils/theme.py _LIGHT exactly, so the pre-CSS first paint
+# already matches the injected runtime theme (no flash-of-wrong-theme).
+# The in-app toggle (theme_mode in session_state) re-skins everything via
+# injected CSS on top of this base, enabling the light/dark switch.
 #
-# The app's Python toggle (theme_mode in session_state) re-injects themed
-# CSS variables on top, enabling a smooth light/dark switch.
+#   primaryColor          → BTN Blue   (_LIGHT.ACCENT  #1B59F8)
+#   backgroundColor       → canvas     (_LIGHT.BG      #FAFBFC)
+#   secondaryBackground   → blue tint  (_LIGHT.SURFACE2 #EEF4FE)
+#   textColor             → navy-black (_LIGHT.TEXT_PRI #0F1B33)
+#   borderColor           → hairline   (_LIGHT.BORDER  #E1E7F2)
+#
+# Roboto / JetBrains Mono are loaded via the CSS @import in utils/theme.py;
+# the font keys here make native chrome use them once loaded.
 # ─────────────────────────────────────────────────────────────────────────────
 [theme]
-primaryColor            = "#1B59F8"
-backgroundColor         = "#F9F9F9"
-secondaryBackgroundColor = "#FFFFFF"
-textColor               = "#000000"
-font                    = "sans serif"
+base                           = "light"
+primaryColor                   = "#1B59F8"
+backgroundColor                = "#FAFBFC"
+secondaryBackgroundColor       = "#EEF4FE"
+textColor                      = "#0F1B33"
+linkColor                      = "#1B59F8"
+borderColor                    = "#E1E7F2"
+dataframeBorderColor           = "#E1E7F2"
+dataframeHeaderBackgroundColor = "#EEF4FE"
+showSidebarBorder              = true
+baseRadius                     = "10px"
+font                           = "Roboto, sans-serif"
+headingFont                    = "Roboto, sans-serif"
+codeFont                       = "JetBrains Mono, monospace"
+# Brand data-viz palette (BTN blue → status colors → navy/gold accents)
+chartCategoricalColors = ["#1B59F8", "#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#0F2552", "#FFBF1A", "#9CA3AF"]
+
+[theme.sidebar]
+backgroundColor          = "#FFFFFF"
+secondaryBackgroundColor = "#EEF4FE"
+borderColor              = "#E1E7F2"

@@ -29,6 +29,7 @@ if _BASE not in sys.path:
 
 from utils.theme import (
     apply_theme, page_header, section_label, pipeline_stepper, DANGER,
+    kpi_card, kpi_row,
 )
 from utils.cloud_db import build_engine, test_connection, read_uploaded_dataframe, upsert_dataframe
 from utils.sqlite_to_neon import ingest_sqlite_bytes_to_neon, fetch_recent_ingestion_runs
@@ -48,7 +49,7 @@ enforce_rate_limit("pipeline_page", max_calls=30, window_seconds=60, label="page
 
 # ── Strict Neon gate ──────────────────────────────────────────────────────────
 if not bool(os.getenv("DATABASE_URL")):
-    page_header("", "Automated pipeline", "Cloud database not configured")
+    page_header("", "Automated Pipeline", "Cloud database not configured")
     st.error(
         "**Cloud database not configured.** This app is Neon-only — set the "
         "`DATABASE_URL` environment variable to your Neon connection string "
@@ -133,27 +134,34 @@ def _render_master_gate(missing_labels: list[str]) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 page_header(
     "",
-    "Automated pipeline — cloud",
+    "Automated Pipeline — Cloud",
     "Load staging data into Neon (PostgreSQL)",
 )
+# Cognitive-load fix: one-line summary stays visible; the full bilingual
+# walkthrough moves into a collapsed expander below the status ribbon.
 st.markdown(
-    """<div class="tab-desc">
-    <p><b>Choose how you want to load data</b> — both options use the same Neon database:</p>
-    <ul style="margin:0.35rem 0 0 1rem;line-height:1.55;">
-    <li><b>Full database</b> — Upload your SQLite <code>.db</code> file (e.g. <code>staging.db</code>).
-    All business tables are copied into Neon in one step (each table is replaced on load). Use this when you have a full export.</li>
-    <li><b>Optional manual file</b> — Upload a single <b>CSV</b> or <b>Excel</b> file to upsert <i>one</i> table only.
-    Use this for small corrections without re-uploading the whole database.</li>
-    </ul>
-    <p style="margin-top:0.65rem;opacity:0.88;font-size:var(--fs-base);">
-    <b>Bahasa:</b> <i>(1) Upload <b>.db</b> lengkap = semua tabel masuk Neon sekaligus.
-    (2) <b>Opsional</b> — CSV/Excel untuk perbarui <b>satu tabel</b> saja.</i>
-    </p>
-    <p style="margin-top:0.5rem;opacity:0.85;font-size:var(--fs-sm);">
-    Phase-1 cloud ingestion only — it does not run the legacy Windows + Excel COM analytics pipeline.</p>
-    </div>""",
+    '<div class="tab-desc">Load staging data into Neon — upload a full SQLite '
+    '<code>.db</code> export, or upsert a single CSV/Excel table for small '
+    'corrections. Both options write to the same cloud database.</div>',
     unsafe_allow_html=True,
 )
+with st.expander("How It Works", expanded=False):
+    st.markdown(
+        """<p><b>Choose how you want to load data</b> — both options use the same Neon database:</p>
+        <ul style="margin:0.35rem 0 0 1rem;line-height:1.55;">
+        <li><b>Full database</b> — Upload your SQLite <code>.db</code> file (e.g. <code>staging.db</code>).
+        All business tables are copied into Neon in one step (each table is replaced on load). Use this when you have a full export.</li>
+        <li><b>Optional manual file</b> — Upload a single <b>CSV</b> or <b>Excel</b> file to upsert <i>one</i> table only.
+        Use this for small corrections without re-uploading the whole database.</li>
+        </ul>
+        <p style="margin-top:0.65rem;opacity:0.88;font-size:var(--fs-base);">
+        <b>Bahasa:</b> <i>(1) Upload <b>.db</b> lengkap = semua tabel masuk Neon sekaligus.
+        (2) <b>Opsional</b> — CSV/Excel untuk perbarui <b>satu tabel</b> saja.</i>
+        </p>
+        <p style="margin-top:0.5rem;opacity:0.85;font-size:var(--fs-sm);">
+        Phase-1 cloud ingestion only — it does not run the legacy Windows + Excel COM analytics pipeline.</p>""",
+        unsafe_allow_html=True,
+    )
 
 
 try:
@@ -163,6 +171,41 @@ except Exception as conn_err:
     st.error(f"Neon connection failed: {conn_err}")
     engine = None
 
+
+# ── Status Ribbon — pipeline state at a glance (Blink Test) ───────────────────
+# masters_ready / missing_labels are computed once here and reused by the
+# Ingest tab's pre-flight gate, so the DB query count is unchanged.
+if engine is None:
+    masters_ready, missing_labels = False, list(_REQUIRED_MASTERS.values())
+else:
+    masters_ready, missing_labels = _check_required_masters(engine)
+_synced_n = len(_REQUIRED_MASTERS) - len(missing_labels)
+
+_last_run_lbl, _last_rows_lbl = "—", "—"
+if engine is not None:
+    try:
+        _rib_schema = st.session_state.get("neon_schema_ingest", "public") or "public"
+        _rib_runs = fetch_recent_ingestion_runs(engine, schema=_rib_schema, limit=1)
+        if not _rib_runs.empty:
+            _rib_cols = {str(c).lower(): c for c in _rib_runs.columns}
+            _ts_col, _row_col = _rib_cols.get("started_at"), _rib_cols.get("total_rows")
+            if _ts_col is not None:
+                _rib_ts = pd.to_datetime(_rib_runs.iloc[0][_ts_col], errors="coerce")
+                if pd.notna(_rib_ts):
+                    _last_run_lbl = _rib_ts.strftime("%d %b %Y, %H:%M")
+            if _row_col is not None and pd.notna(_rib_runs.iloc[0][_row_col]):
+                _last_rows_lbl = f"{int(_rib_runs.iloc[0][_row_col]):,}"
+    except Exception:
+        pass  # audit table may not exist before the first ingest — ribbon stays neutral
+
+kpi_row([
+    kpi_card("Online" if engine is not None else "Offline", "Neon Connection",
+             kind=("success" if engine is not None else "danger")),
+    kpi_card(f"{_synced_n}/{len(_REQUIRED_MASTERS)}", "Master Files Synced",
+             kind=("success" if masters_ready else "danger")),
+    kpi_card(_last_run_lbl, "Last Ingest"),
+    kpi_card(_last_rows_lbl, "Rows Loaded (Last Run)"),
+])
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 cloud_tab_ingest, cloud_tab_maintenance, cloud_tab_audit = st.tabs(
@@ -174,17 +217,16 @@ cloud_tab_ingest, cloud_tab_maintenance, cloud_tab_audit = st.tabs(
 # ──────────────────────────────────────────────────────────────────────────────
 with cloud_tab_ingest:
     pipeline_stepper(
-        [("📤", "Upload"), ("🔍", "Validate"), ("☁", "Push to Neon")],
+        [("1", "Upload"), ("2", "Validate"), ("3", "Push to Neon")],
         current_step=-1,
     )
 
     # ── Master-file pre-flight gate (Task 1) ──────────────────────────────────
-    if engine is None:
-        masters_ready = False
-    else:
-        masters_ready, missing_labels = _check_required_masters(engine)
-        if not masters_ready:
-            _render_master_gate(missing_labels)
+    # masters_ready / missing_labels come from the status-ribbon check above;
+    # only the blocking banner renders here (and only when Neon is reachable —
+    # the connection error banner already covers the engine=None case).
+    if engine is not None and not masters_ready:
+        _render_master_gate(missing_labels)
 
     section_label("A — Full SQLite database")
     neon_schema_ingest = st.text_input(
@@ -228,7 +270,7 @@ with cloud_tab_ingest:
         else:
             _blocked, _remaining = is_pipeline_cooling_down()
             if _blocked:
-                st.warning(f"Ingest ran recently — please wait {_remaining:.0f}s before running again.", icon="⏳")
+                st.warning(f"Ingest ran recently — please wait {_remaining:.0f}s before running again.", icon=":material/hourglass_top:")
                 st.stop()
             set_pipeline_cooldown()
             progress_placeholder = st.empty()
@@ -404,7 +446,7 @@ with cloud_tab_maintenance:
                             })
                         except Exception:
                             _diag_rows.append({"Table": _tbl, "Total Rows": "—", "Unique Keys": "—", "Duplicates": "—"})
-                st.dataframe(pd.DataFrame(_diag_rows), use_container_width=True)
+                st.dataframe(pd.DataFrame(_diag_rows), width="stretch")
             except Exception as _de:
                 st.error(f"Diagnostics failed: {_de}")
 
@@ -458,7 +500,7 @@ with cloud_tab_maintenance:
                     st.warning(f"VACUUM requires psycopg2 direct connection: {_verr}")
 
     # ── Danger Zone: Neon reset ──────────────────────────────────────────────
-    with st.expander("⚠ Danger Zone — Reset Neon Cloud Database", expanded=False):
+    with st.expander("Danger Zone — Reset Neon Cloud Database", expanded=False):
         st.error(
             "**This will permanently PURGE ALL DATA** from business, raw, and audit "
             "tables in your Neon production database. There is no undo. "
@@ -480,9 +522,9 @@ with cloud_tab_maintenance:
         _typed_match = (_typed_confirm or "").strip() == _reset_schema
 
         if not confirm_reset_neon:
-            st.caption("☐ Step 1: tick the acknowledgement checkbox above.")
+            st.caption("Step 1: tick the acknowledgement checkbox above.")
         elif not _typed_match:
-            st.caption(f"☐ Step 2: type `{_reset_schema}` exactly to enable the reset button.")
+            st.caption(f"Step 2: type `{_reset_schema}` exactly to enable the reset button.")
         else:
             st.caption("✓ Both confirmations received. Reset is now armed.")
 
