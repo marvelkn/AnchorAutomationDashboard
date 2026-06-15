@@ -21,11 +21,10 @@ an optional **Windows-only Excel-COM ETL** prepares a SQLite extract that is ing
 - **K-Means++ Clustering** (dynamic **K ∈ [2–5]**, selected per-run by Silhouette score): segments merchants into performance tiers from Sales Volume, FBI, on-us card ratio, growth, YTD achievement, and weeks active. At K=3 tiers are labelled **PREMIUM / REGULER / PASIF**; other K values extend or contract the ladder. Falls back to K=3 only when the merchant sample is too small to sweep (n < 3). Tiers are rank-assigned by a composite score, so labels stay stable as data changes.
 - **Composite Risk Score (0–100)**: weighted Growth 40% · Volume 30% · FBI 20% · Achievement 10%, bucketed into `HIGH RISK` (≥60) / `MEDIUM RISK` (30–59) / `STABLE` (<30).
 - **Anomaly Detection**: Modified Z-Score (MAD, robust to small-portfolio outliers) plus Isolation Forest with leave-one-feature-out contributions; a MAD z-score breach upgrades a `STABLE` merchant to `MEDIUM RISK`.
-- **Forecasting**: damped-trend Holt-Winters on monthly Settlement Volume with an 80% confidence band.
 - **Cached Re-computation**: ML recomputes on the dashboard whenever the underlying data changes (keyed on `LAST_DATA_UPDATE`), and is cached between reruns.
 
 ### 📊 Analytics Dashboard (6 Tabs)
-- **Overview**: Portfolio KPI cards and PM-coverage panel, plus a per-merchant drill-down with Holt-Winters forecasting and auto-generated AI Insights.
+- **Overview**: Portfolio KPI cards and PM-coverage panel, plus a per-merchant drill-down with a year-end run-rate outlook and auto-generated AI Insights.
 - **Card Share**: YTD card-share leaderboard with YoY growth overlays and payment type breakdown.
 - **Weekly Monitor**: Heatmaps and trend charts with WoW/MoM growth indicators.
 - **Merchant Tiers**: Cluster scatter (PCA 2-D) with dynamic tiers, composite ranking, and silhouette & Davies-Bouldin diagnostics.
@@ -46,7 +45,7 @@ an optional **Windows-only Excel-COM ETL** prepares a SQLite extract that is ing
 | **Language** | Python 3.10+ |
 | **UI Framework** | Streamlit ≥ 1.36 |
 | **Data Processing** | Pandas ≥ 2.0, NumPy ≥ 1.24 |
-| **Machine Learning** | Scikit-Learn (K-Means++, StandardScaler, PCA, Isolation Forest), SciPy, Statsmodels (Holt-Winters) |
+| **Machine Learning** | Scikit-Learn (K-Means++, StandardScaler, PCA, Isolation Forest), SciPy |
 | **Visualisation** | Plotly ≥ 5.15, Matplotlib ≥ 3.7 |
 | **Cloud Database** | Neon PostgreSQL via SQLAlchemy ≥ 2.0 + psycopg2-binary |
 | **Ingestion / ETL staging** | SQLite 3 (stdlib) extract, ingested into Neon |
@@ -174,7 +173,7 @@ pytest -q
 ```
 
 Tests are hermetic (no live Neon required) — DB-backed suites use a temporary SQLite engine,
-and the ML/forecast suites run on synthetic in-memory data.
+and the ML suites run on synthetic in-memory data.
 
 ---
 
@@ -251,7 +250,7 @@ AnchorAutomationDashboard/
 │   └── monitoring.py
 ├── utils/
 │   ├── theme.py                    # Design system & CSS injection
-│   ├── ml_engine.py                # run_ml + hw_forecast (pure ML core)
+│   ├── ml_engine.py                # run_ml (pure ML core)
 │   ├── cloud_db.py                 # Neon engine builder & upsert helpers
 │   ├── sqlite_to_neon.py           # SQLite → Neon ingestion
 │   ├── master_files_db.py          # Neon BYTEA file persistence

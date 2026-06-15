@@ -1,6 +1,5 @@
 """
-Tests for utils.ml_engine — the BTN Anchor ML core (run_ml) and the
-Holt-Winters forecast (hw_forecast).
+Tests for utils.ml_engine — the BTN Anchor ML core (run_ml).
 
 These functions used to live inline in pages/4_Dashboard.py and could not be
 tested (the page builds a DB engine at import). They were extracted verbatim
@@ -22,7 +21,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from utils.ml_engine import (
-    run_ml, hw_forecast, N_CLUSTERS, Z_THRESH, _HW_AVAILABLE,
+    run_ml, N_CLUSTERS, Z_THRESH,
     select_optimal_k, prepare_cluster_features, _find_elbow,
 )
 
@@ -200,42 +199,6 @@ class TestSelectOptimalK:
         assert diag is not None
         assert 2 <= diag["chosen_k"] <= 5
         assert len(diag["k_values"]) >= 1
-
-
-# ── hw_forecast ────────────────────────────────────────────────────────────────
-
-def _monthly_history(n_months, *, start=202301, base=1e10, slope=2e8):
-    months, y, m = [], start // 100, start % 100
-    for _ in range(n_months):
-        months.append(y * 100 + m)
-        m += 1
-        if m > 12:
-            m, y = 1, y + 1
-    values = [base + slope * i for i in range(n_months)]
-    return pd.DataFrame({"TRX_MONTH": months, "TOTAL_SV": values})
-
-
-class TestHwForecast:
-    def test_no_data_fails_gracefully(self):
-        res = hw_forecast(pd.DataFrame())
-        assert res["success"] is False
-        assert res["reason"]
-
-    def test_too_few_months_fails(self):
-        res = hw_forecast(_monthly_history(3))
-        assert res["success"] is False
-        assert "month" in res["reason"].lower()
-
-    @pytest.mark.skipif(not _HW_AVAILABLE, reason="statsmodels not installed")
-    def test_clean_series_forecasts(self):
-        res = hw_forecast(_monthly_history(30), periods_ahead=12)
-        assert res["success"] is True
-        assert len(res["forecast"]) == 12
-        assert len(res["lower"]) == 12 and len(res["upper"]) == 12
-        assert np.all(res["forecast"] >= 0)
-        assert np.all(res["lower"] <= res["forecast"] + 1e-6)
-        assert np.all(res["forecast"] <= res["upper"] + 1e-6)
-        assert res["projected_eoy"] == pytest.approx(float(np.sum(res["forecast"])))
 
 
 # ---------------------------------------------------------------------------

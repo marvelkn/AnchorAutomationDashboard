@@ -37,7 +37,7 @@ from utils.growth_analytics import (
     extract_recent_weeks,
 )
 from utils.ml_engine import (
-    run_ml as _run_ml_pure, hw_forecast as _hw_forecast, N_CLUSTERS, Z_THRESH,
+    run_ml as _run_ml_pure, N_CLUSTERS, Z_THRESH,
     prepare_cluster_features as _prepare_cluster_features,
     select_optimal_k as _select_optimal_k,
 )
@@ -283,9 +283,9 @@ def _load_monthly_raw(data_version: str):
         return snap if snap is not None else pd.DataFrame()
 
 # ── MACHINE LEARNING ENGINE ──────────────────────────────────────────────────────
-# run_ml + hw_forecast now live in utils/ml_engine.py (pure, unit-tested). The
-# cached wrapper below preserves the per-session @st.cache_data behaviour and the
-# existing call sites; N_CLUSTERS / Z_THRESH / _hw_forecast are imported above.
+# run_ml now lives in utils/ml_engine.py (pure, unit-tested). The cached wrapper
+# below preserves the per-session @st.cache_data behaviour and the existing call
+# sites; N_CLUSTERS / Z_THRESH are imported above.
 @st.cache_data
 def run_ml(df_c, df_m, df_t=None):
     return _run_ml_pure(df_c, df_m, df_t)
@@ -309,14 +309,14 @@ def _k_diagnostics(df_c, df_m, df_t=None):
 # Neon is required (gated at the top of the file); the engine is always live.
 engine = _get_engine()
 
-# Plan F1/F2/F5 — ensure the user-state side tables (triage, forecast log,
-# watchlist) exist. Wrapped defensively: a state-table failure must never
+# Plan F1/F2/F5 — ensure the user-state side tables (triage, watchlist)
+# exist. Wrapped defensively: a state-table failure must never
 # block the dashboard from rendering its core analytics.
 try:
     app_state.ensure_state_tables(engine=engine)
     app_state.ensure_ml_run_log(engine=engine)
 except Exception:
-    log.warning("ensure_state_tables failed; user-state features (triage/forecast log/watchlist) may be unavailable", exc_info=True)
+    log.warning("ensure_state_tables failed; user-state features (triage/watchlist) may be unavailable", exc_info=True)
 
 
 @st.cache_data(ttl=86400, show_spinner="Loading dashboard data...")
@@ -787,8 +787,8 @@ with tab0:
                         latest_wk_num = int(_w[1:])
                         break
 
-                # --- Deep Dive & Projection ---
-                section_label("Deep Dive & Projection (Specific Merchant)")
+                # --- Deep Dive ---
+                section_label("Deep Dive (Specific Merchant)")
                 all_merch_ai = sorted(df_ai_wk['MERCHANT_GROUP'].unique().tolist())
                 # Determine the page default so a relevant merchant is profiled on
                 # load without user input. Priority:
@@ -829,34 +829,9 @@ with tab0:
                     fy_target  = float(target_row['TARGET_VOL_2026'].iloc[0]) if not target_row.empty else 0
                     active_weeks_count = int((df_m_vol[W_COLS].iloc[0] > 0).sum()) if not df_m_vol.empty else 0
                     merch_hist = df_card_hist[df_card_hist['MERCHANT_GROUP'] == sel_merch].copy()
-                    # ── Holt-Winters Forecast ─────────────────────────────────
-                    # Attempt statistical forecast. Falls back to linear if
-                    # insufficient data (<6 months) or if model fitting fails.
-                    # Use calendar month to determine remaining months in the year —
-                    # len(merch_hist) is unreliable because PROCESSED_CARD_HISTORY
-                    # contains multi-year data, causing _remaining_months to floor at 0.
-                    _remaining_months = max(0, 12 - datetime.now().month)
-                    # Always forecast at least 6 months so the chart is visible even
-                    # when all 12 months of current-year data are present.
-                    _forecast_periods = _remaining_months if _remaining_months > 0 else 6
-                    _hw_result = _hw_forecast(
-                        merch_hist[['TRX_MONTH', 'TOTAL_SV']] if not merch_hist.empty else None,
-                        periods_ahead=_forecast_periods
-                    )
-                    if _hw_result['success']:
-                        proj_eoy          = ytd_actual + (_hw_result['projected_eoy'] if _remaining_months > 0 else 0)
-                        _proj_method      = _hw_result['method']
-                        _hw_forecast_vals = _hw_result['forecast']
-                        _hw_lower         = _hw_result['lower']
-                        _hw_upper         = _hw_result['upper']
-                        _hw_reason        = None
-                    else:
-                        proj_eoy          = (ytd_actual / active_weeks_count * 52) if active_weeks_count > 0 else 0
-                        _proj_method      = 'Estimated Run Rate'
-                        _hw_forecast_vals = None
-                        _hw_lower         = None
-                        _hw_upper         = None
-                        _hw_reason        = _hw_result['reason']
+                    # Year-end projection via linear run-rate, annualized from
+                    # year-to-date volume over active weeks.
+                    proj_eoy = (ytd_actual / active_weeks_count * 52) if active_weeks_count > 0 else 0
                     seasonality_str = "No historical seasonality data found."
                     season_df  = pd.DataFrame()
                     if not merch_hist.empty:
@@ -997,111 +972,14 @@ with tab0:
                                     "LOFO: each feature is set to the portfolio mean and the Isolation Forest score delta is measured — no model re-fitting."
                                 )
                     styled_divider()
-                    section_label("Volume Outlook — Forecast")
-                    st.caption(f"Forecasting **{sel_merch}** · Model: **{_proj_method}**")
+                    section_label("Year-End Outlook")
                     _fc_kind = "success" if rate_pct >= 100 else ("accent" if rate_pct >= 80 else "danger")
-                    # ── One hero forecast: big numbers first, then one clean chart ──
-                    if _hw_forecast_vals is not None and len(_hw_forecast_vals) > 0:
-                        _pal        = _p()
-                        _C_ACTUAL   = _pal['GOLD']
-                        _C_FORECAST = '#1B59F8'   # BTN primary blue
-
-                        # Gap-free history straight from the model (already
-                        # calendar-contiguous). Values plotted in Rp Billion.
-                        _full_m = list(_hw_result['hist_months'])
-                        _full_v = [float(v) / 1e9 for v in _hw_result['hist_values']]
-                        hist_m, hist_v = _full_m[-14:], _full_v[-14:]   # last 14 mo for readability
-
-                        fc_v = [float(v) / 1e9 for v in np.asarray(_hw_forecast_vals)]
-                        fc_m = _next_months(hist_m[-1], len(fc_v))
-
-                        hist_lbl = [_month_label(m) for m in hist_m]
-                        fc_lbl   = [_month_label(m) for m in fc_m]
-
-                        # ── The bottom line — big numbers, read before the chart.
-                        # Headline = next month's predicted volume, with the
-                        # expected MoM growth as its momentum delta (kpi_card
-                        # ignores a None delta), then the year-end landing point
-                        # and achievement against the FY target. ──
-                        _next_val = fc_v[0]
-                        _last_act = hist_v[-1] if hist_v else 0.0
-                        _growth   = ((_next_val / _last_act - 1) * 100) if _last_act > 0 else None
-                        _hcol1, _hcol2, _hcol3 = st.columns(3)
-                        with _hcol1:
-                            st.markdown(kpi_card(
-                                f"Rp {_next_val:,.2f} B",
-                                f"Predicted Volume — {fc_lbl[0]}",
-                                kind="accent", hero=True,
-                                delta=_growth, delta_good="up",
-                            ), unsafe_allow_html=True)
-                        with _hcol2:
-                            st.markdown(kpi_card(
-                                f"Rp {proj_eoy/1e9:,.2f} B",
-                                "Projected Year-End",
-                                kind=_fc_kind, hero=True,
-                            ), unsafe_allow_html=True)
-                        with _hcol3:
-                            st.markdown(kpi_card(
-                                f"{rate_pct:.0f}%",
-                                "of FY 2026 Target",
-                                kind=_fc_kind, hero=True,
-                            ), unsafe_allow_html=True)
-
-                        # Anchor the forecast to the last actual so the dashed
-                        # line continues the gold history with no visual gap.
-                        anc_x  = [hist_lbl[-1]] + fc_lbl
-                        anc_fc = [hist_v[-1]]   + fc_v
-
-                        # ── The single hero chart — gold history flowing into a
-                        # dashed-blue forecast. No band, no second panel. ──
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatter(
-                            x=hist_lbl, y=hist_v, mode='lines+markers', name='Actual',
-                            line=dict(color=_C_ACTUAL, width=3),
-                            marker=dict(size=6, color=_C_ACTUAL),
-                            hovertemplate='<b>%{x}</b><br>Actual: Rp %{y:,.2f} B<extra></extra>',
-                        ))
-                        fig.add_trace(go.Scatter(
-                            x=anc_x, y=anc_fc, mode='lines+markers', name='Forecast',
-                            line=dict(color=_C_FORECAST, width=3, dash='dash'),
-                            marker=dict(size=6, color=_C_FORECAST),
-                            hovertemplate='<b>%{x}</b><br>Forecast: Rp %{y:,.2f} B<extra></extra>',
-                        ))
-                        # Call out where the forecast lands at the horizon.
-                        fig.add_trace(go.Scatter(
-                            x=[fc_lbl[-1]], y=[fc_v[-1]], mode='markers+text',
-                            marker=dict(size=11, color=_C_FORECAST,
-                                        line=dict(width=2, color=_pal['SURFACE'])),
-                            text=[f"Rp {fc_v[-1]:,.1f} B"], textposition='top center',
-                            textfont=dict(size=11, color=_C_FORECAST),
-                            hoverinfo='skip', showlegend=False,
-                        ))
-                        fig.update_layout(
-                            height=380, **_chart_base(),
-                            margin=dict(l=10, r=24, t=30, b=24),
-                            hovermode='x unified',
-                            legend=dict(orientation='h', y=1.12, x=1, xanchor='right',
-                                        font=dict(size=11)),
-                        )
-                        fig.update_xaxes(categoryorder='array',
-                                         categoryarray=hist_lbl + fc_lbl, **_xaxis())
-                        fig.update_yaxes(title_text='Volume (Rp Billion)', **_yaxis())
-                        st.plotly_chart(fig, width="stretch", theme=None)
-                        st.caption(
-                            f"Model: {_proj_method}. Gold = actual monthly card-settlement "
-                            f"volume; dashed blue = forecast for the months ahead."
-                        )
-                    else:
-                        st.markdown(kpi_card(
-                            f"Rp {proj_eoy/1e9:,.2f} B",
-                            f"Projected Year-End · {rate_pct:.0f}% of FY Target",
-                            kind=_fc_kind, hero=True,
-                        ), unsafe_allow_html=True)
-                        st.info(
-                            f"Statistical forecast unavailable for {sel_merch} "
-                            f"({_hw_reason or 'insufficient historical data'}). "
-                            f"This year-end projection uses a linear run-rate estimate."
-                        )
+                    st.markdown(kpi_card(
+                        f"Rp {proj_eoy/1e9:,.2f} B",
+                        f"Projected Year-End · {rate_pct:.0f}% of FY Target",
+                        kind=_fc_kind, hero=True,
+                    ), unsafe_allow_html=True)
+                    st.caption("Linear run-rate projection annualized from year-to-date volume over active weeks.")
 
 
 

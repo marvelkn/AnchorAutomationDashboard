@@ -1,12 +1,11 @@
 """
 BTN Anchor ML engine — pure, Streamlit-free analytics core.
 
-`run_ml` (K-Means tiering + MAD z-score + composite risk + Isolation Forest) and
-`hw_forecast` (Holt-Winters) used to live inline in pages/4_Dashboard.py, where
-they could not be unit-tested (the page runs st.set_page_config and builds a DB
-engine at import). They are extracted here verbatim, with the single Streamlit
-call swapped for a module logger, so the dashboard imports them through a thin
-cached wrapper while tests import them directly.
+`run_ml` (K-Means tiering + MAD z-score + composite risk + Isolation Forest) used
+to live inline in pages/4_Dashboard.py, where it could not be unit-tested (the
+page runs st.set_page_config and builds a DB engine at import). It is extracted
+here verbatim, with the single Streamlit call swapped for a module logger, so the
+dashboard imports it through a thin cached wrapper while tests import it directly.
 
 No Streamlit, no DB, no global state — safe to import in tests and CLI scripts.
 """
@@ -22,12 +21,6 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score, davies_bouldin_score
 from sklearn.ensemble import IsolationForest
-
-try:
-    from statsmodels.tsa.holtwinters import ExponentialSmoothing as HoltWinters
-    _HW_AVAILABLE = True
-except ImportError:
-    _HW_AVAILABLE = False
 
 log = logging.getLogger(__name__)
 
@@ -403,90 +396,3 @@ def run_ml(df_c, df_m, df_t=None):
     if k_diag is not None:
         df.attrs['k_diagnostics'] = k_diag
     return df
-
-
-def hw_forecast(hist_df, periods_ahead=12):
-    """
-    Holt-Winters exponential smoothing forecast on historical monthly Settlement Volume.
-
-    Builds a calendar-contiguous monthly series (gaps zero-filled) so the seasonal cycle
-    stays aligned to real months, then fits a damped-trend Holt-Winters model. Returns the
-    point forecast plus an 80% confidence band derived from in-sample residuals.
-
-    hist_df must contain columns TRX_MONTH (int YYYYMM) and TOTAL_SV. Falls back gracefully
-    to {'success': False, 'reason': ...} when the model cannot be fit, so the caller can
-    explain to the user why a statistical forecast is unavailable.
-    """
-    result = {
-        'forecast': None, 'lower': None, 'upper': None, 'projected_eoy': None,
-        'method': 'Estimated Run Rate', 'success': False, 'reason': None,
-        'hist_months': None, 'hist_values': None,
-    }
-    if not _HW_AVAILABLE:
-        result['reason'] = 'statsmodels is not installed'
-        return result
-    if hist_df is None or len(hist_df) == 0 or 'TRX_MONTH' not in hist_df.columns:
-        result['reason'] = 'no historical volume data'
-        return result
-
-    h = hist_df[['TRX_MONTH', 'TOTAL_SV']].copy()
-    h['TRX_MONTH'] = pd.to_numeric(h['TRX_MONTH'], errors='coerce')
-    h['TOTAL_SV']  = pd.to_numeric(h['TOTAL_SV'], errors='coerce').fillna(0)
-    h = h.dropna(subset=['TRX_MONTH'])
-    if h.empty:
-        result['reason'] = 'no historical volume data'
-        return result
-
-    yyyymm = h['TRX_MONTH'].astype(int)
-    periods = [pd.Period(year=int(v) // 100, month=int(v) % 100, freq='M') for v in yyyymm]
-    monthly = pd.Series(h['TOTAL_SV'].values, index=pd.PeriodIndex(periods, freq='M'))
-    monthly = monthly.groupby(level=0).sum().sort_index()
-    # Reindex onto a gap-free monthly range so Holt-Winters sees evenly-spaced months.
-    full_idx = pd.period_range(monthly.index.min(), monthly.index.max(), freq='M')
-    monthly = monthly.reindex(full_idx, fill_value=0.0)
-
-    nonzero = int((monthly > 0).sum())
-    if nonzero < 6:
-        result['reason'] = f'only {nonzero} active month(s) of history (6 required)'
-        return result
-
-    result['hist_months'] = [p.year * 100 + p.month for p in monthly.index]
-    result['hist_values'] = monthly.values.astype(float)
-
-    ts = monthly.copy()
-    ts.index = ts.index.to_timestamp()
-    ts = ts.asfreq('MS')
-
-    try:
-        use_seasonal = nonzero >= 24 and len(ts) >= 24
-        if use_seasonal:
-            model = HoltWinters(
-                ts, trend='add', damped_trend=True, seasonal='add',
-                seasonal_periods=12, initialization_method='estimated'
-            )
-            method_label = 'Holt-Winters (Seasonal)'
-        else:
-            model = HoltWinters(
-                ts, trend='add', damped_trend=True, seasonal=None,
-                initialization_method='estimated'
-            )
-            method_label = 'Holt-Winters (Trend)'
-        fit = model.fit(optimized=True, remove_bias=True)
-        point = np.maximum(np.asarray(fit.forecast(periods_ahead), dtype=float), 0)
-
-        # 80% confidence band: residual sigma widening with the square root of horizon.
-        resid = np.asarray(fit.resid, dtype=float)
-        resid = resid[np.isfinite(resid)]
-        sigma = float(np.std(resid)) if resid.size > 1 else 0.0
-        half  = 1.2816 * sigma * np.sqrt(np.arange(1, periods_ahead + 1))
-        lower = np.maximum(point - half, 0)
-        upper = point + half
-
-        result.update({
-            'forecast': point, 'lower': lower, 'upper': upper,
-            'projected_eoy': float(np.sum(point)),
-            'method': method_label, 'success': True,
-        })
-    except Exception as exc:
-        result['reason'] = f'model fit failed ({type(exc).__name__})'
-    return result

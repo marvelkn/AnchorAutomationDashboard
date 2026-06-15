@@ -1,5 +1,5 @@
 """
-Tests for utils.app_state — DB-backed triage, forecast log, and watchlist.
+Tests for utils.app_state — DB-backed triage and watchlist.
 
 The app is Neon-only in production. These tests exercise the same SQL against
 a per-test SQLAlchemy engine pointed at a temporary SQLite file — SQLite
@@ -82,61 +82,6 @@ class TestTriage:
     def test_rejects_unknown_status(self, engine):
         with pytest.raises(ValueError):
             app_state.set_triage("X", "deleted", engine=engine)
-
-
-# ── forecast log ──────────────────────────────────────────────────────────────
-
-
-class TestForecastLog:
-    def test_log_and_read_back(self, engine):
-        n = app_state.log_forecast(
-            "INDOMARET",
-            forecast_months=[202607, 202608],
-            point=[1000.0, 1100.0],
-            lower=[900.0, 950.0],
-            upper=[1100.0, 1250.0],
-            method="Holt-Winters (Trend)",
-            run_date=date(2026, 5, 18),
-            engine=engine,
-        )
-        assert n == 2
-        log = app_state.get_forecast_log("INDOMARET", engine=engine)
-        assert len(log) == 2
-        assert set(log["forecast_month"]) == {202607, 202608}
-
-    def test_relog_same_run_is_idempotent(self, engine):
-        for _ in range(2):
-            app_state.log_forecast(
-                "HOKBEN", [202607], [500.0], [400.0], [600.0], "m",
-                run_date=date(2026, 5, 18), engine=engine,
-            )
-        assert len(app_state.get_forecast_log("HOKBEN", engine=engine)) == 1
-
-    def test_score_accuracy(self, engine):
-        app_state.log_forecast(
-            "INDOMARET", [202607], [1000.0], [800.0], [1200.0], "m",
-            run_date=date(2026, 5, 1), engine=engine,
-        )
-        actuals = pd.DataFrame({
-            "MERCHANT_GROUP": ["INDOMARET"],
-            "TRX_MONTH": [202607],
-            "TOTAL_SV": [1100.0],
-        })
-        scored = app_state.score_forecast_accuracy(actuals, engine=engine)
-        assert len(scored) == 1
-        row = scored.iloc[0]
-        assert row["within_band"]                       # 1100 in [800, 1200]
-        assert abs(row["abs_pct_error"] - (100 / 1100 * 100)) < 1e-6
-
-    def test_score_accuracy_empty_when_no_match(self, engine):
-        app_state.log_forecast(
-            "INDOMARET", [202607], [1000.0], [800.0], [1200.0], "m",
-            engine=engine,
-        )
-        actuals = pd.DataFrame({
-            "MERCHANT_GROUP": ["ALFAMART"], "TRX_MONTH": [202607], "TOTAL_SV": [1.0],
-        })
-        assert app_state.score_forecast_accuracy(actuals, engine=engine).empty
 
 
 # ── watchlist ─────────────────────────────────────────────────────────────────
