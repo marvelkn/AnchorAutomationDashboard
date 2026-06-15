@@ -24,7 +24,7 @@ an optional **Windows-only Excel-COM ETL** prepares a SQLite extract that is ing
 - **Cached Re-computation**: ML recomputes on the dashboard whenever the underlying data changes (keyed on `LAST_DATA_UPDATE`), and is cached between reruns.
 
 ### 📊 Analytics Dashboard (6 Tabs)
-- **Overview**: Portfolio KPI cards and PM-coverage panel, plus a per-merchant drill-down with a year-end run-rate outlook and auto-generated AI Insights.
+- **Overview**: Portfolio KPI cards, PM-coverage panel, and the full PM assignment table.
 - **Card Share**: YTD card-share leaderboard with YoY growth overlays and payment type breakdown.
 - **Weekly Monitor**: Heatmaps and trend charts with WoW/MoM growth indicators.
 - **Merchant Tiers**: Cluster scatter (PCA 2-D) with dynamic tiers, composite ranking, and silhouette & Davies-Bouldin diagnostics.
@@ -94,7 +94,7 @@ graph TD
 
 | Page | Description |
 |------|-------------|
-| **📊 Dashboard** | Main analytics hub. Card Share leaderboard, weekly monitoring heatmaps, ML cluster visualisations, churn risk register, per-merchant drill-down, and AI-generated insights. |
+| **📊 Dashboard** | Main analytics hub. Card Share leaderboard, weekly monitoring heatmaps, ML cluster visualisations, and churn risk register. |
 | **🚀 Automated Pipeline** | Cloud ingest UI. Validates required master files in Neon, ingests a SQLite extract into Neon, and exposes maintenance (scrub / VACUUM / reset) plus an ingestion audit log. |
 | **⚙️ Master Configuration** | Upload and manage the three master Excel files (MID, Card Share, Monitoring). Files persist to Neon BYTEA storage and are synced to disk on session start. |
 | **✏️ Data Editor** | CRUD interface for merchant classification data. Edit MID master, card-share matrix, or monitoring pivots directly in an in-page spreadsheet view. |
