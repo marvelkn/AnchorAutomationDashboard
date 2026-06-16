@@ -540,6 +540,7 @@ with cloud_tab_maintenance:
                     from repair_data import reset_neon_database
                     target_schema = _reset_schema
                     results = reset_neon_database(engine, schema=target_schema)
+                    st.cache_data.clear()
                     st.success("Neon database reset successfully!")
                     st.json(results)
                 except Exception as e:
