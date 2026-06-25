@@ -2426,7 +2426,7 @@ with tab4:
                             # Surfaces the Isolation Forest output as a visible pill
                             # inside the card body so the risk label is never hidden
                             # behind the collapsed expander title.
-                            # Show "IF Flagged" amber pill whenever Isolation Forest
+                            # Show "Anomaly Detected" amber pill whenever Isolation Forest
                             # flagged this merchant as a statistical outlier.
                             _if_badge_html = (
                                 f"<span style='display:inline-flex;align-items:center;"
@@ -2434,7 +2434,7 @@ with tab4:
                                 f"color:#F59E0B;font-weight:600;font-size:11px;"
                                 f"letter-spacing:0.06em;padding:3px 10px;"
                                 f"border-radius:999px;'>"
-                                f"IF Flagged"
+                                f"⚑ Anomaly Detected"
                                 f"</span>"
                             ) if _is_if else ""
 
