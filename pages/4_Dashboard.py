@@ -2426,15 +2426,31 @@ with tab4:
                             # Surfaces the Isolation Forest output as a visible pill
                             # inside the card body so the risk label is never hidden
                             # behind the collapsed expander title.
-                            _if_badge_html = (
-                                f"<span style='display:inline-flex;align-items:center;"
-                                f"gap:5px;background:#EF444418;border:1px solid #EF444455;"
-                                f"color:#EF4444;font-weight:600;font-size:11px;"
-                                f"letter-spacing:0.06em;padding:3px 10px;"
-                                f"border-radius:999px;'>"
-                                f"✓ AI Confirmed"
-                                f"</span>"
-                            ) if _is_if else ""
+                            # "AI Confirmed" = HIGH risk AND Isolation Forest agree (2-method)
+                            # "IF Flagged"   = IF noticed this merchant is a statistical outlier,
+                            #                  but the composite risk score is still MEDIUM.
+                            if _is_if and _is_high:
+                                _if_badge_html = (
+                                    f"<span style='display:inline-flex;align-items:center;"
+                                    f"gap:5px;background:#EF444418;border:1px solid #EF444455;"
+                                    f"color:#EF4444;font-weight:600;font-size:11px;"
+                                    f"letter-spacing:0.06em;padding:3px 10px;"
+                                    f"border-radius:999px;'>"
+                                    f"✓ AI Confirmed"
+                                    f"</span>"
+                                )
+                            elif _is_if:
+                                _if_badge_html = (
+                                    f"<span style='display:inline-flex;align-items:center;"
+                                    f"gap:5px;background:#F59E0B18;border:1px solid #F59E0B55;"
+                                    f"color:#F59E0B;font-weight:600;font-size:11px;"
+                                    f"letter-spacing:0.06em;padding:3px 10px;"
+                                    f"border-radius:999px;'>"
+                                    f"IF Flagged"
+                                    f"</span>"
+                                )
+                            else:
+                                _if_badge_html = ""
 
                             st.markdown(
                                 # Badge strip: risk-level pill + optional IF badge
